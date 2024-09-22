@@ -1,0 +1,73 @@
+[package]
+name = "simple-robot"
+version = "0.1.0"
+edition = "2021"
+
+[profile.dev]
+lto = 'thin'
+codegen-units = 1
+debug = 2
+debug-assertions = true
+incremental = true
+opt-level = 0
+overflow-checks = true
+
+[profile.dev.package."*"] # Minimize the size of dependencies
+opt-level = 's'
+overflow-checks = false
+debug = 0
+debug-assertions = false
+
+[profile.release]
+codegen-units = 1
+debug = 0
+debug-assertions = false
+incremental = true
+lto = 'fat'
+opt-level = 's'
+overflow-checks = false
+
+[dependencies]
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", features = [
+    "defmt",
+    "unstable-pac",
+    "time-driver",
+    "critical-section-impl",
+    "rp235xa",
+]}
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", features = [
+    "defmt",
+] }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = [
+    "defmt",
+] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = [
+    "task-arena-size-98304",
+    "arch-cortex-m",
+    "executor-thread",
+    "executor-interrupt",
+    "defmt",
+    "integrated-timers",
+] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", features = [
+    "defmt",
+    "defmt-timestamp-uptime",
+] }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
+defmt = "0.3"
+defmt-rtt = "0.4"
+cortex-m-rt = "0.7.0"
+critical-section = "1.1"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+rand = { version = "0.8.5", default-features = false }
+assign-resources = "0.4.1"
+hcsr04_async = "0.2.0"
+moving_median = "0.1.0"
+
+[patch.crates-io]
+embassy-rp = { git = "https://github.com/embassy-rs/embassy" }
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
