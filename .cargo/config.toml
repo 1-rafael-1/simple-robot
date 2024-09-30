@@ -1,7 +1,7 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-#runner = "probe-rs run --chip RP2350" # Use this if you have a probe-rs compatible debugger AND probe-rs managed to get this supported
+runner = "probe-rs run --chip RP2350 --probe 2e8a:000c:E6633861A3543E38" # Use this if you have a probe-rs compatible debugger AND probe-rs managed to get this supported
 #runner = "elf2uf2-rs -d"
-runner = "picotool load -u -v -x -t elf"
+# runner = "picotool load -u -v -x -t elf"
 
 [build]
 target = "thumbv8m.main-none-eabihf"
