@@ -1,6 +1,6 @@
+use crate::task::system_messages::SystemMessage;
+use crate::task::system_state::{SystemState, OperationMode};
 use embassy_executor::Spawner;
-use crate::task::system_messages::{SystemMessage, OperationMode};
-use crate::task::system_state::SystemState;
 
 #[embassy_executor::task]
 pub async fn orchestrator(spawner: Spawner) {

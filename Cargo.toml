@@ -63,7 +63,7 @@ rand = { version = "0.8.5", default-features = false }
 assign-resources = "0.4.1"
 hcsr04_async = "0.2.0"
 moving_median = "0.1.0"
-
+tb6612fng = "1.0.0"
 
 [patch.crates-io]
 embassy-rp = { git = "https://github.com/embassy-rs/embassy" }

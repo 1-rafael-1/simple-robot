@@ -1,5 +1,5 @@
-use embassy_executor::Spawner;
 use crate::task::orchestrator::orchestrator;
+use embassy_executor::Spawner;
 
 #[embassy_executor::task]
 pub async fn scheduler(spawner: Spawner) {

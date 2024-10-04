@@ -1,5 +1,3 @@
-use super::system_messages::OperationMode;
-
 pub struct SystemState {
     pub operation_mode: OperationMode,
     pub current_distance: u32,
@@ -21,4 +19,15 @@ impl SystemState {
         self.current_distance = distance;
         self.is_obstacle_detected = distance < 20; // Example threshold
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct SensorReading {
+    pub distance: u32,
+}
+
+#[derive(Debug, Clone)]
+pub enum OperationMode {
+    Manual,
+    Autonomous,
 }
