@@ -3,8 +3,6 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::gpio;
-use embassy_rp::pwm;
 use {defmt_rtt as _, panic_probe as _};
 
 mod task;
