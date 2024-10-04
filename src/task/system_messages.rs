@@ -1,8 +1,8 @@
 #[derive(Debug, Clone)]
 pub enum SystemMessage {
     MotorCommand(DriveCommand),
-    SensorReading(SensorReading),
-    ModeChange(OperationMode),
+    // SensorReading(SensorReading),
+    // ModeChange(OperationMode),
 }
 
 #[derive(Debug, Clone)]

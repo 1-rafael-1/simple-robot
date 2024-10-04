@@ -1,9 +1,8 @@
 use crate::task::system_messages::SystemMessage;
-use crate::task::system_state::{SystemState, OperationMode};
-use embassy_executor::Spawner;
+use crate::task::system_state::{OperationMode, SystemState};
 
 #[embassy_executor::task]
-pub async fn orchestrator(spawner: Spawner) {
+pub async fn orchestrator() {
     let mut state = SystemState::new();
     loop {
         // Process incoming messages
