@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use crate::task::battery_indicator::battery_indicator;
 use crate::task::distance::distance_measurement;
 use crate::task::orchestrator::orchestrator;
 use defmt::*;
@@ -20,5 +21,8 @@ async fn main(spawner: Spawner) {
     spawner.spawn(orchestrator()).unwrap();
     spawner
         .spawn(distance_measurement(r.distance_sensor))
+        .unwrap();
+    spawner
+        .spawn(battery_indicator(r.battery_indicator))
         .unwrap();
 }

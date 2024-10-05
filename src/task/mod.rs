@@ -1,3 +1,4 @@
+pub mod battery_indicator;
 pub mod distance;
 pub mod orchestrator;
 pub mod resources;
