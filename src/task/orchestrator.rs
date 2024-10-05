@@ -14,5 +14,3 @@ pub async fn orchestrator() {
         };
     }
 }
-
-Update SystemState and related structures
