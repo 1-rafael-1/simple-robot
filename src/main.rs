@@ -6,8 +6,13 @@ use crate::task::distance::distance_measurement;
 use crate::task::orchestrator::orchestrator;
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_rp::block::ImageDef;
 use task::resources::*;
 use {defmt_rtt as _, panic_probe as _};
+
+#[link_section = ".start_block"]
+#[used]
+pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 mod task;
 

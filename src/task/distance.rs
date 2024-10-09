@@ -1,17 +1,19 @@
 use crate::task::resources::DistanceSensorResources;
-use crate::task::system_messages::{Events, EVENT_WATCH};
+use crate::task::system_messages::{send_event, Events};
+use defmt::info;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_time::{Duration, Timer};
 use hcsr04_async::{Config, DistanceUnit, Hcsr04, TemperatureUnit};
 use moving_median::MovingMedian;
 
-const MEASUREMENT_INTERVAL: Duration = Duration::from_millis(100);
+const MEASUREMENT_INTERVAL: Duration = Duration::from_millis(500);
 const MEDIAN_WINDOW_SIZE: usize = 5;
 const TEMPERATURE: f64 = 21.5;
 const MINIMUM_DISTANCE: f64 = 20.0;
 
 #[embassy_executor::task]
 pub async fn distance_measurement(r: DistanceSensorResources) {
+    info!("Distance measurement started");
     let config: Config = Config {
         distance_unit: DistanceUnit::Centimeters,
         temperature_unit: TemperatureUnit::Celsius,
@@ -31,10 +33,13 @@ pub async fn distance_measurement(r: DistanceSensorResources) {
             Err(_) => 200.0,
         };
 
+        info!("Distance: {:?}", filtered_distance);
+
         // signal if we have an obstacle within our minimum range
-        EVENT_WATCH.sender().send(Events::ObstacleDetected(
+        send_event(Events::ObstacleDetected(
             filtered_distance <= MINIMUM_DISTANCE,
-        ));
+        ))
+        .await;
 
         // Wait for the next measurement interval
         Timer::after(MEASUREMENT_INTERVAL).await;

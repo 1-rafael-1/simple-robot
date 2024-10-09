@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [profile.dev]
-lto = 'thin'
+lto = true
 codegen-units = 1
 debug = 2
 debug-assertions = true
 incremental = true
-opt-level = 0
+opt-level = "z"
 overflow-checks = true
 
 [profile.dev.package."*"] # Minimize the size of dependencies
@@ -34,7 +34,7 @@ embassy-rp = { git = "https://github.com/embassy-rs/embassy", features = [
     "time-driver",
     "critical-section-impl",
     "rp235xa",
-]}
+] }
 embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", features = [
     "defmt",
 ] }
@@ -61,7 +61,7 @@ critical-section = "1.1"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 rand = { version = "0.8.5", default-features = false }
 assign-resources = "0.4.1"
-hcsr04_async = { version = "0.2.0", features = ["blocking_trigger"]}
+hcsr04_async = { version = "0.2.0", features = ["blocking_trigger"] }
 moving_median = "0.1.0"
 tb6612fng = "1.0.0"
 

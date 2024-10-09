@@ -5,22 +5,22 @@ use embassy_rp::peripherals;
 
 assign_resources! {
    distance_sensor: DistanceSensorResources {
-       trigger_pin: PIN_20,
-       echo_pin: PIN_21,
+       trigger_pin: PIN_15,
+       echo_pin: PIN_14,
    },
    status_led: StatusLedResources {
        pin: PIN_22,
    },
-   motor_left: MotorLeftResources {
-       slice: PWM_SLICE7,
-       fwdPin: PIN_14,
-       backPin: PIN_15,
-   },
-   motor_right: MotorRightResources {
-       slice: PWM_SLICE8,
-       fwdPin: PIN_16,
-       backPin: PIN_17,
-   },
+//    motor_left: MotorLeftResources {
+//        slice: PWM_SLICE7,
+//        fwdPin: PIN_14,
+//        backPin: PIN_15,
+//    },
+//    motor_right: MotorRightResources {
+//        slice: PWM_SLICE8,
+//        fwdPin: PIN_16,
+//        backPin: PIN_17,
+//    },
    battery_indicator: BatteryIndicatorResources {
        pwm_red: PWM_SLICE1,
        pwm_green: PWM_SLICE2,

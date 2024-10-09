@@ -19,6 +19,8 @@ const BATTERY_VOLTAGE_UPPER: f32 = 4.2;
 /// changing from green for a full battery to red for an empty one.
 #[embassy_executor::task]
 pub async fn battery_indicator(r: BatteryIndicatorResources) {
+    info!("Battery Indicator task started");
+
     // red
     let mut config_red = Config::default();
     config_red.top = PWM_MAX;

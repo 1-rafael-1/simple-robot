@@ -1,12 +1,12 @@
 use crate::task::system_state::OperationMode;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::watch;
+use embassy_sync::channel::Channel;
 
-pub static EVENT_WATCH: watch::Watch<CriticalSectionRawMutex, Events, 1> = watch::Watch::new();
+// Adjust the channel size as needed
+pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Events, 10> = Channel::new();
 
-pub fn send_event(event: Events) {
-    let sender = EVENT_WATCH.sender();
-    sender.send(event);
+pub async fn send_event(event: Events) {
+    EVENT_CHANNEL.sender().send(event).await;
 }
 
 #[derive(Debug, Clone)]
