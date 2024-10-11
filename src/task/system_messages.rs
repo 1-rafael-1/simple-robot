@@ -11,8 +11,9 @@ pub async fn send_event(event: Events) {
 
 #[derive(Debug, Clone)]
 pub enum Events {
-    ModeChange(OperationMode),
+    ModeSet(OperationMode),
     ObstacleDetected(bool),
+    BatteryLevelMeasured(u8),
 }
 
 #[derive(Debug, Clone)]

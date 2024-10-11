@@ -3,6 +3,7 @@
 //! Contains a task that updates the battery indicator LED according to the battery level, going from green to red color as the battery drains.
 
 use crate::task::resources::{BatteryIndicatorResources, Irqs};
+use crate::task::system_messages::{send_event, Events};
 use defmt::info;
 use embassy_rp::adc::{Adc, Channel, Config as AdcConfig};
 use embassy_rp::gpio::Pull;
@@ -60,11 +61,12 @@ pub async fn battery_indicator(r: BatteryIndicatorResources) {
         pwm_red.set_config(&config_red);
         pwm_green.set_config(&config_green);
 
+        let battery_level = (battery_level * 100.0) as u8;
+        send_event(Events::BatteryLevelMeasured(battery_level)).await;
+
         info!(
             "Battery level: {}%, Red: {}, Green: {}",
-            battery_level * 100.0,
-            config_red.compare_a,
-            config_green.compare_a,
+            battery_level, config_red.compare_a, config_green.compare_a,
         );
 
         Timer::after(MEASUREMENT_INTERVAL).await;

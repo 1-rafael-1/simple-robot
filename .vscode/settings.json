@@ -1,0 +1,18 @@
+{
+    "rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
+    "rust-analyzer.check.allTargets": false,
+    "rust-analyzer.checkOnSave": false,
+    "rust-analyzer.inlayHints.typeHints.enable": true,
+    "rust-analyzer.inlayHints.closingBraceHints.enable": true,
+    "rust-analyzer.inlayHints.closingBraceHints.minLines": 0,
+    "editor.formatOnSave": true,
+    "rust-analyzer.inlayHints.implicitDrops.enable": true,
+    "rust-analyzer.restartServerOnConfigChange": true,
+    "rust-analyzer.typing.autoClosingAngleBrackets.enable": true,
+    "rust-analyzer.inlayHints.closureCaptureHints.enable": true,
+    "rust-analyzer.imports.preferNoStd": true,
+    "rust-analyzer.imports.prefix": "crate",
+    "rust-analyzer.inlayHints.chainingHints.enable": true,
+    "rust-analyzer.inlayHints.closureReturnTypeHints.enable": "always",
+    "rust-analyzer.inlayHints.lifetimeElisionHints.enable": "always"
+}
