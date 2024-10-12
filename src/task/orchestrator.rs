@@ -1,4 +1,4 @@
-use crate::task::system_messages::{Events, EVENT_CHANNEL};
+use crate::task::system_events::{Events, EVENT_CHANNEL};
 use crate::task::system_state::{OperationMode, SYSTEM_STATE};
 use defmt::info;
 

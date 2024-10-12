@@ -3,7 +3,7 @@
 //! Contains a task that updates the battery indicator LED according to the battery level, going from green to red color as the battery drains.
 
 use crate::task::resources::{BatteryIndicatorResources, Irqs};
-use crate::task::system_messages::{send_event, Events};
+use crate::task::system_events::{send_event, Events};
 use defmt::info;
 use embassy_rp::adc::{Adc, Channel, Config as AdcConfig};
 use embassy_rp::gpio::Pull;

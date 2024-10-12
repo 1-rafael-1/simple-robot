@@ -1,5 +1,5 @@
 use crate::task::resources::DistanceSensorResources;
-use crate::task::system_messages::{send_event, Events};
+use crate::task::system_events::{send_event, Events};
 use defmt::info;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_time::{Duration, Timer};
