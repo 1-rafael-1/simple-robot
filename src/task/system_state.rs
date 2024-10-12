@@ -15,7 +15,7 @@ pub struct SystemState {
     pub obstacle_detected: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Format)]
+#[derive(Debug, Clone, PartialEq, Format, Copy)]
 pub enum OperationMode {
     Manual,
     Autonomous,

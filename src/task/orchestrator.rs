@@ -1,65 +1,85 @@
-use defmt::info;
-use defmt::Debug2Format;
-
 use crate::task::system_messages::{Events, EVENT_CHANNEL};
 use crate::task::system_state::{OperationMode, SYSTEM_STATE};
+use defmt::info;
 
 #[embassy_executor::task]
 pub async fn orchestrator() {
     info!("Orchestrator started");
-
     let receiver = EVENT_CHANNEL.receiver();
 
     loop {
         let event = receiver.receive().await;
-        if handle_event(event).await {
-            handle_state_changes().await;
+        let changed_state = handle_event(event).await;
+        if let Some(state_change) = changed_state {
+            handle_state_changes(state_change).await;
         }
     }
 }
 
-async fn handle_event(event: Events) -> bool {
+async fn handle_event(event: Events) -> Option<Events> {
     let mut state = SYSTEM_STATE.lock().await;
+
     match event {
         Events::ModeSet(new_mode) => {
-            update_state_field(&mut state.operation_mode, new_mode, "Operation mode")
+            if state.operation_mode != new_mode {
+                info!(
+                    "Operation mode changed from {} to {}",
+                    state.operation_mode, new_mode
+                );
+                state.operation_mode = new_mode;
+                Some(event)
+            } else {
+                None
+            }
         }
-        Events::ObstacleDetected(is_detected) => update_state_field(
-            &mut state.obstacle_detected,
-            is_detected,
-            "Obstacle detected",
-        ),
+        Events::ObstacleDetected(is_detected) => {
+            if state.obstacle_detected != is_detected {
+                info!(
+                    "Obstacle detected changed from {} to {}",
+                    state.obstacle_detected, is_detected
+                );
+                state.obstacle_detected = is_detected;
+                Some(event)
+            } else {
+                None
+            }
+        }
         Events::BatteryLevelMeasured(level) => {
-            update_state_field(&mut state.battery_level, level, "Battery level")
+            if state.battery_level != level {
+                info!(
+                    "Battery level changed from {} to {}",
+                    state.battery_level, level
+                );
+                state.battery_level = level;
+                Some(event)
+            } else {
+                None
+            }
         }
     }
 }
 
-fn update_state_field<T: PartialEq + defmt::Format>(
-    field: &mut T,
-    new_value: T,
-    field_name: &str,
-) -> bool {
-    if *field != new_value {
-        info!("{} changed from {} to {}", field_name, field, &new_value);
-        *field = new_value;
-        true
-    } else {
-        false
-    }
-}
-
-async fn handle_state_changes() {
-    let state = SYSTEM_STATE.lock().await;
-    match state.operation_mode {
-        OperationMode::Manual => {
-            info!("Handling Manual mode");
-            // Add logic for manual mode
+async fn handle_state_changes(event: Events) {
+    match event {
+        Events::ModeSet(new_mode) => {
+            match new_mode {
+                OperationMode::Manual => {
+                    info!("Handling Manual mode");
+                    // Add logic for manual mode
+                }
+                OperationMode::Autonomous => {
+                    info!("Handling Autonomous mode");
+                    // Add logic for autonomous mode
+                }
+            }
         }
-        OperationMode::Autonomous => {
-            info!("Handling Autonomous mode");
-            // Add logic for autonomous mode
+        Events::ObstacleDetected(is_detected) => {
+            info!("Handling obstacle detection: {}", is_detected);
+            // Add logic for obstacle detection
+        }
+        Events::BatteryLevelMeasured(level) => {
+            info!("Handling battery level change: {}", level);
+            // Add logic for battery level changes
         }
     }
-    // You can check other state properties and handle them here
 }

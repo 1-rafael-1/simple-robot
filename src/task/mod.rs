@@ -1,5 +1,5 @@
 pub mod battery_indicator;
-pub mod distance;
+pub mod distance_measurement;
 pub mod orchestrator;
 pub mod resources;
 pub mod system_messages;

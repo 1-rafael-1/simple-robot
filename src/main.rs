@@ -2,7 +2,7 @@
 #![no_main]
 
 use crate::task::battery_indicator::battery_indicator;
-use crate::task::distance::distance_measurement;
+use crate::task::distance_measurement::distance_measurement;
 use crate::task::orchestrator::orchestrator;
 use defmt::*;
 use embassy_executor::Spawner;
