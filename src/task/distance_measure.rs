@@ -12,8 +12,7 @@ const TEMPERATURE: f64 = 21.5;
 const MINIMUM_DISTANCE: f64 = 20.0;
 
 #[embassy_executor::task]
-pub async fn distance_measurement(r: DistanceSensorResources) {
-    info!("Distance measurement started");
+pub async fn distance_measure(r: DistanceSensorResources) {
     let config: Config = Config {
         distance_unit: DistanceUnit::Centimeters,
         temperature_unit: TemperatureUnit::Celsius,

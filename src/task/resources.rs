@@ -21,13 +21,15 @@ assign_resources! {
 //        fwdPin: PIN_16,
 //        backPin: PIN_17,
 //    },
-   battery_indicator: BatteryIndicatorResources {
-       pwm_red: PWM_SLICE1,
-       pwm_green: PWM_SLICE2,
-       red_pin: PIN_2,
-       green_pin: PIN_4,
+   battery_charge: BatteryChargeResources {
        vsys_pin: PIN_29,
        adc: ADC,
+   },
+   rgb_led: RGBLedResources {
+        pwm_red: PWM_SLICE1,
+        pwm_green: PWM_SLICE2,
+        red_pin: PIN_2,
+        green_pin: PIN_4,
    },
 }
 

@@ -1,9 +1,10 @@
 #![no_std]
 #![no_main]
 
-use crate::task::battery_indicator::battery_indicator;
-use crate::task::distance_measurement::distance_measurement;
+use crate::task::battery_charge_reader::battery_charge_reader;
+use crate::task::distance_measure::distance_measure;
 use crate::task::orchestrator::orchestrator;
+use crate::task::rgb_led_indicator::rgb_led_indicator;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
@@ -24,10 +25,9 @@ async fn main(spawner: Spawner) {
     let r = split_resources!(p);
 
     spawner.spawn(orchestrator()).unwrap();
+    spawner.spawn(distance_measure(r.distance_sensor)).unwrap();
     spawner
-        .spawn(distance_measurement(r.distance_sensor))
+        .spawn(battery_charge_reader(r.battery_charge))
         .unwrap();
-    spawner
-        .spawn(battery_indicator(r.battery_indicator))
-        .unwrap();
+    spawner.spawn(rgb_led_indicator(r.rgb_led)).unwrap();
 }
