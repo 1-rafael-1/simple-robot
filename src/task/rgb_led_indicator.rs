@@ -29,8 +29,8 @@ pub async fn rgb_led_indicator(r: RGBLedResources) {
         };
 
         // Update PWM configurations
-        config_red.compare_a = ((battery_level / 100) as f32 * PWM_MAX as f32) as u16;
-        config_green.compare_a = ((battery_level / 100) as f32 * PWM_MAX as f32) as u16;
+        config_red.compare_a = (f32::from(battery_level / 100) * f32::from(PWM_MAX)) as u16;
+        config_green.compare_a = (f32::from(battery_level / 100) * f32::from(PWM_MAX)) as u16;
 
         // Apply new configurations
         pwm_red.set_config(&config_red);

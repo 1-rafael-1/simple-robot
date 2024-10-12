@@ -5,10 +5,12 @@ use crate::task::battery_charge_reader::battery_charge_reader;
 use crate::task::distance_measure::distance_measure;
 use crate::task::orchestrator::orchestrator;
 use crate::task::rgb_led_indicator::rgb_led_indicator;
-use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
-use task::resources::*;
+use task::resources::{
+    AssignedResources, BatteryChargeResources, DistanceSensorResources, RGBLedResources,
+    StatusLedResources,
+};
 use {defmt_rtt as _, panic_probe as _};
 
 #[link_section = ".start_block"]
@@ -19,8 +21,6 @@ mod task;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    info!("Program start");
-
     let p = embassy_rp::init(Default::default());
     let r = split_resources!(p);
 

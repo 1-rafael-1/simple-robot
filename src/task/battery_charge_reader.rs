@@ -20,7 +20,7 @@ pub async fn battery_charge_reader(r: BatteryChargeResources) {
 
     loop {
         let voltage =
-            (adc.read(&mut channel).await.unwrap_or(0) as f32) * REF_VOLTAGE * V_DIVIDER_RATIO
+            f32::from(adc.read(&mut channel).await.unwrap_or(0)) * REF_VOLTAGE * V_DIVIDER_RATIO
                 / ADC_RANGE;
 
         let battery_level = if voltage >= BATTERY_VOLTAGE_UPPER {
