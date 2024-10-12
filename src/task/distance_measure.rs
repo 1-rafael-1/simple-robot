@@ -26,21 +26,18 @@ pub async fn distance_measure(r: DistanceSensorResources) {
         let filtered_distance = match sensor.measure(TEMPERATURE).await {
             Ok(distance_cm) => {
                 median_filter.add_value(distance_cm);
-                let filtered_distance = median_filter.median();
-                filtered_distance
+                median_filter.median()
             }
             Err(_) => 200.0,
         };
 
         info!("Distance: {:?}", filtered_distance);
 
-        // signal if we have an obstacle within our minimum range
         send_event(Events::ObstacleDetected(
             filtered_distance <= MINIMUM_DISTANCE,
         ))
         .await;
 
-        // Wait for the next measurement interval
         Timer::after(MEASUREMENT_INTERVAL).await;
     }
 }
