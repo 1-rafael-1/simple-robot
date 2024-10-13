@@ -37,15 +37,3 @@ pub async fn rgb_led_indicator(r: RGBLedResources) {
         pwm_green.set_config(&config_green);
     }
 }
-
-// fn update_led_color(
-//     pwm_red: &mut Pwm<'_, embassy_rp::peripherals::PWM_CH1>,
-//     pwm_green: &mut Pwm<'_, embassy_rp::peripherals::PWM_CH2>,
-//     level: u8,
-// ) {
-//     let red_duty = ((100 - level) as u32 * PWM_MAX as u32 / 100) as u16;
-//     let green_duty = (level as u32 * PWM_MAX as u32 / 100) as u16;
-
-//     pwm_red.set_duty(red_duty);
-//     pwm_green.set_duty(green_duty);
-// }
