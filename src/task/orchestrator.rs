@@ -78,13 +78,18 @@ async fn handle_state_changes(event: Events) {
         Events::OperationModeSet(new_mode) => match new_mode {
             OperationMode::Manual => {
                 info!("Handling Manual mode");
+                send_system_indicator_changed(true).await;
+                // TODO: Implement manual mode
             }
             OperationMode::Autonomous => {
                 info!("Handling Autonomous mode");
+                send_system_indicator_changed(true).await;
+                // TODO: Implement autonomous mode
             }
         },
         Events::ObstacleDetected(is_detected) => {
             info!("Handling obstacle detection: {}", is_detected);
+            // TODO: Implement obstacle avoidance
         }
         Events::BatteryLevelMeasured(_level) => {
             send_system_indicator_changed(true).await;

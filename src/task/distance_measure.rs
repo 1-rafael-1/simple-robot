@@ -12,7 +12,7 @@ use hcsr04_async::{Config, DistanceUnit, Hcsr04, TemperatureUnit};
 use moving_median::MovingMedian;
 
 /// Interval between distance measurements
-const MEASUREMENT_INTERVAL: Duration = Duration::from_millis(500);
+const MEASUREMENT_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Size of the moving median window for filtering measurements
 const MEDIAN_WINDOW_SIZE: usize = 5;
@@ -56,7 +56,7 @@ pub async fn distance_measure(r: DistanceSensorResources) {
             Err(_) => 200.0, // Default to a large distance on error
         };
 
-        info!("Distance: {:?}", filtered_distance);
+        // info!("Distance: {:?}", filtered_distance);
 
         send_event(Events::ObstacleDetected(
             filtered_distance <= MINIMUM_DISTANCE,

@@ -5,6 +5,7 @@
 
 use crate::task::resources::{BatteryChargeResources, Irqs};
 use crate::task::system_events::{send_event, Events};
+use defmt::info;
 use embassy_rp::adc::{Adc, Channel, Config as AdcConfig};
 use embassy_rp::gpio::Pull;
 use embassy_time::{Duration, Timer};
@@ -43,6 +44,8 @@ pub async fn battery_charge_reader(r: BatteryChargeResources) {
         let voltage =
             f32::from(adc.read(&mut channel).await.unwrap_or(0)) * REF_VOLTAGE * V_DIVIDER_RATIO
                 / ADC_RANGE;
+
+        info!("Voltage: {}", voltage);
 
         // Calculate battery level as a percentage
         let battery_level = if voltage >= BATTERY_VOLTAGE_UPPER {

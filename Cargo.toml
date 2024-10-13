@@ -15,12 +15,12 @@ overflow-checks = true
 [profile.dev.package."*"] # Minimize the size of dependencies
 opt-level = 's'
 overflow-checks = false
-debug = 0
+debug = true
 debug-assertions = false
 
 [profile.release]
 codegen-units = 1
-debug = 0
+debug = true
 debug-assertions = false
 incremental = true
 lto = 'fat'
