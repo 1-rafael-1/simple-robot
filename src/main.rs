@@ -10,6 +10,9 @@
 use crate::task::battery_charge_reader::battery_charge_reader;
 use crate::task::distance_measure::distance_measure;
 use crate::task::orchestrator::orchestrator;
+use crate::task::rc_controller::{
+    rc_button_a_handler, rc_button_b_handler, rc_button_c_handler, rc_button_d_handler,
+};
 use crate::task::rgb_led_indicator::rgb_led_indicator;
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
@@ -46,4 +49,8 @@ async fn main(spawner: Spawner) {
         .spawn(battery_charge_reader(r.battery_charge))
         .unwrap();
     spawner.spawn(rgb_led_indicator(r.rgb_led)).unwrap();
+    spawner.spawn(rc_button_a_handler(r.rc_a)).unwrap();
+    spawner.spawn(rc_button_b_handler(r.rc_b)).unwrap();
+    spawner.spawn(rc_button_c_handler(r.rc_c)).unwrap();
+    spawner.spawn(rc_button_d_handler(r.rc_d)).unwrap();
 }

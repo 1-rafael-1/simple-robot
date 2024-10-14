@@ -5,6 +5,7 @@
 //! and utility functions for sending and receiving events.
 
 use crate::system::state::OperationMode;
+use defmt::Format;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
@@ -33,6 +34,21 @@ pub enum Events {
     ObstacleDetected(bool),
     /// Battery level measured
     BatteryLevelMeasured(u8),
+    /// Button pressed
+    ButtonPressed(ButtonId),
+    /// Button hold started
+    ButtonHoldStart(ButtonId),
+    /// Button hold ended
+    ButtonHoldEnd(ButtonId),
+}
+
+/// Button ID for button events.
+#[derive(Debug, Clone, Copy, Format)]
+pub enum ButtonId {
+    A,
+    B,
+    C,
+    D,
 }
 
 /// Enum representing drive commands

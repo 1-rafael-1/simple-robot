@@ -63,6 +63,21 @@ async fn handle_event(event: event::Events) -> Option<event::Events> {
                 None
             }
         }
+        event::Events::ButtonPressed(button_id) => {
+            info!("Button {:?} pressed", button_id);
+            // Handle short press
+            Some(event)
+        }
+        event::Events::ButtonHoldStart(button_id) => {
+            info!("Button {:?} hold started", button_id);
+            // Handle hold start
+            Some(event)
+        }
+        event::Events::ButtonHoldEnd(button_id) => {
+            info!("Button {:?} hold ended", button_id);
+            // Handle hold end
+            Some(event)
+        }
     }
 }
 
@@ -94,6 +109,15 @@ async fn handle_state_changes(event: event::Events) {
         }
         event::Events::BatteryLevelMeasured(_level) => {
             indicator::send(true);
+        }
+        event::Events::ButtonPressed(_button_id) => {
+            // Implement short press actions
+        }
+        event::Events::ButtonHoldStart(_button_id) => {
+            // Implement hold start actions
+        }
+        event::Events::ButtonHoldEnd(_button_id) => {
+            // Implement hold end actions
         }
     }
 }
