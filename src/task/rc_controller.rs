@@ -5,8 +5,8 @@
 use crate::system::event;
 use crate::system::resources::{RCResourcesA, RCResourcesB, RCResourcesC, RCResourcesD};
 use embassy_futures::select::{select, Either};
-use embassy_rp::gpio::{Input, Level, Pull};
-use embassy_time::{with_deadline, Duration, Instant, Timer};
+use embassy_rp::gpio::{Input, Pull};
+use embassy_time::{Duration, Timer};
 
 /// The duration threshold for distinguishing between a button press and a button hold.
 const HOLD_THRESHOLD: Duration = Duration::from_millis(200);
