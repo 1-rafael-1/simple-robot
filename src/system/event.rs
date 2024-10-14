@@ -1,13 +1,12 @@
 //! System Events Module
 //!
 //! This module defines the event system used for inter-task communication
-//! in the robot. It includes event types, channels/signals for event transmission,
+//! in the robot. It includes event types and a channel for event transmission,
 //! and utility functions for sending and receiving events.
 
-use crate::task::system_state::OperationMode;
+use crate::system::state::OperationMode;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_sync::signal::Signal;
 
 /// Channel for system-wide events
 ///
@@ -16,26 +15,13 @@ use embassy_sync::signal::Signal;
 pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Events, 10> = Channel::new();
 
 /// Sends an event to the system event channel
-pub async fn send_event(event: Events) {
+pub async fn send(event: Events) {
     EVENT_CHANNEL.sender().send(event).await;
 }
 
 /// Waits for and receives the next event from the system event channel
-pub async fn wait_for_event() -> Events {
+pub async fn wait() -> Events {
     EVENT_CHANNEL.receiver().receive().await
-}
-
-/// Signal for system indicator changes
-pub static SYSTEM_INDICATOR_CHANGED: Signal<CriticalSectionRawMutex, bool> = Signal::new();
-
-/// Signals a change in the system indicator
-pub async fn send_system_indicator_changed(value: bool) {
-    SYSTEM_INDICATOR_CHANGED.signal(value);
-}
-
-/// Waits for a change in the system indicator
-pub async fn wait_for_system_indicator_changed() -> bool {
-    SYSTEM_INDICATOR_CHANGED.wait().await
 }
 
 /// Enum representing system-wide events

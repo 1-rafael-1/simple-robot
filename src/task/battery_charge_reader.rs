@@ -3,8 +3,8 @@
 //! This module is responsible for periodically reading the battery voltage
 //! and calculating the battery charge level.
 
-use crate::task::resources::{BatteryChargeResources, Irqs};
-use crate::task::system_events::{send_event, Events};
+use crate::system::event::{send, Events};
+use crate::system::resources::{BatteryChargeResources, Irqs};
 use defmt::info;
 use embassy_rp::adc::{Adc, Channel, Config as AdcConfig};
 use embassy_rp::gpio::Pull;
@@ -56,7 +56,7 @@ pub async fn battery_charge_reader(r: BatteryChargeResources) {
             (voltage - BATTERY_VOLTAGE_LOWER) / (BATTERY_VOLTAGE_UPPER - BATTERY_VOLTAGE_LOWER)
         };
 
-        send_event(Events::BatteryLevelMeasured((battery_level * 100.0) as u8)).await;
+        send(Events::BatteryLevelMeasured((battery_level * 100.0) as u8)).await;
         Timer::after(MEASUREMENT_INTERVAL).await;
     }
 }

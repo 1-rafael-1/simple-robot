@@ -3,8 +3,9 @@
 //! This module contains the main orchestrator task that manages the robot's overall behavior
 //! by handling system events and coordinating state changes.
 
-use crate::task::system_events::{send_system_indicator_changed, wait_for_event, Events};
-use crate::task::system_state::{OperationMode, SYSTEM_STATE};
+use crate::system::event;
+use crate::system::indicator;
+use crate::system::state::{OperationMode, SYSTEM_STATE};
 use defmt::info;
 
 /// Main orchestrator task
@@ -15,7 +16,7 @@ use defmt::info;
 pub async fn orchestrator() {
     info!("Orchestrator started");
     loop {
-        let changed_state = handle_event(wait_for_event().await).await;
+        let changed_state = handle_event(event::wait().await).await;
         if let Some(state_change) = changed_state {
             handle_state_changes(state_change).await;
         }
@@ -34,11 +35,11 @@ pub async fn orchestrator() {
 /// # Returns
 ///
 /// * `Option<Events>` - The event that caused a state change, if any
-async fn handle_event(event: Events) -> Option<Events> {
+async fn handle_event(event: event::Events) -> Option<event::Events> {
     let mut state = SYSTEM_STATE.lock().await;
 
     match event {
-        Events::OperationModeSet(new_mode) => {
+        event::Events::OperationModeSet(new_mode) => {
             if state.operation_mode != new_mode {
                 state.operation_mode = new_mode;
                 Some(event)
@@ -46,7 +47,7 @@ async fn handle_event(event: Events) -> Option<Events> {
                 None
             }
         }
-        Events::ObstacleDetected(is_detected) => {
+        event::Events::ObstacleDetected(is_detected) => {
             if state.obstacle_detected != is_detected {
                 state.obstacle_detected = is_detected;
                 Some(event)
@@ -54,7 +55,7 @@ async fn handle_event(event: Events) -> Option<Events> {
                 None
             }
         }
-        Events::BatteryLevelMeasured(level) => {
+        event::Events::BatteryLevelMeasured(level) => {
             if state.battery_level != level {
                 state.battery_level = level;
                 Some(event)
@@ -73,26 +74,26 @@ async fn handle_event(event: Events) -> Option<Events> {
 /// # Arguments
 ///
 /// * `event` - The event that caused the state change
-async fn handle_state_changes(event: Events) {
+async fn handle_state_changes(event: event::Events) {
     match event {
-        Events::OperationModeSet(new_mode) => match new_mode {
+        event::Events::OperationModeSet(new_mode) => match new_mode {
             OperationMode::Manual => {
                 info!("Handling Manual mode");
-                send_system_indicator_changed(true).await;
+                indicator::send(true);
                 // TODO: Implement manual mode
             }
             OperationMode::Autonomous => {
                 info!("Handling Autonomous mode");
-                send_system_indicator_changed(true).await;
+                indicator::send(true);
                 // TODO: Implement autonomous mode
             }
         },
-        Events::ObstacleDetected(is_detected) => {
+        event::Events::ObstacleDetected(is_detected) => {
             info!("Handling obstacle detection: {}", is_detected);
             // TODO: Implement obstacle avoidance
         }
-        Events::BatteryLevelMeasured(_level) => {
-            send_system_indicator_changed(true).await;
+        event::Events::BatteryLevelMeasured(_level) => {
+            indicator::send(true);
         }
     }
 }

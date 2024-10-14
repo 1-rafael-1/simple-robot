@@ -3,9 +3,8 @@
 //! This module is responsible for periodically measuring the distance to obstacles
 //! using an HC-SR04 ultrasonic sensor and detecting if an obstacle is within a minimum distance.
 
-use crate::task::resources::DistanceSensorResources;
-use crate::task::system_events::{send_event, Events};
-use defmt::info;
+use crate::system::event::{send, Events};
+use crate::system::resources::DistanceSensorResources;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_time::{Duration, Timer};
 use hcsr04_async::{Config, DistanceUnit, Hcsr04, TemperatureUnit};
@@ -58,7 +57,7 @@ pub async fn distance_measure(r: DistanceSensorResources) {
 
         // info!("Distance: {:?}", filtered_distance);
 
-        send_event(Events::ObstacleDetected(
+        send(Events::ObstacleDetected(
             filtered_distance <= MINIMUM_DISTANCE,
         ))
         .await;

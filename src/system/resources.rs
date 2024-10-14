@@ -8,16 +8,10 @@ use embassy_rp::adc::InterruptHandler as AdcInterruptHandler;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals;
 
-/// Allocates hardware resources to different components of the robot
-///
-/// This macro call defines the resources for various subsystems
 assign_resources! {
     distance_sensor: DistanceSensorResources {
        trigger_pin: PIN_15,
        echo_pin: PIN_14,
-    },
-    status_led: StatusLedResources {
-        pin: PIN_22,
     },
     battery_charge: BatteryChargeResources {
        vsys_pin: PIN_29,
@@ -41,33 +35,19 @@ assign_resources! {
     rc_d: RCResourcesD {
         btn_d: PIN_9,
     },
-
-    // Commented out motor resources for future implementation
-    //
-    // /// Resources for the left motor
-    // motor_left: MotorLeftResources {
-    //     /// PWM slice for the left motor
-    //     slice: PWM_SLICE7,
-    //     /// Forward pin for the left motor
-    //     fwdPin: PIN_14,
-    //     /// Backward pin for the left motor
-    //     backPin: PIN_15,
-    // },
-    //
-    // /// Resources for the right motor
-    // motor_right: MotorRightResources {
-    //     /// PWM slice for the right motor
-    //     slice: PWM_SLICE8,
-    //     /// Forward pin for the right motor
-    //     fwdPin: PIN_16,
-    //     /// Backward pin for the right motor
-    //     backPin: PIN_17,
-    // },
+    motor: MotorResources {
+        standby_pin: PIN_22,
+        left_slice: PWM_SLICE6,
+        left_pwm_pin: PIN_28,
+        left_forward_pin: PIN_21,
+        left_backward_pin: PIN_20,
+        right_slice: PWM_SLICE5,
+        right_pwm_pin: PIN_27,
+        right_forward_pin: PIN_19,
+        right_backward_pin: PIN_18,
+    },
 }
 
-/// Binds interrupt handlers for the robot's peripherals
-///
-/// Currently, this only includes the ADC interrupt handler.
 bind_interrupts!(pub struct Irqs {
     ADC_IRQ_FIFO => AdcInterruptHandler;
 });

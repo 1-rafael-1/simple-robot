@@ -13,9 +13,9 @@ use crate::task::orchestrator::orchestrator;
 use crate::task::rgb_led_indicator::rgb_led_indicator;
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
-use task::resources::{
-    AssignedResources, BatteryChargeResources, DistanceSensorResources, RCResourcesA, RCResourcesB,
-    RCResourcesC, RCResourcesD, RGBLedResources, StatusLedResources,
+use system::resources::{
+    AssignedResources, BatteryChargeResources, DistanceSensorResources, MotorResources,
+    RCResourcesA, RCResourcesB, RCResourcesC, RCResourcesD, RGBLedResources,
 };
 use {defmt_rtt as _, panic_probe as _};
 
@@ -26,6 +26,8 @@ use {defmt_rtt as _, panic_probe as _};
 #[used]
 pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
+/// Module containing system states, events and resources
+mod system;
 /// Module containing all task-related code
 mod task;
 

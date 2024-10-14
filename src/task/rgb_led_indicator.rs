@@ -2,11 +2,9 @@
 //!
 //! This module controls the RGB LED indicator for the robot, providing visual feedback
 //! about the system state, including battery level and operation mode.
-use crate::task::resources::RGBLedResources;
-use crate::task::system_events::{
-    send_event, send_system_indicator_changed, wait_for_system_indicator_changed, Events,
-};
-use crate::task::system_state::{OperationMode, SYSTEM_STATE};
+use crate::system::indicator;
+use crate::system::resources::RGBLedResources;
+use crate::system::state::{OperationMode, SYSTEM_STATE};
 use defmt::info;
 use embassy_futures::select::select;
 use embassy_futures::select::Either;
@@ -45,7 +43,7 @@ pub async fn rgb_led_indicator(r: RGBLedResources) {
 
     loop {
         // Wait for a change in system state
-        wait_for_system_indicator_changed().await;
+        indicator::wait().await;
 
         // Retrieve current battery level and operation mode
         let (battery_level, operation_mode) = {
@@ -86,14 +84,11 @@ pub async fn rgb_led_indicator(r: RGBLedResources) {
                     led_on = !led_on;
 
                     // Wait for either the blink interval to pass or a system state change
-                    if let Either::Second(_) = select(
-                        Timer::after(BLINK_INTERVAL),
-                        wait_for_system_indicator_changed(),
-                    )
-                    .await
+                    if let Either::Second(_) =
+                        select(Timer::after(BLINK_INTERVAL), indicator::wait()).await
                     {
                         // If system state changed, propagate the change and break the blink loop
-                        send_system_indicator_changed(true).await;
+                        indicator::send(true);
                         break 'blink;
                     }
                 }
