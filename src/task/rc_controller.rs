@@ -47,7 +47,7 @@ pub async fn rc_button_d_handler(r: RCResourcesD) {
 /// # Arguments
 ///
 /// * `button` - A mutable reference to the Input representing the button
-/// * `id` - The ButtonId associated with this button
+/// * `id` - The `ButtonId` associated with this button
 ///
 /// # Events
 ///
