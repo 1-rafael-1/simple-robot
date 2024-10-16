@@ -43,7 +43,7 @@ pub async fn distance_measure(r: DistanceSensorResources) {
     let mut sensor = Hcsr04::new(trigger, echo, config);
 
     // Initialize the median filter
-    let mut median_filter = MovingMedian::<MEDIAN_WINDOW_SIZE>::new();
+    let mut median_filter = MovingMedian::<f64, MEDIAN_WINDOW_SIZE>::new();
 
     loop {
         // Measure distance and apply median filter
