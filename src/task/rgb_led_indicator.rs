@@ -41,6 +41,12 @@ pub async fn rgb_led_indicator(r: RGBLedResources) {
 
     let mut led_on = true;
 
+    // set initial color to off
+    config_red.compare_a = PWM_MIN;
+    config_green.compare_a = PWM_MIN;
+    pwm_red.set_config(&config_red);
+    pwm_green.set_config(&config_green);
+
     loop {
         // Wait for a change in system state
         indicator::wait().await;
