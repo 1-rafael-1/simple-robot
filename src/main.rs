@@ -16,6 +16,7 @@ use crate::task::rc_controller::{
 use crate::task::rgb_led_indicator::rgb_led_indicator;
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
+use embassy_rp::config::Config;
 use system::resources::{
     AssignedResources, BatteryChargeResources, DistanceSensorResources, MotorResources,
     RCResourcesA, RCResourcesB, RCResourcesC, RCResourcesD, RGBLedResources,
@@ -40,7 +41,7 @@ mod task;
 /// It's responsible for setting up the system and spawning the main tasks.
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_rp::init(Default::default());
+    let p = embassy_rp::init(Config::default());
     let r = split_resources!(p);
 
     spawner.spawn(orchestrator()).unwrap();
