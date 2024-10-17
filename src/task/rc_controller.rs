@@ -4,8 +4,6 @@
 //! provides functionality to handle button presses and holds.
 use crate::system::event;
 use crate::system::resources::{RCResourcesA, RCResourcesB, RCResourcesC, RCResourcesD};
-use defmt::info;
-use defmt::Debug2Format;
 use embassy_futures::select::{select, Either};
 use embassy_rp::gpio::{Input, Level, Pull};
 use embassy_time::{Duration, Timer};
