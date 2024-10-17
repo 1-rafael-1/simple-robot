@@ -64,7 +64,7 @@ pub async fn rc_button_d_handler(r: RCResourcesD) {
 /// # Events
 ///
 /// * `ButtonPressed` - Sent when a short press is detected
-/// * `ButtonHoldStart` - Sent when a long press is initiated (after HOLD_THRESHOLD)
+/// * `ButtonHoldStart` - Sent when a long press is initiated (after `HOLD_THRESHOLD`)
 /// * `ButtonHoldEnd` - Sent when a long press ends
 async fn handle_button(button: &mut Input<'static>, id: event::ButtonId) {
     loop {
