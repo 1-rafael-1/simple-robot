@@ -4,15 +4,16 @@
 //! provides functionality to handle button presses and holds.
 use crate::system::event;
 use crate::system::resources::{RCResourcesA, RCResourcesB, RCResourcesC, RCResourcesD};
+use defmt::info;
 use embassy_futures::select::{select, Either};
 use embassy_rp::gpio::{Input, Level, Pull};
 use embassy_time::{Duration, Timer};
 
 /// The duration threshold for distinguishing between a button press and a button hold.
-const HOLD_THRESHOLD: Duration = Duration::from_millis(1000);
+const HOLD_DURATION: Duration = Duration::from_millis(700);
 
 /// The debounce duration used to debounce buttons.
-const DEBOUNCE: Duration = Duration::from_millis(80);
+const DEBOUNCE_DURATION: Duration = Duration::from_millis(30);
 
 /// Task for handling button A on the RC controller.
 ///
@@ -74,7 +75,7 @@ async fn handle_button(button: &mut Input<'static>, id: event::ButtonId) {
             continue;
         };
 
-        match select(Timer::after(HOLD_THRESHOLD), debounce(button)).await {
+        match select(Timer::after(HOLD_DURATION), debounce(button)).await {
             Either::First(()) => {
                 event::send(event::Events::ButtonHoldStart(id)).await;
                 button.wait_for_low().await;
@@ -103,7 +104,7 @@ async fn debounce(button: &mut Input<'static>) -> Level {
     loop {
         let st_level = button.get_level();
         button.wait_for_any_edge().await;
-        Timer::after(DEBOUNCE).await;
+        Timer::after(DEBOUNCE_DURATION).await;
         let end_level = button.get_level();
         if st_level != end_level {
             break end_level;
