@@ -55,8 +55,6 @@ pub async fn distance_measure(r: DistanceSensorResources) {
             Err(_) => 200.0, // Default to a large distance on error
         };
 
-        // info!("Distance: {:?}", filtered_distance);
-
         send(Events::ObstacleDetected(
             filtered_distance <= MINIMUM_DISTANCE,
         ))

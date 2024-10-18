@@ -43,7 +43,7 @@ pub enum Events {
 }
 
 /// Button ID for button events.
-#[derive(Debug, Clone, Copy, Format)]
+#[derive(Debug, Clone, Copy, Format, PartialEq)]
 pub enum ButtonId {
     A,
     B,

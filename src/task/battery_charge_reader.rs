@@ -3,9 +3,8 @@
 //! This module is responsible for periodically reading the battery voltage
 //! and calculating the battery charge level.
 
-use crate::system::event::{send, Events};
+use crate::system::event;
 use crate::system::resources::{BatteryChargeResources, Irqs};
-use defmt::info;
 use embassy_rp::adc::{Adc, Channel, Config as AdcConfig};
 use embassy_rp::gpio::Pull;
 use embassy_time::{Duration, Timer};
@@ -55,10 +54,8 @@ pub async fn battery_charge_reader(r: BatteryChargeResources) {
             f32::from(adc.read(&mut channel).await.unwrap_or(0)) * REF_VOLTAGE * V_DIVIDER_RATIO
                 / ADC_RANGE;
 
-        info!("Voltage raw: {}", voltage);
         median_filter.add_value(voltage);
         voltage = median_filter.median();
-        info!("Voltage filtered: {}", voltage);
 
         // Calculate battery level as a percentage
         let battery_level = if voltage >= BATTERY_VOLTAGE_UPPER {
@@ -69,7 +66,10 @@ pub async fn battery_charge_reader(r: BatteryChargeResources) {
             (voltage - BATTERY_VOLTAGE_LOWER) / (BATTERY_VOLTAGE_UPPER - BATTERY_VOLTAGE_LOWER)
         };
 
-        send(Events::BatteryLevelMeasured((battery_level * 100.0) as u8)).await;
+        event::send(event::Events::BatteryLevelMeasured(
+            (battery_level * 100.0) as u8,
+        ))
+        .await;
         Timer::after(MEASUREMENT_INTERVAL).await;
     }
 }

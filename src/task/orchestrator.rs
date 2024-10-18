@@ -3,6 +3,7 @@
 //! This module contains the main orchestrator task that manages the robot's overall behavior
 //! by handling system events and coordinating state changes.
 
+use crate::system::button_actions;
 use crate::system::event;
 use crate::system::indicator;
 use crate::system::state::{OperationMode, SYSTEM_STATE};
@@ -41,7 +42,7 @@ async fn handle_event(event: event::Events) -> Option<event::Events> {
     match event {
         event::Events::OperationModeSet(new_mode) => {
             if state.operation_mode != new_mode {
-                state.operation_mode = new_mode;
+                state.set_operation_mode(new_mode);
                 Some(event)
             } else {
                 None
@@ -63,21 +64,9 @@ async fn handle_event(event: event::Events) -> Option<event::Events> {
                 None
             }
         }
-        event::Events::ButtonPressed(button_id) => {
-            info!("Button {:?} pressed", button_id);
-            // Handle short press
-            Some(event)
-        }
-        event::Events::ButtonHoldStart(button_id) => {
-            info!("Button {:?} hold started", button_id);
-            // Handle hold start
-            Some(event)
-        }
-        event::Events::ButtonHoldEnd(button_id) => {
-            info!("Button {:?} hold ended", button_id);
-            // Handle hold end
-            Some(event)
-        }
+        event::Events::ButtonPressed(button_id) => Some(event),
+        event::Events::ButtonHoldStart(button_id) => Some(event),
+        event::Events::ButtonHoldEnd(button_id) => Some(event),
     }
 }
 
@@ -111,13 +100,20 @@ async fn handle_state_changes(event: event::Events) {
             indicator::send(true);
         }
         event::Events::ButtonPressed(_button_id) => {
+            info!("Handling button {} press", _button_id);
             // Implement short press actions
         }
         event::Events::ButtonHoldStart(_button_id) => {
+            info!("Handling button {} hold start", _button_id);
             // Implement hold start actions
         }
-        event::Events::ButtonHoldEnd(_button_id) => {
-            // Implement hold end actions
+        event::Events::ButtonHoldEnd(button_id) => {
+            info!("Handling button {} hold end", button_id);
+            button_actions::handle_button_action(
+                button_id,
+                button_actions::ButtonActionType::HoldEnd,
+            )
+            .await;
         }
     }
 }

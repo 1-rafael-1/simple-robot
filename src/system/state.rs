@@ -8,6 +8,7 @@ use defmt::Format;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
+
 /// Global system state protected by a mutex
 ///
 /// This static variable holds the current state of the system,
@@ -34,6 +35,13 @@ pub struct SystemState {
     pub obstacle_detected: bool,
 }
 
+impl SystemState {
+    /// Sets the current operation mode of the system
+    pub fn set_operation_mode(&mut self, new_mode: OperationMode) {
+        self.operation_mode.set(new_mode);
+    }
+}
+
 /// Represents the possible operation modes of the robot
 ///
 /// This enum defines the different modes in which the robot can operate,
@@ -45,4 +53,11 @@ pub enum OperationMode {
 
     /// Autonomous operation mode, where the robot operates independently based on programmed behaviors
     Autonomous,
+}
+
+impl OperationMode {
+    /// Sets the new operation mode of the system.
+    fn set(&mut self, new_mode: OperationMode) {
+        *self = new_mode;
+    }
 }
