@@ -18,7 +18,10 @@ const PWM_MAX: u16 = 65535;
 const PWM_MIN: u16 = 0;
 
 /// Interval for LED blinking in autonomous mode
-const BLINK_INTERVAL: Duration = Duration::from_millis(700);
+const MODE_BLINK_INTERVAL: Duration = Duration::from_millis(700);
+
+/// Interval for LED blinking when affirming state change
+const AFFIRM_BLINK_INTERVAL: Duration = Duration::from_millis(30);
 
 /// Controls the RGB LED indicator based on system state.
 ///
@@ -39,7 +42,7 @@ pub async fn rgb_led_indicator(r: RGBLedResources) {
     config_green.compare_a = PWM_MAX;
     let mut pwm_green = Pwm::new_output_a(r.pwm_green, r.green_pin, config_green.clone());
 
-    let mut led_on = true;
+    let mut led_on = false;
 
     // set initial color to off
     config_red.compare_a = PWM_MIN;
@@ -49,7 +52,25 @@ pub async fn rgb_led_indicator(r: RGBLedResources) {
 
     loop {
         // Wait for a change in system state
-        indicator::wait().await;
+        let affirm = indicator::wait().await;
+
+        // affirm a change in the indicator by blinking the LED
+        if affirm {
+            for _ in 0..5 {
+                if led_on {
+                    config_red.compare_a = PWM_MIN;
+                    config_green.compare_a = PWM_MAX;
+                } else {
+                    config_red.compare_a = PWM_MAX;
+                    config_green.compare_a = PWM_MIN;
+                }
+                pwm_green.set_config(&config_green);
+                pwm_red.set_config(&config_red);
+                led_on = !led_on;
+                Timer::after(AFFIRM_BLINK_INTERVAL).await;
+            }
+            led_on = false;
+        }
 
         // Retrieve current battery level and operation mode
         let (battery_level, operation_mode) = {
@@ -91,7 +112,7 @@ pub async fn rgb_led_indicator(r: RGBLedResources) {
 
                     // Wait for either the blink interval to pass or a system state change
                     if let Either::Second(_) =
-                        select(Timer::after(BLINK_INTERVAL), indicator::wait()).await
+                        select(Timer::after(MODE_BLINK_INTERVAL), indicator::wait()).await
                     {
                         // If system state changed, propagate the change and break the blink loop
                         indicator::send(true);

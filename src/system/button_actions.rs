@@ -4,6 +4,7 @@
 //! It defines the types of button actions and provides a central function for handling
 //! different button actions based on the button ID and action type.
 use crate::system::event;
+use crate::system::indicator;
 use crate::system::state;
 
 /// Enum representing the types of button actions
@@ -33,7 +34,7 @@ pub enum ButtonActionType {
 pub async fn handle_button_action(button_id: event::ButtonId, action_type: ButtonActionType) {
     match (button_id, action_type) {
         (event::ButtonId::A, ButtonActionType::HoldEnd) => {
-            let mut state = state::SYSTEM_STATE.lock().await;
+            let state = state::SYSTEM_STATE.lock().await;
             event::send(event::Events::OperationModeSet(
                 if state.operation_mode == state::OperationMode::Manual {
                     state::OperationMode::Autonomous
@@ -42,6 +43,19 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
                 },
             ))
             .await;
+        }
+        // just testing! -> for now, just wakes the indicator
+        (event::ButtonId::A, ButtonActionType::Press) => {
+            indicator::send(true);
+        }
+        (event::ButtonId::B, ButtonActionType::Press) => {
+            indicator::send(true);
+        }
+        (event::ButtonId::C, ButtonActionType::Press) => {
+            indicator::send(true);
+        }
+        (event::ButtonId::D, ButtonActionType::Press) => {
+            indicator::send(true);
         }
         // Add other button actions here
         _ => (), // No action for other combinations

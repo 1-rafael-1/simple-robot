@@ -64,9 +64,9 @@ async fn handle_event(event: event::Events) -> Option<event::Events> {
                 None
             }
         }
-        event::Events::ButtonPressed(button_id) => Some(event),
-        event::Events::ButtonHoldStart(button_id) => Some(event),
-        event::Events::ButtonHoldEnd(button_id) => Some(event),
+        event::Events::ButtonPressed(_button_id) => Some(event),
+        event::Events::ButtonHoldStart(_button_id) => Some(event),
+        event::Events::ButtonHoldEnd(_button_id) => Some(event),
     }
 }
 
@@ -95,17 +95,26 @@ async fn handle_state_changes(event: event::Events) {
         event::Events::ObstacleDetected(is_detected) => {
             info!("Handling obstacle detection: {}", is_detected);
             // TODO: Implement obstacle avoidance
+            indicator::send(true);
         }
         event::Events::BatteryLevelMeasured(_level) => {
             indicator::send(true);
         }
-        event::Events::ButtonPressed(_button_id) => {
-            info!("Handling button {} press", _button_id);
-            // Implement short press actions
+        event::Events::ButtonPressed(button_id) => {
+            info!("Handling button {} press", button_id);
+            button_actions::handle_button_action(
+                button_id,
+                button_actions::ButtonActionType::Press,
+            )
+            .await;
         }
-        event::Events::ButtonHoldStart(_button_id) => {
-            info!("Handling button {} hold start", _button_id);
-            // Implement hold start actions
+        event::Events::ButtonHoldStart(button_id) => {
+            info!("Handling button {} hold start", button_id);
+            button_actions::handle_button_action(
+                button_id,
+                button_actions::ButtonActionType::HoldStart,
+            )
+            .await;
         }
         event::Events::ButtonHoldEnd(button_id) => {
             info!("Handling button {} hold end", button_id);

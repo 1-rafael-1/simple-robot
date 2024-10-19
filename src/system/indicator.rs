@@ -16,8 +16,8 @@ pub static SYSTEM_INDICATOR_CHANGED: Signal<CriticalSectionRawMutex, bool> = Sig
 ///
 /// This function is used to notify the system that the indicator has changed.
 /// It's a synchronous operation that doesn't require awaiting.
-pub fn send(value: bool) {
-    SYSTEM_INDICATOR_CHANGED.signal(value);
+pub fn send(affirm: bool) {
+    SYSTEM_INDICATOR_CHANGED.signal(affirm);
 }
 
 /// Waits for a change in the system indicator
