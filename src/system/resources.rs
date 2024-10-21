@@ -45,7 +45,7 @@ assign_resources! {
         right_pwm_pin: PIN_27,
         right_forward_pin: PIN_19,
         right_backward_pin: PIN_18,
-    },
+        },
 }
 
 bind_interrupts!(pub struct Irqs {

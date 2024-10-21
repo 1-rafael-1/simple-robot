@@ -98,7 +98,7 @@ async fn handle_state_changes(event: event::Events) {
             indicator::send(true);
         }
         event::Events::BatteryLevelMeasured(_level) => {
-            indicator::send(true);
+            indicator::send(false);
         }
         event::Events::ButtonPressed(button_id) => {
             info!("Handling button {} press", button_id);

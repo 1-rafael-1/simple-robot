@@ -14,13 +14,13 @@ use moving_median::MovingMedian;
 const MEASUREMENT_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Size of the moving median window for filtering measurements
-const MEDIAN_WINDOW_SIZE: usize = 5;
+const MEDIAN_WINDOW_SIZE: usize = 3;
 
 /// Assumed ambient temperature for sound speed calculation
 const TEMPERATURE: f64 = 21.5;
 
 /// Minimum distance threshold for obstacle detection (in cm)
-const MINIMUM_DISTANCE: f64 = 20.0;
+const MINIMUM_DISTANCE: f64 = 30.0;
 
 /// Task for measuring distance and detecting obstacles
 ///

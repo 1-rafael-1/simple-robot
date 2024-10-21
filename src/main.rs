@@ -7,6 +7,7 @@
 #![no_std]
 #![no_main]
 
+use crate::system::motor::test_motors;
 use crate::task::battery_charge_reader::battery_charge_reader;
 use crate::task::distance_measure::distance_measure;
 use crate::task::orchestrator::orchestrator;
@@ -54,4 +55,5 @@ async fn main(spawner: Spawner) {
     spawner.spawn(rc_button_b_handler(r.rc_b)).unwrap();
     spawner.spawn(rc_button_c_handler(r.rc_c)).unwrap();
     spawner.spawn(rc_button_d_handler(r.rc_d)).unwrap();
+    spawner.spawn(test_motors(r.motor)).unwrap();
 }
