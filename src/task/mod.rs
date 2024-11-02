@@ -1,5 +1,6 @@
-pub mod battery_charge_reader;
+pub mod battery_charge_read;
 pub mod distance_measure;
-pub mod orchestrator;
-pub mod rc_controller;
-pub mod rgb_led_indicator;
+pub mod drive;
+pub mod orchestrate;
+pub mod rc_control;
+pub mod rgb_led_indicate;

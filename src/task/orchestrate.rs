@@ -14,7 +14,7 @@ use defmt::info;
 /// This task continuously listens for system events, handles them, and manages state changes.
 /// It serves as the central coordinator for the robot's behavior.
 #[embassy_executor::task]
-pub async fn orchestrator() {
+pub async fn orchestrate() {
     info!("Orchestrator started");
     loop {
         let changed_state = handle_event(event::wait().await).await;

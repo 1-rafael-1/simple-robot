@@ -7,14 +7,14 @@
 #![no_std]
 #![no_main]
 
-use crate::system::motor::test_motors;
-use crate::task::battery_charge_reader::battery_charge_reader;
+use crate::task::battery_charge_read::battery_charge_read;
 use crate::task::distance_measure::distance_measure;
-use crate::task::orchestrator::orchestrator;
-use crate::task::rc_controller::{
-    rc_button_a_handler, rc_button_b_handler, rc_button_c_handler, rc_button_d_handler,
+use crate::task::drive::drive;
+use crate::task::orchestrate::orchestrate;
+use crate::task::rc_control::{
+    rc_button_a_handle, rc_button_b_handle, rc_button_c_handle, rc_button_d_handle,
 };
-use crate::task::rgb_led_indicator::rgb_led_indicator;
+use crate::task::rgb_led_indicate::rgb_led_indicate;
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
@@ -45,15 +45,15 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Config::default());
     let r = split_resources!(p);
 
-    spawner.spawn(orchestrator()).unwrap();
+    spawner.spawn(orchestrate()).unwrap();
     spawner.spawn(distance_measure(r.distance_sensor)).unwrap();
     spawner
-        .spawn(battery_charge_reader(r.battery_charge))
+        .spawn(battery_charge_read(r.battery_charge))
         .unwrap();
-    spawner.spawn(rgb_led_indicator(r.rgb_led)).unwrap();
-    spawner.spawn(rc_button_a_handler(r.rc_a)).unwrap();
-    spawner.spawn(rc_button_b_handler(r.rc_b)).unwrap();
-    spawner.spawn(rc_button_c_handler(r.rc_c)).unwrap();
-    spawner.spawn(rc_button_d_handler(r.rc_d)).unwrap();
-    spawner.spawn(test_motors(r.motor)).unwrap();
+    spawner.spawn(rgb_led_indicate(r.rgb_led)).unwrap();
+    spawner.spawn(rc_button_a_handle(r.rc_a)).unwrap();
+    spawner.spawn(rc_button_b_handle(r.rc_b)).unwrap();
+    spawner.spawn(rc_button_c_handle(r.rc_c)).unwrap();
+    spawner.spawn(rc_button_d_handle(r.rc_d)).unwrap();
+    spawner.spawn(drive(r.motor)).unwrap();
 }

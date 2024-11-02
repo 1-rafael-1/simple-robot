@@ -36,7 +36,7 @@ const MEDIAN_WINDOW_SIZE: usize = 9;
 /// This task periodically reads the battery voltage using an ADC,
 /// calculates the battery charge level, and sends an event with the result.
 #[embassy_executor::task]
-pub async fn battery_charge_reader(r: BatteryChargeResources) {
+pub async fn battery_charge_read(r: BatteryChargeResources) {
     // Initialize ADC
     let mut adc = Adc::new(r.adc, Irqs, AdcConfig::default());
     let vsys_in = r.vsys_pin;
@@ -59,7 +59,7 @@ pub async fn battery_charge_reader(r: BatteryChargeResources) {
 
         // Calculate battery level as a percentage
         let battery_level = if voltage >= BATTERY_VOLTAGE_UPPER {
-            1.0
+            0.99
         } else if voltage <= BATTERY_VOLTAGE_LOWER {
             0.0
         } else {

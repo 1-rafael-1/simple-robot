@@ -18,7 +18,7 @@ const DEBOUNCE_DURATION: Duration = Duration::from_millis(30);
 ///
 /// This task initializes the GPIO for button A and continuously monitors its state.
 #[embassy_executor::task]
-pub async fn rc_button_a_handler(r: RCResourcesA) {
+pub async fn rc_button_a_handle(r: RCResourcesA) {
     let mut btn = Input::new(r.btn_a, Pull::Down);
     handle_button(&mut btn, event::ButtonId::A).await;
 }
@@ -27,7 +27,7 @@ pub async fn rc_button_a_handler(r: RCResourcesA) {
 ///
 /// This task initializes the GPIO for button B and continuously monitors its state.
 #[embassy_executor::task]
-pub async fn rc_button_b_handler(r: RCResourcesB) {
+pub async fn rc_button_b_handle(r: RCResourcesB) {
     let mut btn = Input::new(r.btn_b, Pull::Down);
     handle_button(&mut btn, event::ButtonId::B).await;
 }
@@ -36,7 +36,7 @@ pub async fn rc_button_b_handler(r: RCResourcesB) {
 ///
 /// This task initializes the GPIO for button C and continuously monitors its state.
 #[embassy_executor::task]
-pub async fn rc_button_c_handler(r: RCResourcesC) {
+pub async fn rc_button_c_handle(r: RCResourcesC) {
     let mut btn = Input::new(r.btn_c, Pull::Down);
     handle_button(&mut btn, event::ButtonId::C).await;
 }
@@ -45,7 +45,7 @@ pub async fn rc_button_c_handler(r: RCResourcesC) {
 ///
 /// This task initializes the GPIO for button D and continuously monitors its state.
 #[embassy_executor::task]
-pub async fn rc_button_d_handler(r: RCResourcesD) {
+pub async fn rc_button_d_handle(r: RCResourcesD) {
     let mut btn = Input::new(r.btn_d, Pull::Down);
     handle_button(&mut btn, event::ButtonId::D).await;
 }

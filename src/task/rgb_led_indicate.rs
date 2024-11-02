@@ -29,7 +29,7 @@ const AFFIRM_BLINK_INTERVAL: Duration = Duration::from_millis(30);
 /// - Battery level: Green (full) to Red (empty)
 /// - Operation mode: Solid (Manual) or Blinking (Autonomous)
 #[embassy_executor::task]
-pub async fn rgb_led_indicator(r: RGBLedResources) {
+pub async fn rgb_led_indicate(r: RGBLedResources) {
     // Configure red LED PWM
     let mut config_red = Config::default();
     config_red.top = PWM_MAX;

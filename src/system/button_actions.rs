@@ -3,6 +3,7 @@
 //! This module handles the actions triggered by button inputs on the robot's remote control.
 //! It defines the types of button actions and provides a central function for handling
 //! different button actions based on the button ID and action type.
+use crate::system::command;
 use crate::system::event;
 use crate::system::indicator;
 use crate::system::state;
