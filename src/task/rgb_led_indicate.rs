@@ -115,7 +115,7 @@ pub async fn rgb_led_indicate(r: RGBLedResources) {
                         select(Timer::after(MODE_BLINK_INTERVAL), indicator::wait()).await
                     {
                         // If system state changed, propagate the change and break the blink loop
-                        indicator::send(true);
+                        indicator::update(true);
                         break 'blink;
                     }
                 }

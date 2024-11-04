@@ -8,7 +8,6 @@ use defmt::Format;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
-
 /// Global system state protected by a mutex
 ///
 /// This static variable holds the current state of the system,
@@ -27,10 +26,8 @@ pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::ne
 pub struct SystemState {
     /// Current operation mode of the robot
     pub operation_mode: OperationMode,
-
     /// Current battery level (0-100)
     pub battery_level: u8,
-
     /// Indicates whether an obstacle is currently detected
     pub obstacle_detected: bool,
 }
@@ -50,7 +47,6 @@ impl SystemState {
 pub enum OperationMode {
     /// Manual operation mode, where the robot is controlled directly by user input
     Manual,
-
     /// Autonomous operation mode, where the robot operates independently based on programmed behaviors
     Autonomous,
 }

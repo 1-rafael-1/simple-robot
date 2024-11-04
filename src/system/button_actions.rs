@@ -3,7 +3,7 @@
 //! This module handles the actions triggered by button inputs on the robot's remote control.
 //! It defines the types of button actions and provides a central function for handling
 //! different button actions based on the button ID and action type.
-use crate::system::command;
+use crate::system::drive_command;
 use crate::system::event;
 use crate::system::indicator;
 use crate::system::state;
@@ -47,16 +47,16 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
         }
         // just testing! -> for now, just wakes the indicator
         (event::ButtonId::A, ButtonActionType::Press) => {
-            indicator::send(true);
+            indicator::update(true);
         }
         (event::ButtonId::B, ButtonActionType::Press) => {
-            indicator::send(true);
+            indicator::update(true);
         }
         (event::ButtonId::C, ButtonActionType::Press) => {
-            indicator::send(true);
+            indicator::update(true);
         }
         (event::ButtonId::D, ButtonActionType::Press) => {
-            indicator::send(true);
+            indicator::update(true);
         }
         // Add other button actions here
         _ => (), // No action for other combinations

@@ -17,7 +17,7 @@ pub static DRIVE: Signal<CriticalSectionRawMutex, Command> = Signal::new();
 ///
 /// This function is used to issue a new drive command to the system.
 /// It's a synchronous operation that doesn't require awaiting.
-pub fn send(command: Command) {
+pub fn update(command: Command) {
     DRIVE.signal(command);
 }
 
