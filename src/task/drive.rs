@@ -1,4 +1,4 @@
-use crate::system::command;
+use crate::system::drive_command;
 use crate::system::resources::MotorResources;
 use defmt::info;
 use embassy_rp::gpio;
@@ -43,20 +43,20 @@ pub async fn drive(r: MotorResources) {
     let mut control = Tb6612fng::new(left_motor, right_motor, stby).unwrap();
 
     loop {
-        let drive_command = command::wait().await;
+        let drive_command = drive_command::wait().await;
         let is_standby = control.current_standby().unwrap();
 
         match drive_command {
-            command::Command::Forward(speed) => {
+            drive_command::Command::Forward(speed) => {
                 if is_standby {
                     control.disable_standby().unwrap();
                     Timer::after(Duration::from_millis(100)).await;
                 }
-                info!("drive straight");
+                info!("drive forward");
                 control.motor_a.drive(DriveCommand::Forward(speed)).unwrap();
                 control.motor_b.drive(DriveCommand::Forward(speed)).unwrap();
             }
-            command::Command::Backward(speed) => {
+            drive_command::Command::Backward(speed) => {
                 info!("drive backward");
                 control
                     .motor_a
@@ -67,7 +67,7 @@ pub async fn drive(r: MotorResources) {
                     .drive(DriveCommand::Backward(speed))
                     .unwrap();
             }
-            command::Command::Left(speed) => {
+            drive_command::Command::Left(speed) => {
                 info!("turn left");
                 control
                     .motor_a
@@ -75,7 +75,7 @@ pub async fn drive(r: MotorResources) {
                     .unwrap();
                 control.motor_b.drive(DriveCommand::Forward(speed)).unwrap();
             }
-            command::Command::Right(speed) => {
+            drive_command::Command::Right(speed) => {
                 info!("turn right");
                 control.motor_a.drive(DriveCommand::Forward(speed)).unwrap();
                 control
@@ -83,17 +83,17 @@ pub async fn drive(r: MotorResources) {
                     .drive(DriveCommand::Backward(speed))
                     .unwrap();
             }
-            command::Command::Coast => {
+            drive_command::Command::Coast => {
                 info!("coast");
                 control.motor_a.drive(DriveCommand::Stop).unwrap();
                 control.motor_b.drive(DriveCommand::Stop).unwrap();
             }
-            command::Command::Brake => {
+            drive_command::Command::Brake => {
                 info!("brake");
                 control.motor_a.drive(DriveCommand::Brake).unwrap();
                 control.motor_b.drive(DriveCommand::Brake).unwrap();
             }
-            command::Command::Standby => {
+            drive_command::Command::Standby => {
                 if !is_standby {
                     control.motor_a.drive(DriveCommand::Brake).unwrap();
                     control.motor_b.drive(DriveCommand::Brake).unwrap();

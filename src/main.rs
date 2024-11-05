@@ -7,6 +7,7 @@
 #![no_std]
 #![no_main]
 
+use crate::task::autonomous_drive::autonomous_drive;
 use crate::task::battery_charge_read::battery_charge_read;
 use crate::task::distance_measure::distance_measure;
 use crate::task::drive::drive;
@@ -56,4 +57,5 @@ async fn main(spawner: Spawner) {
     spawner.spawn(rc_button_c_handle(r.rc_c)).unwrap();
     spawner.spawn(rc_button_d_handle(r.rc_d)).unwrap();
     spawner.spawn(drive(r.motor)).unwrap();
+    spawner.spawn(autonomous_drive()).unwrap();
 }
