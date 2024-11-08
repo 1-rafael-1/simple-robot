@@ -33,6 +33,21 @@ pub enum ButtonActionType {
 /// * `button_id` - The identifier of the button that was acted upon
 /// * `action_type` - The type of action performed on the button
 pub async fn handle_button_action(button_id: event::ButtonId, action_type: ButtonActionType) {
+    match action_type {
+        ButtonActionType::Press => {
+            // If we're in autonomous mode, any button press switches to manual mode
+            let state = state::SYSTEM_STATE.lock().await;
+            if state.operation_mode == state::OperationMode::Autonomous {
+                event::send(event::Events::OperationModeSet(
+                    state::OperationMode::Manual,
+                ))
+                .await;
+                return;
+            }
+        }
+        _ => (), // No action for other combinations
+    }
+
     match (button_id, action_type) {
         (event::ButtonId::A, ButtonActionType::HoldEnd) => {
             let state = state::SYSTEM_STATE.lock().await;
@@ -48,15 +63,19 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
         // just testing! -> for now, just wakes the indicator
         (event::ButtonId::A, ButtonActionType::Press) => {
             indicator::update(true);
+            drive_command::update(drive_command::Command::Forward(20));
         }
         (event::ButtonId::B, ButtonActionType::Press) => {
             indicator::update(true);
+            drive_command::update(drive_command::Command::Right(20));
         }
         (event::ButtonId::C, ButtonActionType::Press) => {
             indicator::update(true);
+            drive_command::update(drive_command::Command::Left(20));
         }
         (event::ButtonId::D, ButtonActionType::Press) => {
             indicator::update(true);
+            drive_command::update(drive_command::Command::Backward(20));
         }
         // Add other button actions here
         _ => (), // No action for other combinations

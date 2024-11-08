@@ -16,6 +16,7 @@ pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::ne
     operation_mode: OperationMode::Manual,
     battery_level: 100,
     obstacle_detected: false,
+    standby: false,
 });
 
 /// Represents the current state of the robot system
@@ -30,6 +31,8 @@ pub struct SystemState {
     pub battery_level: u8,
     /// Indicates whether an obstacle is currently detected
     pub obstacle_detected: bool,
+    /// Indicates whether the system is in standby mode
+    pub standby: bool,
 }
 
 impl SystemState {

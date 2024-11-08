@@ -1,3 +1,4 @@
+pub mod autonomous_command;
 pub mod button_actions;
 pub mod drive_command;
 pub mod event;

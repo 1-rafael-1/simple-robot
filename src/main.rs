@@ -16,6 +16,7 @@ use crate::task::rc_control::{
     rc_button_a_handle, rc_button_b_handle, rc_button_c_handle, rc_button_d_handle,
 };
 use crate::task::rgb_led_indicate::rgb_led_indicate;
+use crate::task::track_inactivity::track_inactivity;
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
@@ -58,4 +59,5 @@ async fn main(spawner: Spawner) {
     spawner.spawn(rc_button_d_handle(r.rc_d)).unwrap();
     spawner.spawn(drive(r.motor)).unwrap();
     spawner.spawn(autonomous_drive()).unwrap();
+    spawner.spawn(track_inactivity()).unwrap();
 }

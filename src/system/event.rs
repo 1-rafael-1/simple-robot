@@ -40,6 +40,8 @@ pub enum Events {
     ButtonHoldStart(ButtonId),
     /// Button hold ended
     ButtonHoldEnd(ButtonId),
+    /// Reached Inactivity Timeout
+    InactivityTimeout,
 }
 
 /// Button ID for button events.

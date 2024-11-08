@@ -8,14 +8,9 @@ use crate::system::state::{OperationMode, SYSTEM_STATE};
 use defmt::info;
 use embassy_futures::select::select;
 use embassy_futures::select::Either;
-use embassy_rp::pwm::{Config, Pwm};
+use embassy_rp::pwm;
+use embassy_rp::pwm::SetDutyCycle;
 use embassy_time::{Duration, Timer};
-
-/// Maximum PWM value (fully on)
-const PWM_MAX: u16 = 65535;
-
-/// Minimum PWM value (fully off)
-const PWM_MIN: u16 = 0;
 
 /// Interval for LED blinking in autonomous mode
 const MODE_BLINK_INTERVAL: Duration = Duration::from_millis(700);
@@ -30,25 +25,28 @@ const AFFIRM_BLINK_INTERVAL: Duration = Duration::from_millis(30);
 /// - Operation mode: Solid (Manual) or Blinking (Autonomous)
 #[embassy_executor::task]
 pub async fn rgb_led_indicate(r: RGBLedResources) {
+    // configure pwm for rgb led, 100Hz should suffice
+    let desired_freq_hz = 100;
+    let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
+    let divider = 16u8;
+    let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
+
     // Configure red LED PWM
-    let mut config_red = Config::default();
-    config_red.top = PWM_MAX;
-    config_red.compare_a = PWM_MIN;
-    let mut pwm_red = Pwm::new_output_a(r.pwm_red, r.red_pin, config_red.clone());
+    let mut config_red = pwm::Config::default();
+    config_red.divider = divider.into();
+    config_red.top = period;
+    let mut pwm_red = pwm::Pwm::new_output_a(r.pwm_red, r.red_pin, config_red.clone());
 
     // Configure green LED PWM
-    let mut config_green = Config::default();
-    config_green.top = PWM_MAX;
-    config_green.compare_a = PWM_MAX;
-    let mut pwm_green = Pwm::new_output_a(r.pwm_green, r.green_pin, config_green.clone());
-
-    let mut led_on = false;
+    let mut config_green = pwm::Config::default();
+    config_green.divider = divider.into();
+    config_green.top = period;
+    let mut pwm_green = pwm::Pwm::new_output_a(r.pwm_green, r.green_pin, config_green.clone());
 
     // set initial color to off
-    config_red.compare_a = PWM_MIN;
-    config_green.compare_a = PWM_MIN;
-    pwm_red.set_config(&config_red);
-    pwm_green.set_config(&config_green);
+    let mut led_on = false;
+    let _ = pwm_red.set_duty_cycle_fully_off();
+    let _ = pwm_green.set_duty_cycle_fully_off();
 
     loop {
         // Wait for a change in system state
@@ -58,14 +56,12 @@ pub async fn rgb_led_indicate(r: RGBLedResources) {
         if affirm {
             for _ in 0..5 {
                 if led_on {
-                    config_red.compare_a = PWM_MIN;
-                    config_green.compare_a = PWM_MAX;
+                    let _ = pwm_red.set_duty_cycle_fully_off();
+                    let _ = pwm_green.set_duty_cycle_fully_on();
                 } else {
-                    config_red.compare_a = PWM_MAX;
-                    config_green.compare_a = PWM_MIN;
+                    let _ = pwm_red.set_duty_cycle_fully_on();
+                    let _ = pwm_green.set_duty_cycle_fully_off();
                 }
-                pwm_green.set_config(&config_green);
-                pwm_red.set_config(&config_red);
                 led_on = !led_on;
                 Timer::after(AFFIRM_BLINK_INTERVAL).await;
             }
@@ -84,29 +80,25 @@ pub async fn rgb_led_indicate(r: RGBLedResources) {
         );
 
         // Calculate PWM values based on battery level
-        let green_pwm = (f32::from(battery_level) / 100.0 * f32::from(PWM_MAX)) as u16;
-        let red_pwm = PWM_MAX - green_pwm;
+        let green_pwm = battery_level.clamp(0, 100);
+        let red_pwm = (100u8 - battery_level).clamp(0, 100);
 
         match operation_mode {
             OperationMode::Manual => {
                 // In manual mode, keep LEDs continuously on
-                config_red.compare_a = red_pwm;
-                config_green.compare_a = green_pwm;
-                pwm_red.set_config(&config_red);
-                pwm_green.set_config(&config_green);
+                let _ = pwm_red.set_duty_cycle_percent(red_pwm);
+                let _ = pwm_green.set_duty_cycle_percent(green_pwm);
             }
             OperationMode::Autonomous => {
                 // In autonomous mode, blink LEDs
                 'blink: loop {
                     if led_on {
-                        config_red.compare_a = red_pwm;
-                        config_green.compare_a = green_pwm;
+                        let _ = pwm_red.set_duty_cycle_percent(red_pwm);
+                        let _ = pwm_green.set_duty_cycle_percent(green_pwm);
                     } else {
-                        config_red.compare_a = PWM_MIN;
-                        config_green.compare_a = PWM_MIN;
+                        let _ = pwm_red.set_duty_cycle_fully_off();
+                        let _ = pwm_green.set_duty_cycle_fully_off();
                     }
-                    pwm_red.set_config(&config_red);
-                    pwm_green.set_config(&config_green);
 
                     led_on = !led_on;
 

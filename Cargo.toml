@@ -56,10 +56,13 @@ embassy-time = { git = "https://github.com/embassy-rs/embassy", features = [
 embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
 defmt = "0.3"
 defmt-rtt = "0.4"
-cortex-m-rt = "0.7.0"
+cortex-m-rt = "0.7.5"
 critical-section = "1.2.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
-rand = { version = "0.8.5", default-features = false }
+nanorand = { version = "0.7.0", features = [
+    "wyrand",
+], default-features = false }
+# rand = { version = "0.8.5", default-features = false }
 assign-resources = "0.4.1"
 hcsr04_async = { version = "0.2.0", features = ["blocking_trigger"] }
 moving_median = "0.2.0"

@@ -3,10 +3,14 @@
 //! This module contains the main orchestrator task that manages the robot's overall behavior
 //! by handling system events and coordinating state changes.
 
+use crate::system::autonomous_command;
 use crate::system::button_actions;
+use crate::system::drive_command;
 use crate::system::event;
 use crate::system::indicator;
+use crate::system::state;
 use crate::system::state::{OperationMode, SYSTEM_STATE};
+use crate::task::track_inactivity;
 use defmt::info;
 
 /// Main orchestrator task
@@ -69,6 +73,13 @@ async fn process_event(event: event::Events) -> Option<event::Events> {
         event::Events::ButtonPressed(_button_id) => Some(event),
         event::Events::ButtonHoldStart(_button_id) => Some(event),
         event::Events::ButtonHoldEnd(_button_id) => Some(event),
+        event::Events::InactivityTimeout => {
+            if !state.standby {
+                Some(event)
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -86,18 +97,27 @@ async fn handle_state_changes(event: event::Events) {
             OperationMode::Manual => {
                 info!("Handling Manual mode");
                 indicator::update(true);
-                // TODO: Implement manual mode
+                autonomous_command::signal(autonomous_command::Command::Stop);
             }
             OperationMode::Autonomous => {
                 info!("Handling Autonomous mode");
                 indicator::update(true);
-                // TODO: Implement autonomous mode
+                autonomous_command::signal(autonomous_command::Command::Start);
             }
         },
         event::Events::ObstacleDetected(is_detected) => {
             info!("Handling obstacle detection: {}", is_detected);
-            // TODO: Implement obstacle avoidance
             indicator::update(true);
+            {
+                let state = SYSTEM_STATE.lock().await;
+                if state.operation_mode == OperationMode::Autonomous {
+                    if is_detected {
+                        autonomous_command::signal(autonomous_command::Command::AvoidObstacle);
+                    } else {
+                        autonomous_command::signal(autonomous_command::Command::Start);
+                    }
+                }
+            }
         }
         event::Events::BatteryLevelMeasured(_level) => {
             indicator::update(false);
@@ -109,6 +129,7 @@ async fn handle_state_changes(event: event::Events) {
                 button_actions::ButtonActionType::Press,
             )
             .await;
+            track_inactivity::signal_activity();
         }
         event::Events::ButtonHoldStart(button_id) => {
             info!("Handling button {} hold start", button_id);
@@ -117,6 +138,7 @@ async fn handle_state_changes(event: event::Events) {
                 button_actions::ButtonActionType::HoldStart,
             )
             .await;
+            track_inactivity::signal_activity();
         }
         event::Events::ButtonHoldEnd(button_id) => {
             info!("Handling button {} hold end", button_id);
@@ -125,6 +147,15 @@ async fn handle_state_changes(event: event::Events) {
                 button_actions::ButtonActionType::HoldEnd,
             )
             .await;
+            track_inactivity::signal_activity();
+        }
+        event::Events::InactivityTimeout => {
+            info!("Handling inactivity timeout");
+            event::send(event::Events::OperationModeSet(
+                state::OperationMode::Manual,
+            ))
+            .await;
+            drive_command::update(drive_command::Command::Standby);
         }
     }
 }
