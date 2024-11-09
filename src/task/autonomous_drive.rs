@@ -5,6 +5,8 @@
 //!
 use crate::system::autonomous_command;
 use crate::system::drive_command;
+use crate::system::event;
+use defmt::info;
 use embassy_time::{Duration, Timer};
 use nanorand::{Rng, WyRand};
 
@@ -43,25 +45,31 @@ pub async fn autonomous_drive() {
     loop {
         match autonomous_command::wait().await {
             autonomous_command::Command::Start => {
+                info!("Autonomous forward");
                 drive_command::update(drive_command::Command::Forward(FORWARD_SPEED));
             }
             autonomous_command::Command::Stop => {
+                info!("Autonomous stop");
                 drive_command::update(drive_command::Command::Brake);
                 Timer::after(Duration::from_millis(200)).await;
                 continue;
             }
             autonomous_command::Command::AvoidObstacle => {
+                info!("Autonomous obstacle avoid");
                 // Emergency stop
+                info!("emergency stop");
                 drive_command::update(drive_command::Command::Brake);
                 Timer::after(Duration::from_millis(500)).await;
 
                 // Back up
+                info!("backing up");
                 drive_command::update(drive_command::Command::Backward(REVERSE_SPEED));
                 Timer::after(BACKUP_DURATION).await;
                 drive_command::update(drive_command::Command::Brake);
                 Timer::after(Duration::from_millis(100)).await;
 
                 // make a random turn
+                info!("turning");
                 let turn_speed = rng.generate_range(TURN_SPEED_MIN..=100);
                 let turn_duration = Duration::from_millis(rng.generate_range(500..=1500));
                 if rng.generate_range(0..=1) == 0 {
@@ -70,11 +78,12 @@ pub async fn autonomous_drive() {
                     drive_command::update(drive_command::Command::Right(turn_speed))
                 };
                 Timer::after(turn_duration).await;
+                drive_command::update(drive_command::Command::Brake);
+                Timer::after(Duration::from_millis(100)).await;
 
-                // resume -> depending on what we received last while turning we either
-                // - stop: if we received a stop command
-                // - resume forward: if we received a start command because no more obstacle detected
-                // - repeat obstacle avoidance: if we received another obstacle detected command
+                // The orchestrator will automatically handle what happens next
+                // based on the current obstacle_detected state
+                event::send(event::Events::ObstacleAvoidanceAttempted).await;
             }
         }
     }

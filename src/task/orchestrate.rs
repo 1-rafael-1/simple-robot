@@ -62,6 +62,14 @@ async fn process_event(event: event::Events) -> Option<event::Events> {
                 None
             }
         }
+        event::Events::ObstacleAvoidanceAttempted => {
+            // if we are in autonomous mode and still have an obstacle after trying to avoid, we need handling
+            if state.obstacle_detected && state.operation_mode == OperationMode::Autonomous {
+                Some(event)
+            } else {
+                None
+            }
+        }
         event::Events::BatteryLevelMeasured(level) => {
             if state.battery_level != level {
                 state.battery_level = level;
@@ -118,6 +126,10 @@ async fn handle_state_changes(event: event::Events) {
                     }
                 }
             }
+        }
+        event::Events::ObstacleAvoidanceAttempted => {
+            indicator::update(true);
+            autonomous_command::signal(autonomous_command::Command::AvoidObstacle);
         }
         event::Events::BatteryLevelMeasured(_level) => {
             indicator::update(false);

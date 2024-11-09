@@ -32,6 +32,8 @@ pub enum Events {
     OperationModeSet(OperationMode),
     /// Obstacle detected
     ObstacleDetected(bool),
+    /// An obstacle avoidance sequence has run
+    ObstacleAvoidanceAttempted,
     /// Battery level measured
     BatteryLevelMeasured(u8),
     /// Button pressed
