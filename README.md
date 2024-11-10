@@ -1,20 +1,20 @@
 # simple-robot
 A very simple robot with HC-SR04 distance sensor and autonomous as well as remote controlled movement written in Rust
 
-![Robot Top View](media/top-view.jpg)
+![Robot Top View](misc/media/top-view.jpg)
 *Top view of the simple-robot showing the main components and assembly*
 
 ## See it in action!
 
 Check out the robot navigating autonomously:
 
-![Autonomous Operation](media/autonomous-operation.mp4)
+![Autonomous Operation](misc/media/autonomous-operation.mp4)
 
 ## Work in Progress!
 
 This is a WIP for my 9yo son, who wants me to build a robot for him.
 
-![Robot Side View](media/right-view.jpg)
+![Robot Side View](misc/media/right-view.jpg)
 *Side view showing the robot's profile and sensor placement*
 
 The thing will be a very simple machine. I am aiming at the following:
