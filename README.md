@@ -1,53 +1,78 @@
 # simple-robot
 A very simple robot with HC-SR04 distance sensor and autonomous as well as remote controlled movement written in Rust
 
-![Robot Top View](misc/media/top.jpg)
-*Top view of the simple-robot showing the main components and assembly*
-
-## See it in action!
-
-Check out the robot navigating autonomously:
-
-![Autonomous Operation](misc/media/autonomous-mode.mp4)
-
-## Work in Progress!
-
-This is a WIP for my 9yo son, who wants me to build a robot for him.
-
 ![Robot Side View](misc/media/right.jpg)
 *Side view showing the robot's profile and sensor placement*
 
-The thing will be a very simple machine. I am aiming at the following:
+Check out the robot navigating autonomously, download the demo video:
 
-+ Use a simple design, that is easily printed. For now I have settled on <https://www.thingiverse.com/thing:1582398>.
-+ Use a Raspberry Pi Pico 2 for controller. Why on earth use such a powerful controller? -> Because I need an excuse to tinker with that.
-+ Reuse the overall architecture from <https://github.com/1-rafael-1/pi-pico-alarmclock-rust>
+![Autonomous Operation](misc/media/autonomous-mode.mp4)
+
+## What is it?
+
+This is a hobby project for my 9yo son, who wanted me to build a robot for him. The thing is a rather simple machine. I was aiming at the following:
+
++ Use a chassis, that is easily printed. For now I have settled on <https://www.thingiverse.com/thing:972768>. The author of that design has moved on to more sophisticated designs, I will surely come back to those. But right now this was just as simple and versatile as I wanted it to be, really cool what people have made.
+    + The HC-SR04 holder is from here: <https://www.thingiverse.com/thing:189585>. It is not a perfect fit for the chassis, but works well enough.
++ Use a Raspberry Pi Pico 2 for controller. Why on earth use such a powerful controller? -> Because I needed an excuse to tinker with that.
 + Use much of the electronics components, some overly eager guy in my household bought a while ago in too large quantities. That is especially:
     + Li-Ion 18650 batteries and holders
     + step-up converters to 5V
     + HC-SR04 distance sensor
     + ...but of course this is ample opportunity to buy even more stuff... so a motor driver module, motors, and a simple RC unit and receiver... not to mention one absolutely has to buy two Pi Picos to make one device.
 
-These are the features it should have in the end:
+## What does it do?
 
-+ Actually be built and soldered and arrive at general working condition. Very important feature!
-+ Manual mode: Be able to drive the bot as an RC car, when in manual mode.
-    + As a bonus with collision control, so auto stop when nearing an obstacle and while too close refusing to drive in forward direction so an 8yo user does the least possible damage to living room furniture.
-+ Autonomous mode: Be able to drive around for no apparent reason until either battery or user patience runs out. 
-    + Have a simple drive control that when approaching an obstacle stops at a specified distance, makes a random turn and drives on. Much as first gen autonomous vacuum cleaners did.
+The robot offers two main modes of operation: manual (RC control) and autonomous. Here's what each mode can do:
 
-## What I want to learn
+### Manual Mode (RC Control)
+The robot can be controlled like a remote-controlled car using four buttons (A, B, C, D). Each button has two functions depending on whether you press it briefly or hold it:
 
-This is what I hope to learn about in this project:
+Button Control Scheme:
+- Button A:
+  - Quick press: Forward movement. Eveery press increases speed.
+  - Hold & Release: Switch to autonomous mode.
+- Button B:
+  - Quick press: Turn right. Every press increases turn speed.
+- Button C:
+  - Quick press: Turn left. Eve press increases turn speed.
+- Button D:
+  - Quick press: Backward movement. Everypress increases speed.
 
-+ Never did anything with motors and motor control, so hoping to learn about how to do that. So handle acceleration, deceleration, calibrating to drive on a straight line, turning on the spot and turning on the move, .... all of that likely less easy than it looks.
-+ Time distance measurements on a moving platform, feed the measured data into the overall flow and time reaction to that and acquisition of fresh data to achieve smooth continuous operation.
-+ Use a Raspberry Pi Pico 2 with Rust. At this point in time the probe-rs team is hard at work getting the rp2350 supported. Before that happens it will be not convenient to flash/debug the thing. Fingers crossed that happens before I arrive at actually doing much...
+The manual mode is pure RC control without any safety features - it's up to you to drive responsibly! Also, the ultra-chead RC sender and receiver I used are awkward to use and reception range is poor, so this is more for having done it and testing stuff.
 
-## And stuff I learned
+### Autonomous Mode
+In this mode, the robot becomes self-driving with the following behaviors:
+- Continuously moves forward while monitoring its environment
+- Uses the HC-SR04 ultrasonic sensor to measure distances (in centimeters)
+- When detecting an obstacle:
+  - Stops at a safe distance (currently set to avoid close encounters)
+  - Executes an avoidance maneuver:
+    1. Stops completely
+    2. Backs up a bit
+    3. Makes a random turn
+    4. Decides if there is still an obstacle, if yes executes avoidance maneuver again and if no resumes forward motion.
 
-+ Making an async driver: <https://crates.io/crates/hcsr04_async>, which was fun. See <https://github.com/1-rafael-1/hcsr04_async>
-    + Using an oscilloscope to troubleshoot
-    + And learn what async should not do :-)
-+ Filter sensor data with a moving median, make a package for embedded: <https://crates.io/crates/moving_median>. See <https://github.com/1-rafael-1/moving_median>
-+ Kids are impatient... "Is the robot done yet?" - maybe next time I'll not make a toy...
+Any quick button press will end autonomous mode.
+
+### System Features
+
+Battery Management:
+- Continuous monitoring of battery voltage through a voltage divider
+- Battery level indicated via RGB LED: The color of the LED changes from green to red as the measured voltage decreases. Right now there is no deep discharge protection, so red is 2.5V and at that point better switch it off to protect the Li-Ion.
+
+Auto Standby:
+- Automatic standby mode after 3 minutes of inactivity 
+- Monitors all user interactions (button presses) to reset the inactivity timer
+- In standby, motors are disabled to conserve power
+- Any button press will wake the robots motors from standby
+
+Sensor System:
+- HC-SR04 ultrasonic distance sensor
+- Measurements taken continuously at regular intervals
+- Uses moving median filtering for more reliable distance readings (I found that on a moving and vibrating platform the measurements vary wildly sometimes)
+
+## Stuff used
+
+
+
