@@ -4,9 +4,7 @@ A very simple robot with HC-SR04 distance sensor and autonomous as well as remot
 ![Robot Side View](misc/media/right.jpg)
 *Side view showing the robot's profile and sensor placement*
 
-Check out the robot navigating autonomously, download the demo video:
-
-![Autonomous Operation](misc/media/autonomous-mode.mp4)
+Check out the robot navigating autonomously, download the demo video here: [Autonomous Operation](misc/media/autonomous-mode.mp4).
 
 ## What is it?
 
@@ -35,11 +33,11 @@ Button Control Scheme:
 - Button B:
   - Quick press: Turn right. Every press increases turn speed.
 - Button C:
-  - Quick press: Turn left. Eve press increases turn speed.
+  - Quick press: Turn left. Every press increases turn speed.
 - Button D:
-  - Quick press: Backward movement. Everypress increases speed.
+  - Quick press: Backward movement. Every press increases speed.
 
-The manual mode is pure RC control without any safety features - it's up to you to drive responsibly! Also, the ultra-chead RC sender and receiver I used are awkward to use and reception range is poor, so this is more for having done it and testing stuff.
+The manual mode is pure RC control without any safety features - it's up to you to drive responsibly! Also, the ultra-cheap RC sender and receiver I used are awkward to use and reception range is poor, so this is more for having done it and testing stuff.
 
 ### Autonomous Mode
 In this mode, the robot becomes self-driving with the following behaviors:
@@ -74,5 +72,29 @@ Sensor System:
 
 ## Stuff used
 
+Here is an overview of things used to make the robot. This is not supposed to be an exact BOM, but should give a good idea what to get. For an idea what to connect to what, You can look at [resources.rs](src/system/resources.rs).
 
+| Component | Description |
+|:--|:--|
+|Raspberry Pi Pico 2|Yeah, vastly overpowered for this project, could be many other alternatives, I am sure.|
+|IC2262/2272 RC Module|RC transmitter and receiver unit bundle. Search for "IC2262/2272 rc ebay" and like a thousand of these pop up. I used a 433Mhz variant including sender and receiver. Uses 5V power and output, so either use voltage dividers or logic level shifter to connect to the Pico.|
+|HC-SR04|Ultrasonic distance sensor. Can be triggered with 3.3V, but needs 5V power and puts out 5V on the echo line, so either use a voltage divider or logic level shifter to connect to the Pico.|
+|TB6612FNG|Motor driver module. Control driven with 3.3V, 5V power and 5V on the motor power lines.|
+|5V DC geared motor|One for left and right each. There seems to be a somewhat standard form factor for these, but I did not find that form factors name. The motor is at the and of the gearbox, and the gearbox has a one or two-sided shaft protruding an right angle from it. That shaft must go into the cog wheel.|
+|U3V16F5|Step-up converter that can convert 3.3V to 5V. Plenty of other options besides this very device.|
+|18650 Li-Ion battery|Battery and holder, in my case here 3350mAh and 4.2V max, 2.5V min. Powering one rail and feeding the Pico as well as the step-up converter from it, so both must be happy with what the battery delivers. Note: no over-discharge protection in my setup, so either add a charge board for protection or make sure to disconnect the battery early enough!|
+|RGB Led|Whatever thing that can be driven by PWM on red and green pin each. Make sure to use appropriate resistors.|
+|104 ceramic (100nF) capacitor|Across power supply lines of RC receiver, distance sensor and motor driver.|
+|47uF electrolyte capacitor|Across power output of step-up converter. The RC receiver will not be happy with the power ripple otherwise.|
+470uF electrolyte capacitor|Across the motor power input of the motor driver. Motor switching wil send power spikes down the supply so much as to kick out the debugger and what else it hurt I could not observe.|
+|Resistors|At least 2 220Ω or 330Ω for the RGB LED.|
+|More Resistors|When not using logic level shifters between the 5V signals and the Picos GPIO, plenty to build voltage dividers. In that case 5 with 2-times the resistance of another 5 to get down from 5V to 3.3V|
+|Wires|Plenty.|
 
+Besides that the printed model must be assembled. I printed in PLA and that went quite well. For assembly You will need a couple of things from the hardware store, see the robots Thingyverse link from above, the pictures there have an assembly instruction referring to what is needed.
+
+## What could be improved
+
++ Very obviously this is still on a breadboard: So of course some soldering onto something more permanent and that way more fit to be handled by a 9yo, although he is quite careful. Some enclosure, ... that sort of stuff.
++ The obstacle avoidance with an ultrasonic sensor works but is not ideal. At flat angles and with things like a chair leg the detection does not work well and probably one should better use a IR distance sensor, because sound gets reflected while light gets scattered back and that way I assume IR sensors will prove more reliable for obstacle detection.
++ The very, very cheap RC solution has a number of drawbacks, reception range is very poor and gets a lot worse the more power is applied to the motors. Next iteration will be to change placing and connections of the RC receiver, to get it and its antenna as far away from and power lines and PWM lines as possible. I THINK most of the degrading performance when motors are powered is EMI, so whatever distance I can get between the motors and driver and that thing will help, maybe some aluminum foil shielding DIY may also help.
