@@ -98,3 +98,24 @@ Besides that the printed model must be assembled. I printed in PLA and that went
 + Very obviously this is still on a breadboard: So of course some soldering onto something more permanent and that way more fit to be handled by a 9yo, although he is quite careful. Some enclosure, ... that sort of stuff.
 + The obstacle avoidance with an ultrasonic sensor works but is not ideal. At flat angles and with things like a chair leg the detection does not work well and probably one should better use a IR distance sensor, because sound gets reflected while light gets scattered back and that way I assume IR sensors will prove more reliable for obstacle detection.
 + The very, very cheap RC solution has a number of drawbacks, reception range is very poor and gets a lot worse the more power is applied to the motors. Next iteration will be to change placing and connections of the RC receiver, to get it and its antenna as far away from and power lines and PWM lines as possible. I THINK most of the degrading performance when motors are powered is EMI, so whatever distance I can get between the motors and driver and that thing will help, maybe some aluminum foil shielding DIY may also help.
+
+## Side quests that became necessary
+
+Building the thing I found no async driver for teh HC-SR04, so I had to make one myself:
+
++ <https://github.com/1-rafael-1/hcsr04_async>
++ Also on <https://crates.io/crates/hcsr04_async>. 
+
+This was fun :-)
+
+Testing the ultrasonic sensor I found it gets even more unreliable when moving. So i searched for some moving median filtering solution, found none and made one myself:
+
++ <https://github.com/1-rafael-1/moving_median>
++ Also on <https://crates.io/crates/moving_median>
+
+A little less fun.
+
+## Disclaimer
+
+I am a hobbyist, I have no formal electronis education and am quite new to the hobby. So expect imperfections. I also still new to Rust and Embedded. By now I have basic understanding how things work at what is higher level things in embedded. 
+I do use AI when coding, which strangely is a very good teacher for a new language, because one can reach farther than one could without and that way one gets to see more things and so self-teaching stuff like that these days is way easier than it used to be not long ago. That being said: The code is my take on how to do this, actual professionals will find a thousand things one could do better. In case You find a thing that could be better: Happy to know about it! :-)
