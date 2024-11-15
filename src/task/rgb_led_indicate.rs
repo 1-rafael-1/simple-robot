@@ -26,9 +26,12 @@ const AFFIRM_BLINK_INTERVAL: Duration = Duration::from_millis(30);
 #[embassy_executor::task]
 pub async fn rgb_led_indicate(r: RGBLedResources) {
     // configure pwm for rgb led, 100Hz should suffice
+    // configure pwm for rgb led, 100Hz
     let desired_freq_hz = 100;
-    let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
-    let divider = 16u8;
+    let clock_freq_hz = embassy_rp::clocks::clk_sys_freq(); // 150MHz
+
+    // Calculate minimum divider needed to keep period under 16-bit limit (65535)s
+    let divider = ((clock_freq_hz / desired_freq_hz) / 65535 + 1) as u8;
     let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
 
     // Configure red LED PWM

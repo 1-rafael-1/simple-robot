@@ -17,12 +17,10 @@ pub async fn drive(r: MotorResources) {
     // Configure PWM for motor control
     // We use 10kHz frequency as cheaper DC motors often work better at lower frequencies
     let desired_freq_hz = 10_000;
-    let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
+    let clock_freq_hz = embassy_rp::clocks::clk_sys_freq(); // 150MHz
 
-    // Calculate the clock divider
-    let divider = 16u8;
-
-    // Calculate the period
+    // Calculate minimum divider needed to keep period under 16-bit limit (65535)
+    let divider = ((clock_freq_hz / desired_freq_hz) / 65535 + 1) as u8;
     let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
 
     // Configure PWM
