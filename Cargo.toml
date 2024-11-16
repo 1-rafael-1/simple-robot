@@ -2,6 +2,11 @@
 name = "simple-robot"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+authors = ["Rafael Koch <rafael.koch@gmx.net>"]
+description = "A simple tracked robot that can move around in RC or autonomous mode with basic sensors"
+readme = "README.md"
+repository = "https://github.com/1-rafael-1/simple-robot"
 
 [profile.dev]
 lto = true
@@ -62,7 +67,6 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 nanorand = { version = "0.7.0", features = [
     "wyrand",
 ], default-features = false }
-# rand = { version = "0.8.5", default-features = false }
 assign-resources = "0.4.1"
 hcsr04_async = { version = "0.2.0", features = ["blocking_trigger"] }
 moving_median = "0.2.0"
