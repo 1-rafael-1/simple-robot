@@ -11,7 +11,6 @@ use crate::system::indicator;
 use crate::system::state;
 use crate::system::state::{OperationMode, SYSTEM_STATE};
 use crate::task::track_inactivity;
-use defmt::info;
 
 /// Main orchestrator task
 ///
@@ -19,7 +18,6 @@ use defmt::info;
 /// It serves as the central coordinator for the robot's behavior.
 #[embassy_executor::task]
 pub async fn orchestrate() {
-    info!("Orchestrator started");
     loop {
         // wait for an event
         let event = event::wait().await;
@@ -103,18 +101,18 @@ async fn handle_state_changes(event: event::Events) {
     match event {
         event::Events::OperationModeSet(new_mode) => match new_mode {
             OperationMode::Manual => {
-                info!("Handling Manual mode");
+                // info!("Handling Manual mode");
                 indicator::update(true);
                 autonomous_command::signal(autonomous_command::Command::Stop);
             }
             OperationMode::Autonomous => {
-                info!("Handling Autonomous mode");
+                // info!("Handling Autonomous mode");
                 indicator::update(true);
                 autonomous_command::signal(autonomous_command::Command::Start);
             }
         },
         event::Events::ObstacleDetected(is_detected) => {
-            info!("Handling obstacle detection: {}", is_detected);
+            // info!("Handling obstacle detection: {}", is_detected);
             indicator::update(true);
             {
                 let state = SYSTEM_STATE.lock().await;
@@ -135,7 +133,7 @@ async fn handle_state_changes(event: event::Events) {
             indicator::update(false);
         }
         event::Events::ButtonPressed(button_id) => {
-            info!("Handling button {} press", button_id);
+            // info!("Handling button {} press", button_id);
             button_actions::handle_button_action(
                 button_id,
                 button_actions::ButtonActionType::Press,
@@ -144,7 +142,7 @@ async fn handle_state_changes(event: event::Events) {
             track_inactivity::signal_activity();
         }
         event::Events::ButtonHoldStart(button_id) => {
-            info!("Handling button {} hold start", button_id);
+            // info!("Handling button {} hold start", button_id);
             button_actions::handle_button_action(
                 button_id,
                 button_actions::ButtonActionType::HoldStart,
@@ -153,7 +151,7 @@ async fn handle_state_changes(event: event::Events) {
             track_inactivity::signal_activity();
         }
         event::Events::ButtonHoldEnd(button_id) => {
-            info!("Handling button {} hold end", button_id);
+            // info!("Handling button {} hold end", button_id);
             button_actions::handle_button_action(
                 button_id,
                 button_actions::ButtonActionType::HoldEnd,
@@ -162,7 +160,7 @@ async fn handle_state_changes(event: event::Events) {
             track_inactivity::signal_activity();
         }
         event::Events::InactivityTimeout => {
-            info!("Handling inactivity timeout");
+            // info!("Handling inactivity timeout");
             event::send(event::Events::OperationModeSet(
                 state::OperationMode::Manual,
             ))

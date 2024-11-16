@@ -5,7 +5,6 @@
 use crate::system::indicator;
 use crate::system::resources::RGBLedResources;
 use crate::system::state::{OperationMode, SYSTEM_STATE};
-use defmt::info;
 use embassy_futures::select::select;
 use embassy_futures::select::Either;
 use embassy_rp::pwm;
@@ -77,10 +76,10 @@ pub async fn rgb_led_indicate(r: RGBLedResources) {
             (state.battery_level, state.operation_mode)
         };
 
-        info!(
-            "Battery level: {}%, operation mode: {:?}",
-            battery_level, operation_mode
-        );
+        // info!(
+        //     "Battery level: {}%, operation mode: {:?}",
+        //     battery_level, operation_mode
+        // );
 
         // Calculate PWM values based on battery level
         let green_pwm = battery_level.clamp(0, 100);
