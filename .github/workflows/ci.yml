@@ -1,4 +1,4 @@
-name: Rust
+name: CI
 
 on:
   push:
@@ -11,10 +11,27 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
+    
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: thumbv8m.main-none-eabihf
+        override: true
+        profile: minimal
+
+    - name: Install cargo-binutils
+      run: cargo install cargo-binutils
+    
+    - name: Install llvm tools
+      run: rustup component add llvm-tools-preview
+    
     - name: Build
-      run: cargo build --release --verbose --target thumbv8m.main-none-eabihf
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release --verbose --target thumbv8m.main-none-eabihf
