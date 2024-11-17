@@ -10,6 +10,7 @@ use crate::system::event;
 use crate::system::indicator;
 use crate::system::state;
 use crate::system::state::{OperationMode, SYSTEM_STATE};
+use crate::task::autonomous_drive;
 
 /// Main coordination task
 #[embassy_executor::task]
@@ -84,6 +85,7 @@ async fn handle_state_changes(event: event::Events) {
             }
             OperationMode::Autonomous => {
                 indicator::update(true);
+                autonomous_command::signal(autonomous_command::Command::Initialize);
                 autonomous_command::signal(autonomous_command::Command::Start);
             }
         },

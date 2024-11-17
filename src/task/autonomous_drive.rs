@@ -30,6 +30,10 @@ pub async fn autonomous_drive() {
 
     loop {
         match autonomous_command::wait().await {
+            autonomous_command::Command::Initialize => {
+                drive_command::update(drive_command::Command::Coast);
+                Timer::after(Duration::from_millis(100)).await;
+            }
             autonomous_command::Command::Start => {
                 info!("Autonomous forward");
                 drive_command::update(drive_command::Command::Forward(FORWARD_SPEED));

@@ -11,9 +11,11 @@ pub static AUTONOMOUS_CONTROL: Signal<CriticalSectionRawMutex, Command> = Signal
 /// Autonomous operation commands
 #[derive(Debug, Clone)]
 pub enum Command {
-    /// Start autonomous mode
+    /// Initialize
+    Initialize,
+    /// Start driving
     Start,
-    /// Stop autonomous mode
+    /// Stop driving
     Stop,
     /// Handle detected obstacle
     AvoidObstacle,
