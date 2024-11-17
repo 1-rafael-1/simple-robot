@@ -1,8 +1,6 @@
-//! Drive Task Module
+//! Motor control implementation
 //!
-//! This module implements the drive control task that manages motor operations.
-//! It handles forward/backward motion, turning, and different stop modes using
-//! a TB6612FNG motor driver.
+//! Controls TB6612FNG dual motor driver for movement.
 
 use crate::system::drive_command;
 use crate::system::resources::MotorResources;
@@ -12,44 +10,41 @@ use embassy_rp::pwm;
 use embassy_time::{Duration, Timer};
 use tb6612fng::{DriveCommand, Motor, Tb6612fng};
 
-/// Determines if we're turning in place by checking if motors are running
-/// at equal speeds in opposite directions
+/// Checks if robot is turning in place
 fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
     left_speed == -right_speed && left_speed != 0
 }
 
 #[embassy_executor::task]
 pub async fn drive(r: MotorResources) {
-    // Configure PWM for motor control
-    // We use 10kHz frequency as cheaper DC motors often work better at lower frequencies
+    // PWM config (10kHz for DC motors)
     let desired_freq_hz = 10_000;
-    let clock_freq_hz = embassy_rp::clocks::clk_sys_freq(); // 150MHz
+    let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
 
-    // Calculate minimum divider needed to keep period under 16-bit limit (65535)
+    // Calculate divider for 16-bit limit
     let divider = ((clock_freq_hz / desired_freq_hz) / 65535 + 1) as u8;
     let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
 
-    // Configure PWM
     let mut pwm_config = pwm::Config::default();
     pwm_config.divider = divider.into();
     pwm_config.top = period;
 
-    // Initialize TB6612FNG motor driver pins
+    // Initialize motor driver pins
     let stby = gpio::Output::new(r.standby_pin, gpio::Level::Low);
 
-    // motor A, here defined to be the left motor
+    // Left motor
     let left_fwd = gpio::Output::new(r.left_forward_pin, gpio::Level::Low);
     let left_bckw = gpio::Output::new(r.left_backward_pin, gpio::Level::Low);
     let left_pwm = pwm::Pwm::new_output_a(r.left_slice, r.left_pwm_pin, pwm_config.clone());
     let left_motor = Motor::new(left_fwd, left_bckw, left_pwm).unwrap();
 
-    // motor B, here defined to be the right motor
+    // Right motor
     let right_fwd = gpio::Output::new(r.right_forward_pin, gpio::Level::Low);
     let right_bckw = gpio::Output::new(r.right_backward_pin, gpio::Level::Low);
     let right_pwm = pwm::Pwm::new_output_b(r.right_slice, r.right_pwm_pin, pwm_config.clone());
     let right_motor = Motor::new(right_fwd, right_bckw, right_pwm).unwrap();
 
-    // Create motor driver controller instance
+    // Motor driver
     let mut control = Tb6612fng::new(left_motor, right_motor, stby).unwrap();
 
     loop {
@@ -60,7 +55,7 @@ pub async fn drive(r: MotorResources) {
         let left_speed = control.motor_a.current_speed();
         let right_speed = control.motor_b.current_speed();
 
-        // Wake up from standby if movement is requested
+        // Wake from standby if movement requested
         if is_standby {
             match drive_command {
                 drive_command::Command::Forward(_)

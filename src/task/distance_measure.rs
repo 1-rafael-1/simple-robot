@@ -1,7 +1,6 @@
-//! Distance Measurement Module
+//! Distance sensor handling
 //!
-//! This module is responsible for periodically measuring the distance to obstacles
-//! using an HC-SR04 ultrasonic sensor and detecting if an obstacle is within a minimum distance.
+//! Measures distances and detects obstacles using HC-SR04.
 
 use crate::system::event::{send, Events};
 use crate::system::resources::DistanceSensorResources;
@@ -10,55 +9,49 @@ use embassy_time::{Duration, Timer};
 use hcsr04_async::{Config, DistanceUnit, Hcsr04, TemperatureUnit};
 use moving_median::MovingMedian;
 
-/// Interval between distance measurements
+/// Measurement interval (ms)
 const MEASUREMENT_INTERVAL: Duration = Duration::from_millis(100);
 
-/// Size of the moving median window for filtering measurements
+/// Median filter window size
 const MEDIAN_WINDOW_SIZE: usize = 3;
 
-/// Assumed ambient temperature for sound speed calculation
+/// Ambient temperature (°C)
 const TEMPERATURE: f64 = 21.5;
 
-/// Minimum distance threshold for obstacle detection (in cm)
+/// Obstacle detection threshold (cm)
 const MINIMUM_DISTANCE: f64 = 22.0;
 
-/// Task for measuring distance and detecting obstacles
-///
-/// This task periodically measures the distance using an HC-SR04 ultrasonic sensor,
-/// applies a median filter to the measurements, and sends an event if an obstacle
-/// is detected within the minimum distance threshold.
+/// Distance measurement task
 #[embassy_executor::task]
 pub async fn distance_measure(r: DistanceSensorResources) {
-    // Configure the HC-SR04 sensor
+    // Configure sensor
     let config: Config = Config {
         distance_unit: DistanceUnit::Centimeters,
         temperature_unit: TemperatureUnit::Celsius,
     };
 
-    // Initialize GPIO pins for the sensor
+    // Setup sensor
     let trigger = Output::new(r.trigger_pin, Level::Low);
     let echo = Input::new(r.echo_pin, Pull::None);
-
-    // Create the sensor instance
     let mut sensor = Hcsr04::new(trigger, echo, config);
 
-    // Initialize the median filter
     let mut median_filter = MovingMedian::<f64, MEDIAN_WINDOW_SIZE>::new();
 
     loop {
-        // Measure distance and apply median filter
+        // Measure and filter distance
         let filtered_distance = match sensor.measure(TEMPERATURE).await {
             Ok(distance_cm) => {
                 median_filter.add_value(distance_cm);
                 median_filter.median()
             }
-            Err(_) => 200.0, // Default to a large distance on error
+            Err(_) => 200.0, // Safe distance on error
         };
 
         send(Events::ObstacleDetected(
             filtered_distance <= MINIMUM_DISTANCE,
         ))
         .await;
+
         Timer::after(MEASUREMENT_INTERVAL).await;
     }
 }

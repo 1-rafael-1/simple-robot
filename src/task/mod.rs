@@ -1,3 +1,4 @@
+//! Robot task implementations
 pub mod autonomous_drive;
 pub mod battery_charge_read;
 pub mod distance_measure;

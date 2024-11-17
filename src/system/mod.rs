@@ -1,3 +1,5 @@
+//! Core system components for robot operation
+pub mod activity;
 pub mod autonomous_command;
 pub mod button_actions;
 pub mod drive_command;

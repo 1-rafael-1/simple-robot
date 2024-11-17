@@ -1,29 +1,19 @@
-//! System Indicator Module
+//! System indicator state
 //!
-//! This module provides functionality for managing and signaling changes
-//! in the system indicator. It uses an embassy-sync Signal for thread-safe
-//! communication across different parts of the system.
+//! Manages system indicator changes via signals.
+
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 
-/// Signal for system indicator changes
-///
-/// This static variable represents a thread-safe signal that can be used
-/// to notify different parts of the system about changes in the system indicator.
+/// System indicator state signal
 pub static SYSTEM_INDICATOR_CHANGED: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 
-/// Signals a change in the system indicator
-///
-/// This function is used to notify the system that the indicator has changed.
-/// It's a synchronous operation that doesn't require awaiting.
+/// Updates indicator state
 pub fn update(affirm: bool) {
     SYSTEM_INDICATOR_CHANGED.signal(affirm);
 }
 
-/// Waits for a change in the system indicator
-///
-/// This asynchronous function blocks until a change in the system indicator
-/// is signaled. It then returns the new value of the indicator.
+/// Waits for next indicator change
 pub async fn wait() -> bool {
     SYSTEM_INDICATOR_CHANGED.wait().await
 }

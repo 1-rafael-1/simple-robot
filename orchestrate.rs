@@ -61,9 +61,9 @@ async fn process_event(event: event::Events) -> Option<event::Events> {
                 None
             }
         }
-        event::Events::ButtonPressed(_)
-        | event::Events::ButtonHoldStart(_)
-        | event::Events::ButtonHoldEnd(_) => Some(event),
+        event::Events::ButtonPressed(_) | 
+        event::Events::ButtonHoldStart(_) | 
+        event::Events::ButtonHoldEnd(_) => Some(event),
         event::Events::InactivityTimeout => {
             if !state.standby {
                 Some(event)

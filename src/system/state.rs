@@ -1,17 +1,12 @@
-//! System State Module
+//! System state
 //!
-//! This module defines the global system state of the robot, including
-//! its operation mode, battery level, and obstacle detection status.
-//! It provides a thread-safe way to access and modify the system state.
+//! Global robot state including operation mode, battery, and sensors.
 
 use defmt::Format;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
-/// Global system state protected by a mutex
-///
-/// This static variable holds the current state of the system,
-/// allowing safe concurrent access from multiple tasks.
+/// Global system state
 pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::new(SystemState {
     operation_mode: OperationMode::Manual,
     battery_level: 100,
@@ -19,43 +14,37 @@ pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::ne
     standby: false,
 });
 
-/// Represents the current state of the robot system
-///
-/// This struct encapsulates all the key information about the robot's current state,
-/// including its operation mode, battery level, and whether an obstacle is detected.
+/// Robot system state
 #[derive(Format)]
 pub struct SystemState {
-    /// Current operation mode of the robot
+    /// Current operation mode
     pub operation_mode: OperationMode,
-    /// Current battery level (0-100)
+    /// Battery level (0-100)
     pub battery_level: u8,
-    /// Indicates whether an obstacle is currently detected
+    /// Obstacle detection status
     pub obstacle_detected: bool,
-    /// Indicates whether the system is in standby mode
+    /// Standby mode status
     pub standby: bool,
 }
 
 impl SystemState {
-    /// Sets the current operation mode of the system
+    /// Updates operation mode
     pub fn set_operation_mode(&mut self, new_mode: OperationMode) {
         self.operation_mode.set(new_mode);
     }
 }
 
-/// Represents the possible operation modes of the robot
-///
-/// This enum defines the different modes in which the robot can operate,
-/// allowing for distinction between manual control and autonomous operation.
+/// Robot operation modes
 #[derive(Debug, Clone, PartialEq, Format, Copy)]
 pub enum OperationMode {
-    /// Manual operation mode, where the robot is controlled directly by user input
+    /// User-controlled operation
     Manual,
-    /// Autonomous operation mode, where the robot operates independently based on programmed behaviors
+    /// Self-controlled operation
     Autonomous,
 }
 
 impl OperationMode {
-    /// Sets the new operation mode of the system.
+    /// Updates operation mode
     fn set(&mut self, new_mode: OperationMode) {
         *self = new_mode;
     }

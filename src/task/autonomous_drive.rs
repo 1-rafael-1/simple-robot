@@ -1,8 +1,7 @@
-//! Autonomous Drive Module
+//! Autonomous driving behavior
 //!
-//! This module handles the autonomous driving behavior of the robot.
-//! It responds to autonomous commands for starting, stopping, and obstacle avoidance.
-//!
+//! Handles robot movement patterns and obstacle avoidance.
+
 use crate::system::autonomous_command;
 use crate::system::drive_command;
 use crate::system::event;
@@ -10,36 +9,23 @@ use defmt::info;
 use embassy_time::{Duration, Timer};
 use nanorand::{Rng, WyRand};
 
-/// Duration to back up when obstacle is detected
+/// Duration for obstacle backup (ms)
 const BACKUP_DURATION: Duration = Duration::from_millis(1000);
-/// Standard forward speed for autonomous operation
+/// Standard forward speed
 const FORWARD_SPEED: u8 = 80;
-/// Speed used when backing away from obstacles
+/// Backup maneuver speed
 const REVERSE_SPEED: u8 = 80;
-/// Minimum turn speed to ensure effective rotation
+/// Minimum turn speed
 const TURN_SPEED_MIN: u8 = 80;
 
-/// Main autonomous driving task
-///
-/// This task manages the robot's autonomous movement patterns:
-/// - Initializes by ensuring the robot is stopped
-/// - Responds to Start/Stop commands
-/// - Handles obstacle avoidance with a sequence of:
-///   1. Emergency stop
-///   2. Backup maneuver
-///   3. Random direction turn
-///   
-/// Note: Forward motion after obstacle avoidance is handled by the
-/// queued Start command from the orchestrator, rather than being
-/// explicitly commanded here.
+/// Autonomous driving control task
 #[embassy_executor::task]
 pub async fn autonomous_drive() {
-    // stop in case we were moving
+    // Initial stop sequence
     drive_command::update(drive_command::Command::Coast);
     Timer::after(Duration::from_secs(1)).await;
     drive_command::update(drive_command::Command::Brake);
 
-    // initialize random number generator
     let mut rng = WyRand::new_seed(0x1234_5678_9abc_def0);
 
     loop {
@@ -68,7 +54,7 @@ pub async fn autonomous_drive() {
                 drive_command::update(drive_command::Command::Brake);
                 Timer::after(Duration::from_millis(100)).await;
 
-                // make a random turn
+                // Random turn
                 info!("turning");
                 let turn_speed = rng.generate_range(TURN_SPEED_MIN..=100);
                 let turn_duration = Duration::from_millis(rng.generate_range(500..=1500));
@@ -81,8 +67,7 @@ pub async fn autonomous_drive() {
                 drive_command::update(drive_command::Command::Brake);
                 Timer::after(Duration::from_millis(100)).await;
 
-                // The orchestrator will automatically handle what happens next
-                // based on the current obstacle_detected state
+                // Report complete evasion (we may still or again have an obstacle)
                 event::send(event::Events::ObstacleAvoidanceAttempted).await;
             }
         }

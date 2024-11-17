@@ -1,8 +1,6 @@
-//! Main Entry Point for the Simple Robot Control System
+//! Robot firmware entry point
 //!
-//! This module serves as the entry point for the robot's firmware.
-//! It initializes the system, spawns the main tasks, and sets up
-//! the necessary hardware resources.
+//! Initializes system and spawns control tasks.
 
 #![no_std]
 #![no_main]
@@ -26,22 +24,17 @@ use system::resources::{
 };
 use {defmt_rtt as _, panic_probe as _};
 
-/// Defines the image type for the firmware
-///
-/// This is used by the bootloader to determine how to load and execute the firmware.
+/// Firmware image type for bootloader
 #[link_section = ".start_block"]
 #[used]
 pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
-/// Module containing system states, events and resources
+/// System core modules
 mod system;
-/// Module containing all task-related code
+/// Task implementations
 mod task;
 
-/// Main function and entry point of the firmware
-///
-/// This function is called by the runtime after basic chip initialization.
-/// It's responsible for setting up the system and spawning the main tasks.
+/// Firmware entry point
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Config::default());

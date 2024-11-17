@@ -1,31 +1,26 @@
-//! System Events Module
+//! System Events
 //!
-//! This module defines the event system used for inter-task communication
-//! in the robot. It includes event types and a channel for event transmission,
-//! and utility functions for sending and receiving events.
+//! Defines events and channels for inter-task communication.
 
 use crate::system::state::OperationMode;
 use defmt::Format;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
-/// Channel for system-wide events
-///
-/// This channel allows multiple producers and a single consumer of events.
-/// It has a capacity of 10 events.
+/// Multi-producer, single-consumer event channel with capacity of 10
 pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Events, 10> = Channel::new();
 
-/// Sends an event to the system event channel
+/// Sends an event to the system channel
 pub async fn send(event: Events) {
     EVENT_CHANNEL.sender().send(event).await;
 }
 
-/// Waits for and receives the next event from the system event channel
+/// Receives the next event from the system channel
 pub async fn wait() -> Events {
     EVENT_CHANNEL.receiver().receive().await
 }
 
-/// Enum representing system-wide events
+/// System-wide events
 #[derive(Debug, Clone)]
 pub enum Events {
     /// Operation mode changed
@@ -46,7 +41,7 @@ pub enum Events {
     InactivityTimeout,
 }
 
-/// Button ID for button events.
+/// Button identifiers
 #[derive(Debug, Clone, Copy, Format, PartialEq)]
 pub enum ButtonId {
     A,
