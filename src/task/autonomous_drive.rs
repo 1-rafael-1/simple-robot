@@ -1,13 +1,40 @@
 //! Autonomous driving behavior
 //!
-//! Handles robot movement patterns and obstacle avoidance.
+//! Controls robot movement patterns and obstacle avoidance via commands.
 
-use crate::system::autonomous_command;
-use crate::system::drive_command;
 use crate::system::event;
+use crate::task::drive;
 use defmt::info;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use nanorand::{Rng, WyRand};
+
+/// Control signal for autonomous operations
+static AUTONOMOUS_CONTROL: Signal<CriticalSectionRawMutex, Command> = Signal::new();
+
+/// Available commands for autonomous control
+#[derive(Debug, Clone)]
+pub enum Command {
+    /// Initialize
+    Initialize,
+    /// Start driving
+    Start,
+    /// Stop driving
+    Stop,
+    /// Handle detected obstacle
+    AvoidObstacle,
+}
+
+/// Sends command to autonomous control
+pub fn send_command(command: Command) {
+    AUTONOMOUS_CONTROL.signal(command);
+}
+
+/// Waits for next command
+async fn wait_command() -> Command {
+    AUTONOMOUS_CONTROL.wait().await
+}
 
 /// Duration for obstacle backup (ms)
 const BACKUP_DURATION: Duration = Duration::from_millis(1000);
@@ -22,40 +49,40 @@ const TURN_SPEED_MIN: u8 = 80;
 #[embassy_executor::task]
 pub async fn autonomous_drive() {
     // Initial stop sequence
-    drive_command::update(drive_command::Command::Coast);
+    drive::send_command(drive::Command::Coast);
     Timer::after(Duration::from_secs(1)).await;
-    drive_command::update(drive_command::Command::Brake);
+    drive::send_command(drive::Command::Brake);
 
     let mut rng = WyRand::new_seed(0x1234_5678_9abc_def0);
 
     loop {
-        match autonomous_command::wait().await {
-            autonomous_command::Command::Initialize => {
-                drive_command::update(drive_command::Command::Coast);
+        match wait_command().await {
+            Command::Initialize => {
+                drive::send_command(drive::Command::Coast);
                 Timer::after(Duration::from_millis(100)).await;
             }
-            autonomous_command::Command::Start => {
+            Command::Start => {
                 info!("Autonomous forward");
-                drive_command::update(drive_command::Command::Forward(FORWARD_SPEED));
+                drive::send_command(drive::Command::Forward(FORWARD_SPEED));
             }
-            autonomous_command::Command::Stop => {
+            Command::Stop => {
                 info!("Autonomous stop");
-                drive_command::update(drive_command::Command::Brake);
+                drive::send_command(drive::Command::Brake);
                 Timer::after(Duration::from_millis(200)).await;
                 continue;
             }
-            autonomous_command::Command::AvoidObstacle => {
+            Command::AvoidObstacle => {
                 info!("Autonomous obstacle avoid");
                 // Emergency stop
                 info!("emergency stop");
-                drive_command::update(drive_command::Command::Brake);
+                drive::send_command(drive::Command::Brake);
                 Timer::after(Duration::from_millis(500)).await;
 
                 // Back up
                 info!("backing up");
-                drive_command::update(drive_command::Command::Backward(REVERSE_SPEED));
+                drive::send_command(drive::Command::Backward(REVERSE_SPEED));
                 Timer::after(BACKUP_DURATION).await;
-                drive_command::update(drive_command::Command::Brake);
+                drive::send_command(drive::Command::Brake);
                 Timer::after(Duration::from_millis(100)).await;
 
                 // Random turn
@@ -63,12 +90,12 @@ pub async fn autonomous_drive() {
                 let turn_speed = rng.generate_range(TURN_SPEED_MIN..=100);
                 let turn_duration = Duration::from_millis(rng.generate_range(500..=1500));
                 if rng.generate_range(0..=1) == 0 {
-                    drive_command::update(drive_command::Command::Left(turn_speed))
+                    drive::send_command(drive::Command::Left(turn_speed))
                 } else {
-                    drive_command::update(drive_command::Command::Right(turn_speed))
+                    drive::send_command(drive::Command::Right(turn_speed))
                 };
                 Timer::after(turn_duration).await;
-                drive_command::update(drive_command::Command::Brake);
+                drive::send_command(drive::Command::Brake);
                 Timer::after(Duration::from_millis(100)).await;
 
                 // Report complete evasion (we may still or again have an obstacle)

@@ -3,14 +3,13 @@
 //! Manages robot behavior by coordinating state changes and event handling.
 
 use crate::system::activity;
-use crate::system::autonomous_command;
 use crate::system::button_actions;
-use crate::system::drive_command;
 use crate::system::event;
-use crate::system::indicator;
 use crate::system::state;
 use crate::system::state::{OperationMode, SYSTEM_STATE};
 use crate::task::autonomous_drive;
+use crate::task::drive;
+use crate::task::rgb_led_indicate;
 
 /// Main coordination task
 #[embassy_executor::task]
@@ -80,34 +79,34 @@ async fn handle_state_changes(event: event::Events) {
     match event {
         event::Events::OperationModeSet(new_mode) => match new_mode {
             OperationMode::Manual => {
-                indicator::update(true);
-                autonomous_command::signal(autonomous_command::Command::Stop);
+                rgb_led_indicate::update_indicator(true);
+                autonomous_drive::send_command(autonomous_drive::Command::Stop);
             }
             OperationMode::Autonomous => {
-                indicator::update(true);
-                autonomous_command::signal(autonomous_command::Command::Initialize);
-                autonomous_command::signal(autonomous_command::Command::Start);
+                rgb_led_indicate::update_indicator(true);
+                autonomous_drive::send_command(autonomous_drive::Command::Initialize);
+                autonomous_drive::send_command(autonomous_drive::Command::Start);
             }
         },
         event::Events::ObstacleDetected(is_detected) => {
-            indicator::update(true);
+            rgb_led_indicate::update_indicator(true);
             {
                 let state = SYSTEM_STATE.lock().await;
                 if state.operation_mode == OperationMode::Autonomous {
-                    autonomous_command::signal(if is_detected {
-                        autonomous_command::Command::AvoidObstacle
+                    autonomous_drive::send_command(if is_detected {
+                        autonomous_drive::Command::AvoidObstacle
                     } else {
-                        autonomous_command::Command::Start
+                        autonomous_drive::Command::Start
                     });
                 }
             }
         }
         event::Events::ObstacleAvoidanceAttempted => {
-            indicator::update(true);
-            autonomous_command::signal(autonomous_command::Command::AvoidObstacle);
+            rgb_led_indicate::update_indicator(true);
+            autonomous_drive::send_command(autonomous_drive::Command::AvoidObstacle);
         }
         event::Events::BatteryLevelMeasured(_) => {
-            indicator::update(false);
+            rgb_led_indicate::update_indicator(false);
         }
         event::Events::ButtonPressed(button_id) => {
             button_actions::handle_button_action(
@@ -138,7 +137,7 @@ async fn handle_state_changes(event: event::Events) {
                 state::OperationMode::Manual,
             ))
             .await;
-            drive_command::update(drive_command::Command::Standby);
+            drive::send_command(drive::Command::Standby);
         }
     }
 }

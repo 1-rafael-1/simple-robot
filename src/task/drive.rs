@@ -1,14 +1,42 @@
 //! Motor control implementation
 //!
-//! Controls TB6612FNG dual motor driver for movement.
+//! - Controls TB6612FNG dual motor driver
+//! - Manages motor speeds and directions
+//! - Handles movement commands via signals
 
-use crate::system::drive_command;
 use crate::system::resources::MotorResources;
 use defmt::info;
 use embassy_rp::gpio;
 use embassy_rp::pwm;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use tb6612fng::{DriveCommand, Motor, Tb6612fng};
+
+/// Drive control signal
+static DRIVE_CONTROL: Signal<CriticalSectionRawMutex, Command> = Signal::new();
+
+/// Motor control commands
+#[derive(Debug, Clone)]
+pub enum Command {
+    Left(u8),     // 0-100
+    Right(u8),    // 0-100
+    Forward(u8),  // 0-100
+    Backward(u8), // 0-100
+    Brake,        // Actively brake motors
+    Coast,        // Stop motors
+    Standby,      // Power saving
+}
+
+/// Sends drive command
+pub fn send_command(command: Command) {
+    DRIVE_CONTROL.signal(command);
+}
+
+/// Waits for next command
+async fn wait_command() -> Command {
+    DRIVE_CONTROL.wait().await
+}
 
 /// Checks if robot is turning in place
 fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
@@ -48,7 +76,7 @@ pub async fn drive(r: MotorResources) {
     let mut control = Tb6612fng::new(left_motor, right_motor, stby).unwrap();
 
     loop {
-        let drive_command = drive_command::wait().await;
+        let drive_command = wait_command().await;
 
         // Get current state
         let is_standby = control.current_standby().unwrap();
@@ -58,10 +86,10 @@ pub async fn drive(r: MotorResources) {
         // Wake from standby if movement requested
         if is_standby {
             match drive_command {
-                drive_command::Command::Forward(_)
-                | drive_command::Command::Backward(_)
-                | drive_command::Command::Left(_)
-                | drive_command::Command::Right(_) => {
+                Command::Forward(_)
+                | Command::Backward(_)
+                | Command::Left(_)
+                | Command::Right(_) => {
                     control.disable_standby().unwrap();
                     Timer::after(Duration::from_millis(100)).await;
                 }
@@ -70,7 +98,7 @@ pub async fn drive(r: MotorResources) {
         }
 
         match drive_command {
-            drive_command::Command::Forward(speed) => {
+            Command::Forward(speed) => {
                 // Stop first if currently moving backward
                 if left_speed < 0 || right_speed < 0 {
                     info!("in conflicting motion, stopping");
@@ -90,7 +118,7 @@ pub async fn drive(r: MotorResources) {
                         .unwrap();
                 }
             }
-            drive_command::Command::Backward(speed) => {
+            Command::Backward(speed) => {
                 // Stop first if currently moving forward
                 if left_speed > 0 || right_speed > 0 {
                     info!("in conflicting motion, stopping");
@@ -110,7 +138,7 @@ pub async fn drive(r: MotorResources) {
                         .unwrap();
                 }
             }
-            drive_command::Command::Left(speed) => {
+            Command::Left(speed) => {
                 if left_speed > right_speed {
                     // We're in a right turn, need to counter it
                     if is_turning_in_place(left_speed, right_speed) {
@@ -180,7 +208,7 @@ pub async fn drive(r: MotorResources) {
                     }
                 }
             }
-            drive_command::Command::Right(speed) => {
+            Command::Right(speed) => {
                 if right_speed > left_speed {
                     // We're in a left turn, need to counter it
                     if is_turning_in_place(left_speed, right_speed) {
@@ -250,17 +278,17 @@ pub async fn drive(r: MotorResources) {
                     }
                 }
             }
-            drive_command::Command::Coast => {
+            Command::Coast => {
                 info!("coast");
                 control.motor_a.drive(DriveCommand::Stop).unwrap();
                 control.motor_b.drive(DriveCommand::Stop).unwrap();
             }
-            drive_command::Command::Brake => {
+            Command::Brake => {
                 info!("brake");
                 control.motor_a.drive(DriveCommand::Brake).unwrap();
                 control.motor_b.drive(DriveCommand::Brake).unwrap();
             }
-            drive_command::Command::Standby => {
+            Command::Standby => {
                 if !is_standby {
                     control.motor_a.drive(DriveCommand::Brake).unwrap();
                     control.motor_b.drive(DriveCommand::Brake).unwrap();

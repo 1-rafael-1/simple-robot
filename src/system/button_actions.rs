@@ -2,10 +2,10 @@
 //!
 //! Maps remote control button inputs to robot actions.
 
-use crate::system::drive_command;
 use crate::system::event;
-use crate::system::indicator;
 use crate::system::state;
+use crate::task::drive;
+use crate::task::rgb_led_indicate;
 
 /// Button action types
 #[derive(Debug, Clone, Copy)]
@@ -48,20 +48,20 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
             .await;
         }
         (event::ButtonId::A, ButtonActionType::Press) => {
-            indicator::update(true);
-            drive_command::update(drive_command::Command::Forward(20));
+            rgb_led_indicate::update_indicator(true);
+            drive::send_command(drive::Command::Forward(20));
         }
         (event::ButtonId::B, ButtonActionType::Press) => {
-            indicator::update(true);
-            drive_command::update(drive_command::Command::Right(20));
+            rgb_led_indicate::update_indicator(true);
+            drive::send_command(drive::Command::Right(20));
         }
         (event::ButtonId::C, ButtonActionType::Press) => {
-            indicator::update(true);
-            drive_command::update(drive_command::Command::Left(20));
+            rgb_led_indicate::update_indicator(true);
+            drive::send_command(drive::Command::Left(20));
         }
         (event::ButtonId::D, ButtonActionType::Press) => {
-            indicator::update(true);
-            drive_command::update(drive_command::Command::Backward(20));
+            rgb_led_indicate::update_indicator(true);
+            drive::send_command(drive::Command::Backward(20));
         }
         _ => (), // No action for other combinations
     }

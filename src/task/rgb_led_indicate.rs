@@ -1,23 +1,39 @@
-//! RGB LED indication
+//! RGB LED indication for system status
 //!
-//! Visual feedback for battery level and operation mode.
+//! - Manual mode: Solid color (green to red) based on battery level
+//! - Autonomous mode: Blinking color based on battery level
+//! - State changes: Quick alternating blink sequence
 
-use crate::system::indicator;
 use crate::system::resources::RGBLedResources;
 use crate::system::state::{OperationMode, SYSTEM_STATE};
 use embassy_futures::select::select;
 use embassy_futures::select::Either;
 use embassy_rp::pwm;
 use embassy_rp::pwm::SetDutyCycle;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 
-/// Autonomous mode blink interval (ms)
+/// Indicator state signal for LED control
+pub static INDICATOR_CHANGED: Signal<CriticalSectionRawMutex, bool> = Signal::new();
+
+/// Triggers an LED indicator state update
+pub fn update_indicator(affirm: bool) {
+    INDICATOR_CHANGED.signal(affirm);
+}
+
+/// Waits for next indicator state change
+async fn wait_indicator() -> bool {
+    INDICATOR_CHANGED.wait().await
+}
+
+/// Blink interval for autonomous mode (ms)
 const MODE_BLINK_INTERVAL: Duration = Duration::from_millis(700);
 
-/// State change blink interval (ms)
+/// Blink interval for state changes (ms)
 const AFFIRM_BLINK_INTERVAL: Duration = Duration::from_millis(30);
 
-/// LED indicator control task
+/// Controls RGB LED based on system state and operation mode
 #[embassy_executor::task]
 pub async fn rgb_led_indicate(r: RGBLedResources) {
     // PWM config (100Hz)
@@ -46,7 +62,7 @@ pub async fn rgb_led_indicate(r: RGBLedResources) {
     let _ = pwm_green.set_duty_cycle_fully_off();
 
     loop {
-        let affirm = indicator::wait().await;
+        let affirm = wait_indicator().await;
 
         // Quick blink to confirm state change
         if affirm {
@@ -82,7 +98,7 @@ pub async fn rgb_led_indicate(r: RGBLedResources) {
             }
             OperationMode::Autonomous => {
                 // Continuous blink in autonomous mode
-                'blink: loop {
+                'autonomous_blink: loop {
                     if led_on {
                         let _ = pwm_red.set_duty_cycle_percent(red_pwm);
                         let _ = pwm_green.set_duty_cycle_percent(green_pwm);
@@ -93,11 +109,12 @@ pub async fn rgb_led_indicate(r: RGBLedResources) {
 
                     led_on = !led_on;
 
+                    // In case enother indicator update happens, break
                     if let Either::Second(_) =
-                        select(Timer::after(MODE_BLINK_INTERVAL), indicator::wait()).await
+                        select(Timer::after(MODE_BLINK_INTERVAL), wait_indicator()).await
                     {
-                        indicator::update(true);
-                        break 'blink;
+                        update_indicator(true);
+                        break 'autonomous_blink;
                     }
                 }
             }
