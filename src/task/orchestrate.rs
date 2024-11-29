@@ -2,7 +2,6 @@
 //!
 //! Manages robot behavior by coordinating state changes and event handling.
 
-use crate::system::activity;
 use crate::system::button_actions;
 use crate::system::event;
 use crate::system::state;
@@ -10,6 +9,7 @@ use crate::system::state::{OperationMode, SYSTEM_STATE};
 use crate::task::autonomous_drive;
 use crate::task::drive;
 use crate::task::rgb_led_indicate;
+use crate::task::track_inactivity;
 
 /// Main coordination task
 #[embassy_executor::task]
@@ -114,7 +114,7 @@ async fn handle_state_changes(event: event::Events) {
                 button_actions::ButtonActionType::Press,
             )
             .await;
-            activity::signal_activity();
+            track_inactivity::signal_activity();
         }
         event::Events::ButtonHoldStart(button_id) => {
             button_actions::handle_button_action(
@@ -122,7 +122,7 @@ async fn handle_state_changes(event: event::Events) {
                 button_actions::ButtonActionType::HoldStart,
             )
             .await;
-            activity::signal_activity();
+            track_inactivity::signal_activity();
         }
         event::Events::ButtonHoldEnd(button_id) => {
             button_actions::handle_button_action(
@@ -130,7 +130,7 @@ async fn handle_state_changes(event: event::Events) {
                 button_actions::ButtonActionType::HoldEnd,
             )
             .await;
-            activity::signal_activity();
+            track_inactivity::signal_activity();
         }
         event::Events::InactivityTimeout => {
             event::send(event::Events::OperationModeSet(
