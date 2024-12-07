@@ -1,8 +1,20 @@
 //! Motor control implementation
 //!
-//! - Controls TB6612FNG dual motor driver
-//! - Manages motor speeds and directions
-//! - Handles movement commands via signals
+//! Controls the robot's movement through a TB6612FNG dual motor driver:
+//! - Manages motor speeds (0-100%) and directions for both left and right motors
+//! - Handles complex movement commands like turning while moving
+//! - Provides power management through standby mode
+//!
+//! # Motor Control Logic
+//! - Forward/Backward: Both motors run at equal speeds
+//! - Turning: Differential speed between left/right motors
+//! - Speed changes are incremental and clamped to valid ranges
+//! - Conflicting motions (e.g. forward while moving backward) trigger a stop first
+//!
+//! # Power Management
+//! - Standby mode disables motor driver for power saving
+//! - Wake-up sequence ensures clean transitions from standby
+//! - Brake command actively stops motors vs Coast which lets them spin down
 
 use crate::system::resources::MotorResources;
 use defmt::info;
@@ -13,36 +25,45 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use tb6612fng::{DriveCommand, Motor, Tb6612fng};
 
-/// Drive control signal
+/// Drive control signal for sending commands to the motor task
 static DRIVE_CONTROL: Signal<CriticalSectionRawMutex, Command> = Signal::new();
 
-/// Motor control commands
+/// Motor control commands with speed parameters in range 0-100
 #[derive(Debug, Clone)]
 pub enum Command {
-    Left(u8),     // 0-100
-    Right(u8),    // 0-100
-    Forward(u8),  // 0-100
-    Backward(u8), // 0-100
-    Brake,        // Actively brake motors
-    Coast,        // Stop motors
-    Standby,      // Power saving
+    /// Turn left motor only, speed 0-100
+    Left(u8),
+    /// Turn right motor only, speed 0-100     
+    Right(u8),
+    /// Drive both motors forward, speed 0-100
+    Forward(u8),
+    /// Drive both motors backward, speed 0-100
+    Backward(u8),
+    /// Actively brake motors (high resistance stop)
+    Brake,
+    /// Let motors coast to stop (low resistance)
+    Coast,
+    /// Enter power saving mode
+    Standby,
 }
 
-/// Sends drive command
+/// Sends a drive command to the motor control task
 pub fn send_command(command: Command) {
     DRIVE_CONTROL.signal(command);
 }
 
-/// Waits for next command
+/// Waits for next motor command
 async fn wait_command() -> Command {
     DRIVE_CONTROL.wait().await
 }
 
-/// Checks if robot is turning in place
+/// Checks if robot is executing a pure rotation (turning in place)
+/// by verifying motors are running at equal speeds in opposite directions
 fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
     left_speed == -right_speed && left_speed != 0
 }
 
+/// Main motor control task that processes movement commands
 #[embassy_executor::task]
 pub async fn drive(r: MotorResources) {
     // PWM config (10kHz for DC motors)

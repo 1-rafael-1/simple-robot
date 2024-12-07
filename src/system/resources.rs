@@ -1,7 +1,22 @@
-//! Resource Allocation Module
+//! Hardware Resource Management
 //!
-//! This module defines the hardware resources used by various components of the robot.
-//! It uses the `assign_resources` macro to allocate specific pins and peripherals to each component.
+//! Manages and allocates hardware resources (pins, peripherals) to different system components.
+//! This module ensures safe and organized access to the robot's hardware by:
+//! - Defining clear ownership of hardware resources
+//! - Preventing conflicts in hardware access
+//! - Providing safe concurrent access to shared resources (e.g., ADC)
+//!
+//! # Resource Groups
+//! - Distance Sensor: HC-SR04 ultrasonic sensor pins
+//! - Battery Monitor: System voltage monitoring pin
+//! - RGB LED: PWM-controlled indicator LED pins
+//! - RC Control: Remote control button input pins
+//! - Motor Control: Dual motor driver pins and PWM channels
+//!
+//! # Shared Resources
+//! The ADC is shared between tasks and protected by a mutex to ensure
+//! safe concurrent access. Tasks must acquire the mutex lock before
+//! performing ADC operations and release it promptly after.
 
 use assign_resources::assign_resources;
 use embassy_rp::adc::InterruptHandler as AdcInterruptHandler;
@@ -49,31 +64,39 @@ pub fn get_adc() -> &'static Mutex<CriticalSectionRawMutex, Option<Adc<'static, 
 }
 
 assign_resources! {
+    /// HC-SR04 ultrasonic distance sensor pins
     distance_sensor: DistanceSensorResources {
        trigger_pin: PIN_15,
        echo_pin: PIN_14,
     },
+    /// Battery voltage monitoring pin
     battery_charge: BatteryChargeResources {
        vsys_pin: PIN_29,
     },
+    /// PWM-controlled RGB LED indicator pins
     rgb_led: RGBLedResources {
         pwm_red: PWM_SLICE1,
         pwm_green: PWM_SLICE2,
         red_pin: PIN_2,
         green_pin: PIN_4,
     },
+    /// Remote control button A input
     rc_a: RCResourcesA {
         btn_a: PIN_6,
     },
+    /// Remote control button B input
     rc_b: RCResourcesB {
         btn_b: PIN_7,
     },
+    /// Remote control button C input
     rc_c: RCResourcesC {
         btn_c: PIN_8,
     },
+    /// Remote control button D input
     rc_d: RCResourcesD {
         btn_d: PIN_9,
     },
+    /// TB6612FNG dual motor driver pins and PWM channels
     motor: MotorResources {
         standby_pin: PIN_22,
         left_slice: PWM_SLICE6,

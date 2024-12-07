@@ -1,6 +1,19 @@
 //! System orchestration
 //!
 //! Manages robot behavior by coordinating state changes and event handling.
+//!
+//! # Architecture
+//! This module implements a central event loop that:
+//! - Waits for system events (button presses, sensor readings, etc.)
+//! - Processes events to determine if they cause state changes
+//! - Handles state transitions by coordinating other system tasks
+//!
+//! # State Management
+//! The system has two primary operation modes:
+//! - Manual: Direct RC control of the robot
+//! - Autonomous: Self-driving with obstacle avoidance
+//!
+//! Additional states like standby and obstacle detection are managed across modes.
 
 use crate::system::button_actions;
 use crate::system::event;
@@ -11,7 +24,7 @@ use crate::task::drive;
 use crate::task::rgb_led_indicate;
 use crate::task::track_inactivity;
 
-/// Main coordination task
+/// Main coordination task that implements the system's event loop
 #[embassy_executor::task]
 pub async fn orchestrate() {
     loop {
@@ -22,9 +35,16 @@ pub async fn orchestrate() {
     }
 }
 
-/// Evaluates events for state changes
+/// Evaluates events for state changes by comparing event data with current system state
 ///
-/// Returns event if it caused a state change
+/// Returns Some(event) if it caused a state change, None otherwise
+///
+/// State changes occur when:
+/// - Operation mode changes (Manual <-> Autonomous)
+/// - Obstacle detection status changes
+/// - Battery level changes
+/// - Button events occur
+/// - Inactivity timeout occurs (only if not already in standby)
 async fn process_event(event: event::Events) -> Option<event::Events> {
     let mut state = SYSTEM_STATE.lock().await;
 
@@ -74,7 +94,13 @@ async fn process_event(event: event::Events) -> Option<event::Events> {
     }
 }
 
-/// Processes state changes
+/// Processes state changes by coordinating system tasks based on events
+///
+/// Key behaviors:
+/// - Mode changes: Updates LED indicator and manages autonomous driving
+/// - Obstacle detection: Triggers avoidance in autonomous mode
+/// - Button events: Handles actions and resets inactivity timer
+/// - Inactivity: Switches to manual mode and enables standby
 async fn handle_state_changes(event: event::Events) {
     match event {
         event::Events::OperationModeSet(new_mode) => match new_mode {
