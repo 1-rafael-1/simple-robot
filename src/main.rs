@@ -19,7 +19,7 @@ use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
 use system::resources::{
-    AssignedResources, BatteryChargeResources, DistanceSensorResources, MotorResources,
+    self, AssignedResources, BatteryChargeResources, DistanceSensorResources, MotorResources,
     RCResourcesA, RCResourcesB, RCResourcesC, RCResourcesD, RGBLedResources,
 };
 use {defmt_rtt as _, panic_probe as _};
@@ -38,8 +38,18 @@ mod task;
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Config::default());
+
+    // Initialize the global ADC instance before spawning any tasks.
+    // This initialization must happen here to ensure:
+    // 1. The ADC is ready before any tasks that need it (e.g., battery monitoring)
+    // 2. We only initialize once, as multiple initializations could corrupt the hardware state
+    // 3. No race conditions can occur since this happens before any tasks are spawned
+    resources::init_adc(p.ADC);
+
+    // Split the resources into separate groups for each task, for all the resources that we do not share between tasks.
     let r = split_resources!(p);
 
+    // Finally spawn all the tasks
     spawner.spawn(orchestrate()).unwrap();
     spawner.spawn(distance_measure(r.distance_sensor)).unwrap();
     spawner

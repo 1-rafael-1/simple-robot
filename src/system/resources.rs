@@ -5,8 +5,48 @@
 
 use assign_resources::assign_resources;
 use embassy_rp::adc::InterruptHandler as AdcInterruptHandler;
+use embassy_rp::adc::{Adc, Async};
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex;
+
+/// Global ADC (Analog-to-Digital Converter) instance protected by a mutex.
+///
+/// The mutex ensures safe concurrent access from multiple tasks that need to read analog values
+/// (e.g., battery voltage monitoring). Only one task can access the ADC at a time, preventing
+/// conflicts in hardware access.
+///
+/// Usage pattern:
+/// ```rust
+/// let voltage = {
+///     let mut adc_guard = get_adc().lock().await;
+///     let adc = adc_guard.as_mut().unwrap();
+///     // Perform ADC reading here
+///     // Lock is automatically released when scope ends
+/// };
+/// ```
+static ADC: Mutex<CriticalSectionRawMutex, Option<Adc<'static, Async>>> = Mutex::new(None);
+
+/// Initializes the ADC peripheral.
+///
+/// This should only be called once during system initialization in main.rs,
+/// before any tasks are spawned.
+pub fn init_adc(adc: peripherals::ADC) {
+    let adc = Adc::new(adc, Irqs, embassy_rp::adc::Config::default());
+    critical_section::with(|_| {
+        *ADC.try_lock().unwrap() = Some(adc);
+    });
+}
+
+/// Returns a reference to the protected ADC instance.
+///
+/// The returned mutex ensures safe concurrent access to the ADC peripheral.
+/// Tasks should acquire the mutex lock, perform their ADC operations,
+/// and release the lock as quickly as possible.
+pub fn get_adc() -> &'static Mutex<CriticalSectionRawMutex, Option<Adc<'static, Async>>> {
+    &ADC
+}
 
 assign_resources! {
     distance_sensor: DistanceSensorResources {
@@ -15,7 +55,6 @@ assign_resources! {
     },
     battery_charge: BatteryChargeResources {
        vsys_pin: PIN_29,
-       adc: ADC,
     },
     rgb_led: RGBLedResources {
         pwm_red: PWM_SLICE1,
