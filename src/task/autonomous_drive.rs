@@ -7,7 +7,7 @@ use crate::task::drive;
 use defmt::info;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use nanorand::{Rng, WyRand};
 
 /// Control signal for autonomous operations
@@ -53,8 +53,6 @@ pub async fn autonomous_drive() {
     Timer::after(Duration::from_secs(1)).await;
     drive::send_command(drive::Command::Brake);
 
-    let mut rng = WyRand::new_seed(0x1234_5678_9abc_def0);
-
     loop {
         match wait_command().await {
             Command::Initialize => {
@@ -73,7 +71,8 @@ pub async fn autonomous_drive() {
             }
             Command::AvoidObstacle => {
                 info!("Autonomous obstacle avoid");
-                // Emergency stop
+
+                // Emergency Stop
                 info!("emergency stop");
                 drive::send_command(drive::Command::Brake);
                 Timer::after(Duration::from_millis(500)).await;
@@ -86,6 +85,10 @@ pub async fn autonomous_drive() {
                 Timer::after(Duration::from_millis(100)).await;
 
                 // Random turn
+                // Use current time since boot as seed
+                let seed = Instant::now().as_micros() as u64;
+                let mut rng = WyRand::new_seed(seed);
+
                 info!("turning");
                 let turn_speed = rng.generate_range(TURN_SPEED_MIN..=100);
                 let turn_duration = Duration::from_millis(rng.generate_range(500..=1500));
