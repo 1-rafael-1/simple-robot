@@ -52,7 +52,6 @@ embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = [
     "executor-thread",
     "executor-interrupt",
     "defmt",
-    "integrated-timers",
 ] }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", features = [
     "defmt",
@@ -68,7 +67,7 @@ nanorand = { version = "0.7.0", features = [
     "wyrand",
 ], default-features = false }
 assign-resources = "0.4.1"
-hcsr04_async = { version = "0.2.0", features = ["blocking_trigger"] }
+hcsr04_async = { version = "0.3.0", features = ["blocking_trigger"] }
 moving_median = "0.2.0"
 tb6612fng = "1.0.0"
 
