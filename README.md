@@ -10,7 +10,8 @@ Check out the robot navigating autonomously, download the demo video here: [Auto
 > Note: The initial version of this robot is preserved in the [`v1` tag](../../tree/v1). That version represents a simple but functional autonomous robot using basic components. The main branch now tracks the development of an improved version with the following planned enhancements:
 
 - [ ] Sensor improvements:
-  - [ ] Replace HC-SR04 ultrasonic sensor with IR sensor for more reliable obstacle detection
+  - [x] Replace HC-SR04 ultrasonic sensor with IR sensor for more reliable obstacle detection
+    - [ ] Add a second IR sensor because the chassis & tracks is too wide to be covered by one sensor.
   - [ ] Add servo-mounted HC-SR04 as a poor man's LIDAR system for better spatial awareness
   - [ ] Integrate MPU6050 IMU for improved position control and orientation sensing.
 - [ ] Remote control improvements:
@@ -28,6 +29,7 @@ Check out the robot navigating autonomously, download the demo video here: [Auto
   - [ ] Some sort of on/off switch would be kind of nice, even if plugging the ground cable into the breadboard as a switch is nerdy fun
 - [ ] Mechanics improvements:
   - [ ] There must be a solution for tightening the tracks, which are too long by a few mm and sometimes come loose
+  - [x] The base frame does not fit well with motors that have encoders -> needs to be adapted
 
 
 I am not yet sure how many of these improvements I can implement in a reasonable timeframe. Maybe I will archive a v2 at some point along the way.
@@ -39,7 +41,7 @@ I will update the readme with these improvements once they are implemented. Let'
 This is a hobby project for my 9-year-old son, who wanted me to build a robot for him. The thing is a rather simple machine. I was aiming at the following:
 
 + Use a chassis that is easily printed. For now, I have settled on <https://www.thingiverse.com/thing:972768>. The author of that design has moved on to more sophisticated designs, I will surely come back to those. But right now this was just as simple and versatile as I wanted it to be, really cool what people have made.
-  + The HC-SR04 holder is from here: <https://www.thingiverse.com/thing:189585>. It is not a perfect fit for the chassis but works well enough.
+  + It became necessary to adapt the base frame to fit well with motors that have encoders -> I imported the base frame from the Thingiverse design into FreeCAD, made a body out of the mesh and changed it to ba a solid body with cut-outs for the encoders. You can find the modified base frame here: [misc/chassis](misc/chassis)
 + Use a Raspberry Pi Pico 2 for controller. Why on earth use such a powerful controller? -> Because I needed an excuse to tinker with that.
 + Use many of the electronics components some overly eager guy in my household bought a while ago in too large quantities. That is especially:
   + Li-Ion 18650 batteries and holders

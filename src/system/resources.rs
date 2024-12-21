@@ -96,6 +96,10 @@ assign_resources! {
     rc_d: RCResourcesD {
         btn_d: PIN_9,
     },
+    /// IR obstacle avoidance sensor (VMA330) - digital output
+    ir_sensor: IRSensorResources {
+        ir_pin: PIN_26, // Digital input pin
+    },
     /// TB6612FNG dual motor driver pins and PWM channels
     motor: MotorResources {
         standby_pin: PIN_22,
