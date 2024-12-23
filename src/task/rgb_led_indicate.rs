@@ -114,25 +114,36 @@ pub async fn rgb_led_indicate(r: RGBLedResources) {
         };
 
         // Calculate PWM duty cycles based on battery level
-        // As battery drains: green decreases, red increases
-        let green_pwm = battery_level.clamp(0, 100);
-        let red_pwm = (100u8 - battery_level).clamp(0, 100);
+        // Green is typically brighter, so we reduce its intensity to .4
+        let (green_pwm, red_pwm) = if battery_level >= 50 {
+            // Upper half: Green fades to yellow
+            let blend_factor = (battery_level - 50) * 2; // Scale 50-100 to 0-100
+            let green = ((100 as f32) * 0.4) as u8; // Reduce green intensity
+            let red = ((100 - blend_factor) as f32) as u8; // Keep red at full
+            (green, red)
+        } else {
+            // Lower half: Yellow fades to red
+            let blend_factor = battery_level * 2; // Scale 0-50 to 0-100
+            let green = ((blend_factor as f32) * 0.4) as u8; // Reduce green intensity
+            let red = 100; // Keep red at full
+            (green, red)
+        };
 
         match operation_mode {
             OperationMode::Manual => {
                 // Solid color indicating battery level
-                let _ = pwm_red.set_duty_cycle_percent(red_pwm);
                 let _ = pwm_green.set_duty_cycle_percent(green_pwm);
+                let _ = pwm_red.set_duty_cycle_percent(red_pwm);
             }
             OperationMode::Autonomous => {
                 // Blink pattern indicating autonomous operation
                 'autonomous_blink: loop {
                     if led_on {
-                        let _ = pwm_red.set_duty_cycle_percent(red_pwm);
                         let _ = pwm_green.set_duty_cycle_percent(green_pwm);
+                        let _ = pwm_red.set_duty_cycle_percent(red_pwm);
                     } else {
-                        let _ = pwm_red.set_duty_cycle_fully_off();
                         let _ = pwm_green.set_duty_cycle_fully_off();
+                        let _ = pwm_red.set_duty_cycle_fully_off();
                     }
 
                     led_on = !led_on;
