@@ -1,72 +1,48 @@
 //! Motor control implementation with encoder feedback
 //!
 //! Controls the robot's movement through a TB6612FNG dual motor driver with
-//! DFRobot FIT0450 DC motors that include quadrature encoders:
-//! - Manages motor speeds (0-100%) and directions for both left and right motors
-//! - Uses encoder feedback to synchronize motor speeds
-//! - Handles complex movement commands like turning while moving
-//! - Provides power management through standby mode
-//!
-//! # Motor Control Logic
-//! - Forward/Backward: Both motors run at equal speeds
-//! - Turning: Differential speed between left/right motors
-//! - Speed changes are incremental and clamped to valid ranges
-//! - Conflicting motions (e.g. forward while moving backward) trigger a stop first
-//! - Turn handling:
-//!   * Pure rotation: Equal speeds in opposite directions
-//!   * Turn while moving: Maintain average speed, adjust ratio
-//!   * Turn recovery: Detect opposing turn and restore motion
-//!   * Speed ratios maintained using encoder feedback
-//!
-//! # Encoder Feedback
-//! - Uses PWM input to count encoder pulses
-//! - Measures speed every 100ms
-//! - Left motor used as reference
-//! - Right motor speed adjusted to match left motor RPM
-//! - Speed adjustment calculation:
-//!   * Compute RPM ratio = right_rpm / left_rpm
-//!   * Target ratio is 1.0 for straight motion
-//!   * Adjustment = 1.0 + ((1.0 - ratio) * 0.5)
-//!   * 50% correction factor for smooth adjustments
-//!   * Example: if right is 10% slow (ratio=0.9):
-//!     - Adjustment = 1.0 + ((1.0 - 0.9) * 0.5) = 1.05
-//!     - Right speed increased by 5%
-//!
-//! # Power Management
-//! - Standby mode disables motor driver for power saving
-//! - Wake-up sequence ensures clean transitions from standby
-//! - Brake command actively stops motors vs Coast which lets them spin down
+//! DFRobot FIT0450 DC motors that include quadrature encoders.
 
 use crate::system::resources::{MotorDriverResources, MotorEncoderResources};
+use core::convert::Infallible;
 use defmt::info;
+use embassy_rp::pwm::PwmError;
 use embassy_rp::{
     gpio::{self, Pull},
     pwm::{self, Config, InputMode, Pwm},
 };
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Ticker, Timer};
-use tb6612fng::{DriveCommand, Motor, Tb6612fng};
+use tb6612fng::{DriveCommand, Motor, MotorError};
+
+// DFRobot FIT0450 motor specifications
+const PULSES_PER_REV: u32 = 8; // Encoder pulses per motor revolution
+const GEAR_RATIO: u32 = 120; // 120:1 gear reduction
 
 /// Drive control signal for sending commands to the motor task
 static DRIVE_CONTROL: Signal<CriticalSectionRawMutex, Command> = Signal::new();
 
+/// Left motor control protected by mutex
+static LEFT_MOTOR: Mutex<CriticalSectionRawMutex, Option<LeftMotor<'static>>> = Mutex::new(None);
+
+/// Right motor control protected by mutex
+static RIGHT_MOTOR: Mutex<CriticalSectionRawMutex, Option<RightMotor<'static>>> = Mutex::new(None);
+
+/// Motor encoders protected by mutex
+static MOTOR_ENCODERS: Mutex<CriticalSectionRawMutex, Option<MotorEncoders<'static>>> =
+    Mutex::new(None);
+
 /// Motor control commands with speed parameters in range 0-100
 #[derive(Debug, Clone)]
 pub enum Command {
-    /// Turn left motor only, speed 0-100
     Left(u8),
-    /// Turn right motor only, speed 0-100     
     Right(u8),
-    /// Drive both motors forward, speed 0-100
     Forward(u8),
-    /// Drive both motors backward, speed 0-100
     Backward(u8),
-    /// Actively brake motors (high resistance stop)
     Brake,
-    /// Let motors coast to stop (low resistance)
     Coast,
-    /// Enter power saving mode
     Standby,
 }
 
@@ -80,33 +56,190 @@ async fn wait_command() -> Command {
     DRIVE_CONTROL.wait().await
 }
 
-/// Checks if robot is executing a pure rotation (turning in place).
-/// This occurs when motors run at equal speeds in opposite directions,
-/// causing the robot to rotate around its center axis.
-///
-/// Turn types:
-/// 1. Pure rotation (this function):
-///    - Left motor: -50 (backward), Right motor: 50 (forward) = true
-///    - Left motor: 30 (forward), Right motor: -30 (backward) = true
-///
-/// 2. Turn while moving (not this function):
-///    - Left motor: 40 (forward), Right motor: 30 (forward) = false
-///    - Maintains average speed while adjusting ratio
-///
-/// 3. No motion:
-///    - Left motor: 0, Right motor: 0 = false
+/// Left motor control implementation
+pub struct LeftMotor<'d> {
+    motor: Motor<gpio::Output<'d>, gpio::Output<'d>, Pwm<'d>>,
+    forward: bool,
+    current_speed: i8,
+}
+
+impl<'d> LeftMotor<'d> {
+    fn new(
+        fwd: gpio::Output<'d>,
+        bckw: gpio::Output<'d>,
+        pwm: Pwm<'d>,
+    ) -> Result<Self, MotorError<Infallible, Infallible, PwmError>> {
+        Ok(Self {
+            motor: Motor::new(fwd, bckw, pwm)?,
+            forward: true,
+            current_speed: 0,
+        })
+    }
+
+    fn set_speed(&mut self, speed: i8) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
+        self.current_speed = speed;
+        self.forward = speed >= 0;
+
+        match speed {
+            s if s > 0 => self.motor.drive(DriveCommand::Forward(s as u8))?,
+            s if s < 0 => self.motor.drive(DriveCommand::Backward(-s as u8))?,
+            _ => self.motor.drive(DriveCommand::Stop)?,
+        }
+        Ok(())
+    }
+
+    fn brake(&mut self) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
+        self.current_speed = 0;
+        self.motor.drive(DriveCommand::Brake)
+    }
+
+    fn coast(&mut self) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
+        self.current_speed = 0;
+        self.motor.drive(DriveCommand::Stop)
+    }
+
+    fn current_speed(&self) -> i8 {
+        self.current_speed
+    }
+
+    fn is_forward(&self) -> bool {
+        self.forward
+    }
+}
+
+/// Right motor control implementation
+pub struct RightMotor<'d> {
+    motor: Motor<gpio::Output<'d>, gpio::Output<'d>, Pwm<'d>>,
+    forward: bool,
+    current_speed: i8,
+}
+
+impl<'d> RightMotor<'d> {
+    fn new(
+        fwd: gpio::Output<'d>,
+        bckw: gpio::Output<'d>,
+        pwm: Pwm<'d>,
+    ) -> Result<Self, MotorError<Infallible, Infallible, PwmError>> {
+        Ok(Self {
+            motor: Motor::new(fwd, bckw, pwm)?,
+            forward: true,
+            current_speed: 0,
+        })
+    }
+
+    fn set_speed(&mut self, speed: i8) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
+        self.current_speed = speed;
+        self.forward = speed >= 0;
+
+        match speed {
+            s if s > 0 => self.motor.drive(DriveCommand::Forward(s as u8))?,
+            s if s < 0 => self.motor.drive(DriveCommand::Backward(-s as u8))?,
+            _ => self.motor.drive(DriveCommand::Stop)?,
+        }
+        Ok(())
+    }
+
+    fn brake(&mut self) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
+        self.current_speed = 0;
+        self.motor.drive(DriveCommand::Brake)
+    }
+
+    fn coast(&mut self) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
+        self.current_speed = 0;
+        self.motor.drive(DriveCommand::Stop)
+    }
+
+    fn current_speed(&self) -> i8 {
+        self.current_speed
+    }
+
+    fn is_forward(&self) -> bool {
+        self.forward
+    }
+}
+
+/// Motor encoders implementation
+pub struct MotorEncoders<'d> {
+    left: Pwm<'d>,
+    right: Pwm<'d>,
+    left_rpm: f32,
+    right_rpm: f32,
+}
+
+impl<'d> MotorEncoders<'d> {
+    fn new(left: Pwm<'d>, right: Pwm<'d>) -> Self {
+        Self {
+            left,
+            right,
+            left_rpm: 0.0,
+            right_rpm: 0.0,
+        }
+    }
+
+    fn update(&mut self, left_forward: bool, right_forward: bool) {
+        // Read and reset counters
+        let left_pulses = self.left.counter();
+        self.left.set_counter(0);
+        let right_pulses = self.right.counter();
+        self.right.set_counter(0);
+
+        // Convert pulses to RPM
+        let left_hz = left_pulses as f32 * 10.0;
+        let right_hz = right_pulses as f32 * 10.0;
+        let left_motor_rpm = (left_hz / PULSES_PER_REV as f32) * 60.0;
+        let right_motor_rpm = (right_hz / PULSES_PER_REV as f32) * 60.0;
+        let left_wheel_rpm = left_motor_rpm / GEAR_RATIO as f32;
+        let right_wheel_rpm = right_motor_rpm / GEAR_RATIO as f32;
+
+        // Apply direction
+        self.left_rpm = if left_forward {
+            left_wheel_rpm
+        } else {
+            -left_wheel_rpm
+        };
+        self.right_rpm = if right_forward {
+            right_wheel_rpm
+        } else {
+            -right_wheel_rpm
+        };
+
+        // Log encoder data
+        info!(
+            "Left Encoder: pulses={} freq={}Hz motor_rpm={} wheel_rpm={}",
+            left_pulses, left_hz, left_motor_rpm, left_wheel_rpm
+        );
+        info!(
+            "Right Encoder: pulses={} freq={}Hz motor_rpm={} wheel_rpm={}",
+            right_pulses, right_hz, right_motor_rpm, right_wheel_rpm
+        );
+        info!(
+            "Speed measurements - Left: {} RPM, Right: {} RPM",
+            self.left_rpm, self.right_rpm
+        );
+    }
+
+    fn calculate_speed_adjustment(&self) -> f32 {
+        let rpm_ratio = if self.left_rpm != 0.0 {
+            self.right_rpm / self.left_rpm
+        } else {
+            1.0
+        };
+        1.0 + ((1.0 - rpm_ratio) * 0.5) // 50% correction factor
+    }
+
+    fn left_rpm(&self) -> f32 {
+        self.left_rpm
+    }
+
+    fn right_rpm(&self) -> f32 {
+        self.right_rpm
+    }
+}
+
+/// Checks if robot is executing a pure rotation (turning in place)
 fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
     left_speed == -right_speed && left_speed != 0
 }
-
-// DFRobot FIT0450 motor specifications
-// Each motor has a Hall effect quadrature encoder that outputs 8 pulses per revolution
-const PULSES_PER_REV: u32 = 8; // Encoder pulses per motor revolution
-const GEAR_RATIO: u32 = 120; // 120:1 gear reduction
-
-// At 100ms measurement interval and 8 pulses/rev:
-// 1 pulse = 75 RPM (motor) = 0.625 RPM (wheel)
-// Max measurable speed at 65535 pulses/100ms = 491,512 RPM (motor) = 4,096 RPM (wheel)
 
 /// Main motor control task that processes movement commands
 #[embassy_executor::task]
@@ -128,10 +261,6 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
         config,
     );
 
-    // Track motor directions
-    let mut left_forward = true;
-    let mut right_forward = true;
-
     // PWM config for motor control (10kHz)
     let desired_freq_hz = 10_000;
     let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
@@ -149,16 +278,27 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
     let left_fwd = gpio::Output::new(d.left_forward_pin, gpio::Level::Low);
     let left_bckw = gpio::Output::new(d.left_backward_pin, gpio::Level::Low);
     let left_pwm = pwm::Pwm::new_output_a(d.left_slice, d.left_pwm_pin, pwm_config.clone());
-    let left_motor = Motor::new(left_fwd, left_bckw, left_pwm).unwrap();
+    let left_motor = LeftMotor::new(left_fwd, left_bckw, left_pwm).unwrap();
 
     // Right motor
     let right_fwd = gpio::Output::new(d.right_forward_pin, gpio::Level::Low);
     let right_bckw = gpio::Output::new(d.right_backward_pin, gpio::Level::Low);
     let right_pwm = pwm::Pwm::new_output_b(d.right_slice, d.right_pwm_pin, pwm_config.clone());
-    let right_motor = Motor::new(right_fwd, right_bckw, right_pwm).unwrap();
+    let right_motor = RightMotor::new(right_fwd, right_bckw, right_pwm).unwrap();
 
-    // Motor driver
-    let mut control = Tb6612fng::new(left_motor, right_motor, stby).unwrap();
+    // Initialize encoders
+    let encoders = MotorEncoders::new(left_encoder, right_encoder);
+
+    // Initialize mutexes
+    critical_section::with(|_| {
+        *LEFT_MOTOR.try_lock().unwrap() = Some(left_motor);
+        *RIGHT_MOTOR.try_lock().unwrap() = Some(right_motor);
+        *MOTOR_ENCODERS.try_lock().unwrap() = Some(encoders);
+    });
+
+    // Motor driver standby control
+    let mut standby = stby;
+    let mut standby_enabled = true;
 
     // Create ticker for speed measurement (100ms interval)
     let mut ticker = Ticker::every(Duration::from_millis(100));
@@ -167,52 +307,31 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
         // Wait for next 100ms interval
         ticker.next().await;
 
-        // Update speed measurements
-        let left_pulses = left_encoder.counter();
-        left_encoder.set_counter(0);
-        let right_pulses = right_encoder.counter();
-        right_encoder.set_counter(0);
-
-        // Convert pulses to RPM
-        let left_hz = left_pulses as f32 * 10.0;
-        let right_hz = right_pulses as f32 * 10.0;
-        let left_motor_rpm = (left_hz / PULSES_PER_REV as f32) * 60.0;
-        let right_motor_rpm = (right_hz / PULSES_PER_REV as f32) * 60.0;
-        let left_wheel_rpm = left_motor_rpm / GEAR_RATIO as f32;
-        let right_wheel_rpm = right_motor_rpm / GEAR_RATIO as f32;
-
-        // Apply direction
-        let left_rpm = if left_forward {
-            left_wheel_rpm
-        } else {
-            -left_wheel_rpm
-        };
-        let right_rpm = if right_forward {
-            right_wheel_rpm
-        } else {
-            -right_wheel_rpm
-        };
-
-        // Log encoder data
-        info!(
-            "Left Encoder: pulses={} freq={}Hz motor_rpm={} wheel_rpm={}",
-            left_pulses, left_hz, left_motor_rpm, left_wheel_rpm
-        );
-        info!(
-            "Right Encoder: pulses={} freq={}Hz motor_rpm={} wheel_rpm={}",
-            right_pulses, right_hz, right_motor_rpm, right_wheel_rpm
-        );
-        info!(
-            "Speed measurements - Left: {} RPM, Right: {} RPM",
-            left_rpm, right_rpm
-        );
+        // Update encoder measurements
+        {
+            let mut encoders = MOTOR_ENCODERS.lock().await;
+            let encoders = encoders.as_mut().unwrap();
+            let left = LEFT_MOTOR.lock().await;
+            let right = RIGHT_MOTOR.lock().await;
+            encoders.update(
+                left.as_ref().unwrap().is_forward(),
+                right.as_ref().unwrap().is_forward(),
+            );
+        }
 
         // Process any pending commands
         let drive_command = wait_command().await;
+
         // Get current state
-        let is_standby = control.current_standby().unwrap();
-        let left_speed_cmd = control.motor_a.current_speed();
-        let right_speed_cmd = control.motor_b.current_speed();
+        let is_standby = standby_enabled;
+        let left_speed_cmd;
+        let right_speed_cmd;
+        {
+            let left = LEFT_MOTOR.lock().await;
+            let right = RIGHT_MOTOR.lock().await;
+            left_speed_cmd = left.as_ref().unwrap().current_speed();
+            right_speed_cmd = right.as_ref().unwrap().current_speed();
+        }
 
         // Wake from standby if movement requested
         if is_standby {
@@ -221,7 +340,8 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
                 | Command::Backward(_)
                 | Command::Left(_)
                 | Command::Right(_) => {
-                    control.disable_standby().unwrap();
+                    standby.set_high();
+                    standby_enabled = false;
                     Timer::after(Duration::from_millis(100)).await;
                 }
                 _ => {}
@@ -233,80 +353,55 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
                 // Stop first if currently moving backward
                 if left_speed_cmd < 0 || right_speed_cmd < 0 {
                     info!("in conflicting motion, stopping");
-                    control.motor_a.drive(DriveCommand::Stop).unwrap();
-                    control.motor_b.drive(DriveCommand::Stop).unwrap();
+                    let mut left = LEFT_MOTOR.lock().await;
+                    let mut right = RIGHT_MOTOR.lock().await;
+                    left.as_mut().unwrap().coast().unwrap();
+                    right.as_mut().unwrap().coast().unwrap();
                 } else {
-                    // Set direction for RPM calculation
-                    left_forward = true;
-                    right_forward = true;
-
                     // Use left motor as reference
-                    let new_speed = (left_speed_cmd + speed as i8).clamp(0, 100) as u8;
-                    info!(
-                        "drive forward {} (L:{} R:{} RPM)",
-                        new_speed, left_rpm, right_rpm
-                    );
+                    let new_speed = (left_speed_cmd + speed as i8).clamp(0, 100);
 
-                    // Set left motor (reference)
-                    control
-                        .motor_a
-                        .drive(DriveCommand::Forward(new_speed))
-                        .unwrap();
+                    // Set speeds with encoder feedback
+                    let adjustment;
+                    {
+                        let encoders = MOTOR_ENCODERS.lock().await;
+                        adjustment = encoders.as_ref().unwrap().calculate_speed_adjustment();
+                    }
 
-                    // Calculate speed adjustment based on RPM difference
-                    let rpm_ratio = if left_rpm != 0.0 {
-                        right_rpm / left_rpm
-                    } else {
-                        1.0
-                    };
-                    let adjustment = 1.0 + ((1.0 - rpm_ratio) * 0.5); // 50% correction factor
+                    let adjusted_speed = (new_speed as f32 * adjustment).clamp(0.0, 100.0) as i8;
 
-                    let adjusted_speed = (new_speed as f32 * adjustment).clamp(0.0, 100.0) as u8;
-
-                    control
-                        .motor_b
-                        .drive(DriveCommand::Forward(adjusted_speed))
-                        .unwrap();
+                    let mut left = LEFT_MOTOR.lock().await;
+                    let mut right = RIGHT_MOTOR.lock().await;
+                    left.as_mut().unwrap().set_speed(new_speed).unwrap();
+                    right.as_mut().unwrap().set_speed(adjusted_speed).unwrap();
                 }
             }
             Command::Backward(speed) => {
                 // Stop first if currently moving forward
                 if left_speed_cmd > 0 || right_speed_cmd > 0 {
                     info!("in conflicting motion, stopping");
-                    control.motor_a.drive(DriveCommand::Stop).unwrap();
-                    control.motor_b.drive(DriveCommand::Stop).unwrap();
+                    let mut left = LEFT_MOTOR.lock().await;
+                    let mut right = RIGHT_MOTOR.lock().await;
+                    left.as_mut().unwrap().coast().unwrap();
+                    right.as_mut().unwrap().coast().unwrap();
                 } else {
-                    // Set direction for RPM calculation
-                    left_forward = false;
-                    right_forward = false;
-
                     // Use left motor as reference
-                    let new_speed = (-left_speed_cmd + speed as i8).clamp(0, 100) as u8;
-                    info!(
-                        "drive backward {} (L:{} R:{} RPM)",
-                        new_speed, left_rpm, right_rpm
-                    );
+                    let new_speed = (-left_speed_cmd + speed as i8).clamp(0, 100);
+                    let neg_speed = -new_speed;
 
-                    // Set left motor (reference)
-                    control
-                        .motor_a
-                        .drive(DriveCommand::Backward(new_speed))
-                        .unwrap();
+                    // Set speeds with encoder feedback
+                    let adjustment;
+                    {
+                        let encoders = MOTOR_ENCODERS.lock().await;
+                        adjustment = encoders.as_ref().unwrap().calculate_speed_adjustment();
+                    }
 
-                    // Calculate speed adjustment based on RPM difference
-                    let rpm_ratio = if left_rpm != 0.0 {
-                        right_rpm / left_rpm
-                    } else {
-                        1.0
-                    };
-                    let adjustment = 1.0 + ((1.0 - rpm_ratio) * 0.5); // 50% correction factor
+                    let adjusted_speed = -(new_speed as f32 * adjustment).clamp(0.0, 100.0) as i8;
 
-                    let adjusted_speed = (new_speed as f32 * adjustment).clamp(0.0, 100.0) as u8;
-
-                    control
-                        .motor_b
-                        .drive(DriveCommand::Backward(adjusted_speed))
-                        .unwrap();
+                    let mut left = LEFT_MOTOR.lock().await;
+                    let mut right = RIGHT_MOTOR.lock().await;
+                    left.as_mut().unwrap().set_speed(neg_speed).unwrap();
+                    right.as_mut().unwrap().set_speed(adjusted_speed).unwrap();
                 }
             }
             Command::Left(speed) => {
@@ -315,126 +410,59 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
                     if is_turning_in_place(left_speed_cmd, right_speed_cmd) {
                         // If turning in place, stop completely
                         info!("stopping turn-in-place maneuver");
-                        control.motor_a.drive(DriveCommand::Stop).unwrap();
-                        control.motor_b.drive(DriveCommand::Stop).unwrap();
+                        let mut left = LEFT_MOTOR.lock().await;
+                        let mut right = RIGHT_MOTOR.lock().await;
+                        left.as_mut().unwrap().coast().unwrap();
+                        right.as_mut().unwrap().coast().unwrap();
                     } else {
-                        // If turning while moving, restore original motion speed with encoder feedback
+                        // If turning while moving, restore original motion
                         let original_speed = (left_speed_cmd + right_speed_cmd) / 2;
-                        info!(
-                            "restoring original motion speed {} (L:{} R:{} RPM)",
-                            original_speed, left_rpm, right_rpm
-                        );
 
-                        if original_speed > 0 {
-                            // Forward motion
-                            left_forward = true;
-                            right_forward = true;
-
-                            control
-                                .motor_a
-                                .drive(DriveCommand::Forward(original_speed as u8))
-                                .unwrap();
-
-                            let rpm_ratio = if left_rpm != 0.0 {
-                                right_rpm / left_rpm
-                            } else {
-                                1.0
-                            };
-                            let adjustment = 1.0 + ((1.0 - rpm_ratio) * 0.5);
-                            let adjusted_speed =
-                                (original_speed as f32 * adjustment).clamp(0.0, 100.0) as u8;
-
-                            control
-                                .motor_b
-                                .drive(DriveCommand::Forward(adjusted_speed))
-                                .unwrap();
-                        } else if original_speed < 0 {
-                            // Backward motion
-                            left_forward = false;
-                            right_forward = false;
-
-                            control
-                                .motor_a
-                                .drive(DriveCommand::Backward(-original_speed as u8))
-                                .unwrap();
-
-                            let rpm_ratio = if left_rpm != 0.0 {
-                                right_rpm / left_rpm
-                            } else {
-                                1.0
-                            };
-                            let adjustment = 1.0 + ((1.0 - rpm_ratio) * 0.5);
-                            let adjusted_speed =
-                                (-original_speed as f32 * adjustment).clamp(0.0, 100.0) as u8;
-
-                            control
-                                .motor_b
-                                .drive(DriveCommand::Backward(adjusted_speed))
-                                .unwrap();
+                        let adjustment;
+                        {
+                            let encoders = MOTOR_ENCODERS.lock().await;
+                            adjustment = encoders.as_ref().unwrap().calculate_speed_adjustment();
                         }
+
+                        let adjusted_speed =
+                            (original_speed as f32 * adjustment).clamp(-100.0, 100.0) as i8;
+
+                        let mut left = LEFT_MOTOR.lock().await;
+                        let mut right = RIGHT_MOTOR.lock().await;
+                        left.as_mut().unwrap().set_speed(original_speed).unwrap();
+                        right.as_mut().unwrap().set_speed(adjusted_speed).unwrap();
                     }
                 } else {
-                    // Initiate or continue left turn with encoder feedback
+                    // Initiate or continue left turn
                     let new_left_speed = (left_speed_cmd - speed as i8).clamp(-100, 100);
                     let target_right_speed = (right_speed_cmd + speed as i8).clamp(-100, 100);
 
-                    info!(
-                        "turn left L:{} R:{} (L:{} R:{} RPM)",
-                        new_left_speed, target_right_speed, left_rpm, right_rpm
-                    );
-
-                    // Set direction for RPM calculation
-                    left_forward = new_left_speed > 0;
-                    right_forward = target_right_speed > 0;
-
-                    // Set left motor (reference)
-                    if new_left_speed > 0 {
-                        control
-                            .motor_a
-                            .drive(DriveCommand::Forward(new_left_speed as u8))
-                            .unwrap();
-                    } else if new_left_speed < 0 {
-                        control
-                            .motor_a
-                            .drive(DriveCommand::Backward(-new_left_speed as u8))
-                            .unwrap();
-                    } else {
-                        control.motor_a.drive(DriveCommand::Stop).unwrap();
+                    let rpm_ratio;
+                    {
+                        let encoders = MOTOR_ENCODERS.lock().await;
+                        let e = encoders.as_ref().unwrap();
+                        rpm_ratio = if e.left_rpm() != 0.0 {
+                            e.right_rpm() / e.left_rpm()
+                        } else {
+                            1.0
+                        };
                     }
 
-                    // Calculate desired RPM ratio for turn
                     let target_rpm_ratio = if new_left_speed != 0 {
                         target_right_speed as f32 / new_left_speed as f32
                     } else {
                         1.0
                     };
 
-                    // Adjust right motor speed to maintain desired RPM ratio
-                    let current_rpm_ratio = if left_rpm != 0.0 {
-                        right_rpm / left_rpm
-                    } else {
-                        1.0
-                    };
-
-                    let speed_adjustment = (target_rpm_ratio - current_rpm_ratio) * 0.5;
+                    let speed_adjustment = (target_rpm_ratio - rpm_ratio) * 0.5;
                     let adjusted_speed = ((target_right_speed.abs() as f32)
                         * (1.0 + speed_adjustment))
-                        .clamp(0.0, 100.0) as u8;
+                        .clamp(-100.0, 100.0) as i8;
 
-                    // Set right motor with adjusted speed
-                    if target_right_speed > 0 {
-                        control
-                            .motor_b
-                            .drive(DriveCommand::Forward(adjusted_speed))
-                            .unwrap();
-                    } else if target_right_speed < 0 {
-                        control
-                            .motor_b
-                            .drive(DriveCommand::Backward(adjusted_speed))
-                            .unwrap();
-                    } else {
-                        control.motor_b.drive(DriveCommand::Stop).unwrap();
-                    }
+                    let mut left = LEFT_MOTOR.lock().await;
+                    let mut right = RIGHT_MOTOR.lock().await;
+                    left.as_mut().unwrap().set_speed(new_left_speed).unwrap();
+                    right.as_mut().unwrap().set_speed(adjusted_speed).unwrap();
                 }
             }
             Command::Right(speed) => {
@@ -443,147 +471,87 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
                     if is_turning_in_place(left_speed_cmd, right_speed_cmd) {
                         // If turning in place, stop completely
                         info!("stopping turn-in-place maneuver");
-                        control.motor_a.drive(DriveCommand::Stop).unwrap();
-                        control.motor_b.drive(DriveCommand::Stop).unwrap();
+                        let mut left = LEFT_MOTOR.lock().await;
+                        let mut right = RIGHT_MOTOR.lock().await;
+                        left.as_mut().unwrap().coast().unwrap();
+                        right.as_mut().unwrap().coast().unwrap();
                     } else {
-                        // If turning while moving, restore original motion speed with encoder feedback
+                        // If turning while moving, restore original motion
                         let original_speed = (left_speed_cmd + right_speed_cmd) / 2;
-                        info!(
-                            "restoring original motion speed {} (L:{} R:{} RPM)",
-                            original_speed, left_rpm, right_rpm
-                        );
 
-                        if original_speed > 0 {
-                            // Forward motion
-                            left_forward = true;
-                            right_forward = true;
-
-                            control
-                                .motor_a
-                                .drive(DriveCommand::Forward(original_speed as u8))
-                                .unwrap();
-
-                            let rpm_ratio = if left_rpm != 0.0 {
-                                right_rpm / left_rpm
-                            } else {
-                                1.0
-                            };
-                            let adjustment = 1.0 + ((1.0 - rpm_ratio) * 0.5);
-                            let adjusted_speed =
-                                (original_speed as f32 * adjustment).clamp(0.0, 100.0) as u8;
-
-                            control
-                                .motor_b
-                                .drive(DriveCommand::Forward(adjusted_speed))
-                                .unwrap();
-                        } else if original_speed < 0 {
-                            // Backward motion
-                            left_forward = false;
-                            right_forward = false;
-
-                            control
-                                .motor_a
-                                .drive(DriveCommand::Backward(-original_speed as u8))
-                                .unwrap();
-
-                            let rpm_ratio = if left_rpm != 0.0 {
-                                right_rpm / left_rpm
-                            } else {
-                                1.0
-                            };
-                            let adjustment = 1.0 + ((1.0 - rpm_ratio) * 0.5);
-                            let adjusted_speed =
-                                (-original_speed as f32 * adjustment).clamp(0.0, 100.0) as u8;
-
-                            control
-                                .motor_b
-                                .drive(DriveCommand::Backward(adjusted_speed))
-                                .unwrap();
+                        let adjustment;
+                        {
+                            let encoders = MOTOR_ENCODERS.lock().await;
+                            adjustment = encoders.as_ref().unwrap().calculate_speed_adjustment();
                         }
+
+                        let adjusted_speed =
+                            (original_speed as f32 * adjustment).clamp(-100.0, 100.0) as i8;
+
+                        let mut left = LEFT_MOTOR.lock().await;
+                        let mut right = RIGHT_MOTOR.lock().await;
+                        left.as_mut().unwrap().set_speed(original_speed).unwrap();
+                        right.as_mut().unwrap().set_speed(adjusted_speed).unwrap();
                     }
                 } else {
-                    // Initiate or continue right turn with encoder feedback
+                    // Initiate or continue right turn
                     let new_left_speed = (left_speed_cmd + speed as i8).clamp(-100, 100);
                     let target_right_speed = (right_speed_cmd - speed as i8).clamp(-100, 100);
 
-                    info!(
-                        "turn right L:{} R:{} (L:{} R:{} RPM)",
-                        new_left_speed, target_right_speed, left_rpm, right_rpm
-                    );
-
-                    // Set direction for RPM calculation
-                    left_forward = new_left_speed > 0;
-                    right_forward = target_right_speed > 0;
-
-                    // Set left motor (reference)
-                    if new_left_speed > 0 {
-                        control
-                            .motor_a
-                            .drive(DriveCommand::Forward(new_left_speed as u8))
-                            .unwrap();
-                    } else if new_left_speed < 0 {
-                        control
-                            .motor_a
-                            .drive(DriveCommand::Backward(-new_left_speed as u8))
-                            .unwrap();
-                    } else {
-                        control.motor_a.drive(DriveCommand::Stop).unwrap();
+                    let rpm_ratio;
+                    {
+                        let encoders = MOTOR_ENCODERS.lock().await;
+                        let e = encoders.as_ref().unwrap();
+                        rpm_ratio = if e.left_rpm() != 0.0 {
+                            e.right_rpm() / e.left_rpm()
+                        } else {
+                            1.0
+                        };
                     }
 
-                    // Calculate desired RPM ratio for turn
                     let target_rpm_ratio = if new_left_speed != 0 {
                         target_right_speed as f32 / new_left_speed as f32
                     } else {
                         1.0
                     };
 
-                    // Adjust right motor speed to maintain desired RPM ratio
-                    let current_rpm_ratio = if left_rpm != 0.0 {
-                        right_rpm / left_rpm
-                    } else {
-                        1.0
-                    };
-
-                    let speed_adjustment = (target_rpm_ratio - current_rpm_ratio) * 0.5;
+                    let speed_adjustment = (target_rpm_ratio - rpm_ratio) * 0.5;
                     let adjusted_speed = ((target_right_speed.abs() as f32)
                         * (1.0 + speed_adjustment))
-                        .clamp(0.0, 100.0) as u8;
+                        .clamp(-100.0, 100.0) as i8;
 
-                    // Set right motor with adjusted speed
-                    if target_right_speed > 0 {
-                        control
-                            .motor_b
-                            .drive(DriveCommand::Forward(adjusted_speed))
-                            .unwrap();
-                    } else if target_right_speed < 0 {
-                        control
-                            .motor_b
-                            .drive(DriveCommand::Backward(adjusted_speed))
-                            .unwrap();
-                    } else {
-                        control.motor_b.drive(DriveCommand::Stop).unwrap();
-                    }
+                    let mut left = LEFT_MOTOR.lock().await;
+                    let mut right = RIGHT_MOTOR.lock().await;
+                    left.as_mut().unwrap().set_speed(new_left_speed).unwrap();
+                    right.as_mut().unwrap().set_speed(adjusted_speed).unwrap();
                 }
             }
             Command::Coast => {
                 info!("coast");
-                control.motor_a.drive(DriveCommand::Stop).unwrap();
-                control.motor_b.drive(DriveCommand::Stop).unwrap();
+                let mut left = LEFT_MOTOR.lock().await;
+                let mut right = RIGHT_MOTOR.lock().await;
+                left.as_mut().unwrap().coast().unwrap();
+                right.as_mut().unwrap().coast().unwrap();
             }
             Command::Brake => {
                 info!("brake");
-                control.motor_a.drive(DriveCommand::Brake).unwrap();
-                control.motor_b.drive(DriveCommand::Brake).unwrap();
+                let mut left = LEFT_MOTOR.lock().await;
+                let mut right = RIGHT_MOTOR.lock().await;
+                left.as_mut().unwrap().brake().unwrap();
+                right.as_mut().unwrap().brake().unwrap();
             }
             Command::Standby => {
                 if !is_standby {
-                    control.motor_a.drive(DriveCommand::Brake).unwrap();
-                    control.motor_b.drive(DriveCommand::Brake).unwrap();
+                    let mut left = LEFT_MOTOR.lock().await;
+                    let mut right = RIGHT_MOTOR.lock().await;
+                    left.as_mut().unwrap().brake().unwrap();
+                    right.as_mut().unwrap().brake().unwrap();
                     Timer::after(Duration::from_millis(100)).await;
-                    control.motor_a.drive(DriveCommand::Stop).unwrap();
-                    control.motor_b.drive(DriveCommand::Stop).unwrap();
+                    left.as_mut().unwrap().coast().unwrap();
+                    right.as_mut().unwrap().coast().unwrap();
                     Timer::after(Duration::from_millis(100)).await;
-                    control.enable_standby().unwrap();
+                    standby.set_low();
+                    standby_enabled = true;
                 }
             }
         }
