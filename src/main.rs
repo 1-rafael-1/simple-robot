@@ -20,7 +20,8 @@ use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
 use system::resources::{
     self, AssignedResources, BatteryChargeResources, DistanceSensorResources, IRSensorResources,
-    MotorResources, RCResourcesA, RCResourcesB, RCResourcesC, RCResourcesD, RGBLedResources,
+    MotorDriverResources, MotorEncoderResources, RCResourcesA, RCResourcesB, RCResourcesC,
+    RCResourcesD, RGBLedResources,
 };
 use {defmt_rtt as _, panic_probe as _};
 
@@ -60,7 +61,9 @@ async fn main(spawner: Spawner) {
     spawner.spawn(rc_button_b_handle(r.rc_b)).unwrap();
     spawner.spawn(rc_button_c_handle(r.rc_c)).unwrap();
     spawner.spawn(rc_button_d_handle(r.rc_d)).unwrap();
-    spawner.spawn(drive(r.motor)).unwrap();
+    spawner
+        .spawn(drive(r.motor_driver, r.motor_encoders))
+        .unwrap();
     spawner.spawn(autonomous_drive()).unwrap();
     spawner.spawn(track_inactivity()).unwrap();
 }

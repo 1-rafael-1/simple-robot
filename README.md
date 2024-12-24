@@ -13,7 +13,7 @@ Check out the robot navigating autonomously, download the demo video here: [Auto
   - [x] Replace HC-SR04 ultrasonic sensor with IR sensor for more reliable obstacle detection
     - [ ] Add a second IR sensor because the chassis & tracks is too wide to be covered by one sensor.
   - [ ] Add servo-mounted HC-SR04 as a poor man's LIDAR system for better spatial awareness
-  - [ ] Integrate MPU6050 IMU for improved position control and orientation sensing.
+  - [ ] Integrate MPU6050 IMU or MPU9250 for improved position control and orientation sensing.
 - [ ] Remote control improvements:
   - [ ] Re-wire everything to decouple the RC receiver as much as possible from the motor driver and other noisy components -> for better reception when motors are running
 - [ ] General circuit improvements:
