@@ -15,7 +15,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Ticker, Timer};
-use tb6612fng::{DriveCommand, Motor, MotorError};
+use tb6612fng::{DriveCommand, MotorError};
 
 // DFRobot FIT0450 motor specifications
 const PULSES_PER_REV: u32 = 8; // Encoder pulses per motor revolution
@@ -25,10 +25,10 @@ const GEAR_RATIO: u32 = 120; // 120:1 gear reduction
 static DRIVE_CONTROL: Signal<CriticalSectionRawMutex, Command> = Signal::new();
 
 /// Left motor control protected by mutex
-static LEFT_MOTOR: Mutex<CriticalSectionRawMutex, Option<LeftMotor<'static>>> = Mutex::new(None);
+static LEFT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
 
 /// Right motor control protected by mutex
-static RIGHT_MOTOR: Mutex<CriticalSectionRawMutex, Option<RightMotor<'static>>> = Mutex::new(None);
+static RIGHT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
 
 /// Motor encoders protected by mutex
 static MOTOR_ENCODERS: Mutex<CriticalSectionRawMutex, Option<MotorEncoders<'static>>> =
@@ -56,72 +56,21 @@ async fn wait_command() -> Command {
     DRIVE_CONTROL.wait().await
 }
 
-/// Left motor control implementation
-pub struct LeftMotor<'d> {
-    motor: Motor<gpio::Output<'d>, gpio::Output<'d>, Pwm<'d>>,
+/// Motor control implementation
+pub struct Motor {
+    motor: tb6612fng::Motor<gpio::Output<'static>, gpio::Output<'static>, Pwm<'static>>,
     forward: bool,
     current_speed: i8,
 }
 
-impl<'d> LeftMotor<'d> {
+impl Motor {
     fn new(
-        fwd: gpio::Output<'d>,
-        bckw: gpio::Output<'d>,
-        pwm: Pwm<'d>,
+        fwd: gpio::Output<'static>,
+        bckw: gpio::Output<'static>,
+        pwm: Pwm<'static>,
     ) -> Result<Self, MotorError<Infallible, Infallible, PwmError>> {
         Ok(Self {
-            motor: Motor::new(fwd, bckw, pwm)?,
-            forward: true,
-            current_speed: 0,
-        })
-    }
-
-    fn set_speed(&mut self, speed: i8) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
-        self.current_speed = speed;
-        self.forward = speed >= 0;
-
-        match speed {
-            s if s > 0 => self.motor.drive(DriveCommand::Forward(s as u8))?,
-            s if s < 0 => self.motor.drive(DriveCommand::Backward(-s as u8))?,
-            _ => self.motor.drive(DriveCommand::Stop)?,
-        }
-        Ok(())
-    }
-
-    fn brake(&mut self) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
-        self.current_speed = 0;
-        self.motor.drive(DriveCommand::Brake)
-    }
-
-    fn coast(&mut self) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
-        self.current_speed = 0;
-        self.motor.drive(DriveCommand::Stop)
-    }
-
-    fn current_speed(&self) -> i8 {
-        self.current_speed
-    }
-
-    fn is_forward(&self) -> bool {
-        self.forward
-    }
-}
-
-/// Right motor control implementation
-pub struct RightMotor<'d> {
-    motor: Motor<gpio::Output<'d>, gpio::Output<'d>, Pwm<'d>>,
-    forward: bool,
-    current_speed: i8,
-}
-
-impl<'d> RightMotor<'d> {
-    fn new(
-        fwd: gpio::Output<'d>,
-        bckw: gpio::Output<'d>,
-        pwm: Pwm<'d>,
-    ) -> Result<Self, MotorError<Infallible, Infallible, PwmError>> {
-        Ok(Self {
-            motor: Motor::new(fwd, bckw, pwm)?,
+            motor: tb6612fng::Motor::new(fwd, bckw, pwm)?,
             forward: true,
             current_speed: 0,
         })
@@ -278,13 +227,13 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
     let left_fwd = gpio::Output::new(d.left_forward_pin, gpio::Level::Low);
     let left_bckw = gpio::Output::new(d.left_backward_pin, gpio::Level::Low);
     let left_pwm = pwm::Pwm::new_output_a(d.left_slice, d.left_pwm_pin, pwm_config.clone());
-    let left_motor = LeftMotor::new(left_fwd, left_bckw, left_pwm).unwrap();
+    let left_motor = Motor::new(left_fwd, left_bckw, left_pwm).unwrap();
 
     // Right motor
     let right_fwd = gpio::Output::new(d.right_forward_pin, gpio::Level::Low);
     let right_bckw = gpio::Output::new(d.right_backward_pin, gpio::Level::Low);
     let right_pwm = pwm::Pwm::new_output_b(d.right_slice, d.right_pwm_pin, pwm_config.clone());
-    let right_motor = RightMotor::new(right_fwd, right_bckw, right_pwm).unwrap();
+    let right_motor = Motor::new(right_fwd, right_bckw, right_pwm).unwrap();
 
     // Initialize encoders
     let encoders = MotorEncoders::new(left_encoder, right_encoder);
