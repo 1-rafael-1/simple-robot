@@ -3,35 +3,32 @@
 //! Controls the robot's movement through a TB6612FNG dual motor driver with
 //! DFRobot FIT0450 DC motors that include quadrature encoders.
 
-use crate::system::resources::{MotorDriverResources, MotorEncoderResources};
+use crate::system::resources::MotorDriverResources;
+use crate::task::encoder::{EncoderMeasurement, ENCODER_SIGNAL};
 use core::convert::Infallible;
 use defmt::info;
 use embassy_rp::pwm::PwmError;
 use embassy_rp::{
-    gpio::{self, Pull},
-    pwm::{self, Config, InputMode, Pwm},
+    gpio::{self},
+    pwm::{self, Config, Pwm},
 };
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
-use embassy_time::{Duration, Ticker, Timer};
+use embassy_time::{Duration, Timer};
 use tb6612fng::{DriveCommand, MotorError};
-
-// DFRobot FIT0450 motor specifications
-const PULSES_PER_REV: u32 = 8; // Encoder pulses per motor revolution
-const GEAR_RATIO: u32 = 120; // 120:1 gear reduction
 
 /// Drive control signal for sending commands to the motor task
 static DRIVE_CONTROL: Signal<CriticalSectionRawMutex, Command> = Signal::new();
 
 /// Left motor control protected by mutex
-static LEFT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
+pub static LEFT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
 
 /// Right motor control protected by mutex
-static RIGHT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
+pub static RIGHT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
 
-/// Motor encoders protected by mutex
-static MOTOR_ENCODERS: Mutex<CriticalSectionRawMutex, Option<MotorEncoders<'static>>> =
+/// Last received encoder measurement
+static LAST_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<EncoderMeasurement>> =
     Mutex::new(None);
 
 /// Motor control commands with speed parameters in range 0-100
@@ -135,86 +132,8 @@ impl Motor {
         self.current_speed
     }
 
-    fn is_forward(&self) -> bool {
+    pub fn is_forward(&self) -> bool {
         self.forward
-    }
-}
-
-/// Motor encoders implementation
-pub struct MotorEncoders<'d> {
-    left: Pwm<'d>,
-    right: Pwm<'d>,
-    left_rpm: f32,
-    right_rpm: f32,
-}
-
-impl<'d> MotorEncoders<'d> {
-    fn new(left: Pwm<'d>, right: Pwm<'d>) -> Self {
-        Self {
-            left,
-            right,
-            left_rpm: 0.0,
-            right_rpm: 0.0,
-        }
-    }
-
-    fn update(&mut self, left_forward: bool, right_forward: bool) {
-        // Read and reset counters
-        let left_pulses = self.left.counter();
-        self.left.set_counter(0);
-        let right_pulses = self.right.counter();
-        self.right.set_counter(0);
-
-        // Convert pulses to RPM
-        let left_hz = left_pulses as f32 * 10.0;
-        let right_hz = right_pulses as f32 * 10.0;
-        let left_motor_rpm = (left_hz / PULSES_PER_REV as f32) * 60.0;
-        let right_motor_rpm = (right_hz / PULSES_PER_REV as f32) * 60.0;
-        let left_wheel_rpm = left_motor_rpm / GEAR_RATIO as f32;
-        let right_wheel_rpm = right_motor_rpm / GEAR_RATIO as f32;
-
-        // Apply direction
-        self.left_rpm = if left_forward {
-            left_wheel_rpm
-        } else {
-            -left_wheel_rpm
-        };
-        self.right_rpm = if right_forward {
-            right_wheel_rpm
-        } else {
-            -right_wheel_rpm
-        };
-
-        // Log encoder data
-        info!(
-            "Left Encoder: pulses={} freq={}Hz motor_rpm={} wheel_rpm={}",
-            left_pulses, left_hz, left_motor_rpm, left_wheel_rpm
-        );
-        info!(
-            "Right Encoder: pulses={} freq={}Hz motor_rpm={} wheel_rpm={}",
-            right_pulses, right_hz, right_motor_rpm, right_wheel_rpm
-        );
-        info!(
-            "Speed measurements - Left: {} RPM, Right: {} RPM",
-            self.left_rpm, self.right_rpm
-        );
-    }
-
-    fn calculate_speed_adjustment(&self) -> f32 {
-        let rpm_ratio = if self.left_rpm != 0.0 {
-            self.right_rpm / self.left_rpm
-        } else {
-            1.0
-        };
-        1.0 + ((1.0 - rpm_ratio) * 0.5) // 50% correction factor
-    }
-
-    fn left_rpm(&self) -> f32 {
-        self.left_rpm
-    }
-
-    fn right_rpm(&self) -> f32 {
-        self.right_rpm
     }
 }
 
@@ -225,62 +144,29 @@ fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
 
 /// Main motor control task that processes movement commands
 #[embassy_executor::task]
-pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
-    // Configure PWM input for encoder pulse counting
-    let config = Config::default();
-    let left_encoder = Pwm::new_input(
-        e.left_encoder_slice,
-        e.left_encoder_pin,
-        Pull::None,
-        InputMode::RisingEdge,
-        config.clone(),
-    );
-    let right_encoder = Pwm::new_input(
-        e.right_encoder_slice,
-        e.right_encoder_pin,
-        Pull::None,
-        InputMode::RisingEdge,
-        config,
-    );
-
+pub async fn drive(d: MotorDriverResources) {
     // Initialize motors
     let (left_motor, right_motor, stby) = Motor::setup_motors(d).unwrap();
-
-    // Initialize encoders
-    let encoders = MotorEncoders::new(left_encoder, right_encoder);
 
     // Initialize mutexes
     critical_section::with(|_| {
         *LEFT_MOTOR.try_lock().unwrap() = Some(left_motor);
         *RIGHT_MOTOR.try_lock().unwrap() = Some(right_motor);
-        *MOTOR_ENCODERS.try_lock().unwrap() = Some(encoders);
     });
 
     // Motor driver standby control
     let mut standby = stby;
     let mut standby_enabled = true;
 
-    // Create ticker for speed measurement (100ms interval)
-    let mut ticker = Ticker::every(Duration::from_millis(100));
-
     loop {
-        // Wait for next 100ms interval
-        ticker.next().await;
-
-        // Update encoder measurements
-        {
-            let mut encoders = MOTOR_ENCODERS.lock().await;
-            let encoders = encoders.as_mut().unwrap();
-            let left = LEFT_MOTOR.lock().await;
-            let right = RIGHT_MOTOR.lock().await;
-            encoders.update(
-                left.as_ref().unwrap().is_forward(),
-                right.as_ref().unwrap().is_forward(),
-            );
-        }
-
         // Process any pending commands
         let drive_command = wait_command().await;
+
+        // Get latest encoder measurement
+        let measurement = ENCODER_SIGNAL.wait().await;
+        critical_section::with(|_| {
+            *LAST_MEASUREMENT.try_lock().unwrap() = Some(measurement);
+        });
 
         // Get current state
         let is_standby = standby_enabled;
@@ -322,12 +208,17 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
                     let new_speed = (left_speed_cmd + speed as i8).clamp(0, 100);
 
                     // Set speeds with encoder feedback
-                    let adjustment;
-                    {
-                        let encoders = MOTOR_ENCODERS.lock().await;
-                        adjustment = encoders.as_ref().unwrap().calculate_speed_adjustment();
-                    }
-
+                    let rpm_ratio =
+                        if let Some(measurement) = LAST_MEASUREMENT.lock().await.as_ref() {
+                            if measurement.left.rpm != 0.0 {
+                                measurement.right.rpm / measurement.left.rpm
+                            } else {
+                                1.0
+                            }
+                        } else {
+                            1.0
+                        };
+                    let adjustment = 1.0 + ((1.0 - rpm_ratio) * 0.5); // 50% correction factor
                     let adjusted_speed = (new_speed as f32 * adjustment).clamp(0.0, 100.0) as i8;
 
                     let mut left = LEFT_MOTOR.lock().await;
@@ -350,12 +241,17 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
                     let neg_speed = -new_speed;
 
                     // Set speeds with encoder feedback
-                    let adjustment;
-                    {
-                        let encoders = MOTOR_ENCODERS.lock().await;
-                        adjustment = encoders.as_ref().unwrap().calculate_speed_adjustment();
-                    }
-
+                    let rpm_ratio =
+                        if let Some(measurement) = LAST_MEASUREMENT.lock().await.as_ref() {
+                            if measurement.left.rpm != 0.0 {
+                                measurement.right.rpm / measurement.left.rpm
+                            } else {
+                                1.0
+                            }
+                        } else {
+                            1.0
+                        };
+                    let adjustment = 1.0 + ((1.0 - rpm_ratio) * 0.5); // 50% correction factor
                     let adjusted_speed = -(new_speed as f32 * adjustment).clamp(0.0, 100.0) as i8;
 
                     let mut left = LEFT_MOTOR.lock().await;
@@ -378,11 +274,17 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
                         // If turning while moving, restore original motion
                         let original_speed = (left_speed_cmd + right_speed_cmd) / 2;
 
-                        let adjustment;
-                        {
-                            let encoders = MOTOR_ENCODERS.lock().await;
-                            adjustment = encoders.as_ref().unwrap().calculate_speed_adjustment();
-                        }
+                        let rpm_ratio =
+                            if let Some(measurement) = LAST_MEASUREMENT.lock().await.as_ref() {
+                                if measurement.left.rpm != 0.0 {
+                                    measurement.right.rpm / measurement.left.rpm
+                                } else {
+                                    1.0
+                                }
+                            } else {
+                                1.0
+                            };
+                        let adjustment = 1.0 + ((1.0 - rpm_ratio) * 0.5); // 50% correction factor
 
                         let adjusted_speed =
                             (original_speed as f32 * adjustment).clamp(-100.0, 100.0) as i8;
@@ -397,16 +299,16 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
                     let new_left_speed = (left_speed_cmd - speed as i8).clamp(-100, 100);
                     let target_right_speed = (right_speed_cmd + speed as i8).clamp(-100, 100);
 
-                    let rpm_ratio;
-                    {
-                        let encoders = MOTOR_ENCODERS.lock().await;
-                        let e = encoders.as_ref().unwrap();
-                        rpm_ratio = if e.left_rpm() != 0.0 {
-                            e.right_rpm() / e.left_rpm()
+                    let rpm_ratio =
+                        if let Some(measurement) = LAST_MEASUREMENT.lock().await.as_ref() {
+                            if measurement.left.rpm != 0.0 {
+                                measurement.right.rpm / measurement.left.rpm
+                            } else {
+                                1.0
+                            }
                         } else {
                             1.0
                         };
-                    }
 
                     let target_rpm_ratio = if new_left_speed != 0 {
                         target_right_speed as f32 / new_left_speed as f32
@@ -439,11 +341,17 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
                         // If turning while moving, restore original motion
                         let original_speed = (left_speed_cmd + right_speed_cmd) / 2;
 
-                        let adjustment;
-                        {
-                            let encoders = MOTOR_ENCODERS.lock().await;
-                            adjustment = encoders.as_ref().unwrap().calculate_speed_adjustment();
-                        }
+                        let rpm_ratio =
+                            if let Some(measurement) = LAST_MEASUREMENT.lock().await.as_ref() {
+                                if measurement.left.rpm != 0.0 {
+                                    measurement.right.rpm / measurement.left.rpm
+                                } else {
+                                    1.0
+                                }
+                            } else {
+                                1.0
+                            };
+                        let adjustment = 1.0 + ((1.0 - rpm_ratio) * 0.5); // 50% correction factor
 
                         let adjusted_speed =
                             (original_speed as f32 * adjustment).clamp(-100.0, 100.0) as i8;
@@ -458,16 +366,16 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
                     let new_left_speed = (left_speed_cmd + speed as i8).clamp(-100, 100);
                     let target_right_speed = (right_speed_cmd - speed as i8).clamp(-100, 100);
 
-                    let rpm_ratio;
-                    {
-                        let encoders = MOTOR_ENCODERS.lock().await;
-                        let e = encoders.as_ref().unwrap();
-                        rpm_ratio = if e.left_rpm() != 0.0 {
-                            e.right_rpm() / e.left_rpm()
+                    let rpm_ratio =
+                        if let Some(measurement) = LAST_MEASUREMENT.lock().await.as_ref() {
+                            if measurement.left.rpm != 0.0 {
+                                measurement.right.rpm / measurement.left.rpm
+                            } else {
+                                1.0
+                            }
                         } else {
                             1.0
                         };
-                    }
 
                     let target_rpm_ratio = if new_left_speed != 0 {
                         target_right_speed as f32 / new_left_speed as f32

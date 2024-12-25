@@ -2,6 +2,7 @@
 pub mod autonomous_drive;
 pub mod battery_charge_read;
 pub mod drive;
+pub mod encoder;
 pub mod ir_obstacle_detect;
 pub mod orchestrate;
 pub mod rc_control;
