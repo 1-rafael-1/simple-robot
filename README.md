@@ -115,7 +115,7 @@ Here is an overview of things used to make the robot. This is not supposed to be
 |IC2262/2272 RC Module|RC transmitter and receiver unit bundle. Search for "IC2262/2272 rc ebay" and like a thousand of these pop up. I used a 433MHz variant including sender and receiver. Uses 5V power and output, so either use voltage dividers or logic level shifter to connect to the Pico.|
 |HC-SR04|Ultrasonic distance sensor. Can be triggered with 3.3V, but needs 5V power and puts out 5V on the echo line, so either use a voltage divider or logic level shifter to connect to the Pico.|
 |TB6612FNG|Motor driver module. Control driven with 3.3V, 5V power and 5V on the motor power lines.|
-|5V DC geared motor|One for left and right each. There seems to be a somewhat standard form factor for these, but I did not find that form factor's name. The motor is at the end of the gearbox, and the gearbox has a one or two-sided shaft protruding at right angle from it. That shaft must go into the cog wheel.|
+|6V DC geared motor with gearbox and encoder|One for left and right each. DFRobot FIT0450.|
 |U3V16F5|Step-up converter that can convert 3.3V to 5V. Plenty of other options besides this very device.|
 |18650 Li-Ion battery|Battery and holder, in my case here 3350mAh and 4.2V max, 2.5V min. Powering one rail and feeding the Pico as well as the step-up converter from it, so both must be happy with what the battery delivers. Note: no over-discharge protection in my setup, so either add a charge board for protection or make sure to disconnect the battery early enough!|
 |RGB LED|Whatever thing that can be driven by PWM on red and green pin each. Make sure to use appropriate resistors.|
