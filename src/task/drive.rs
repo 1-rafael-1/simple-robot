@@ -52,9 +52,8 @@ async fn wait_command() -> Command {
     DRIVE_CONTROL.wait().await
 }
 
-// DFRobot FIT0450 motor specifications
+// DFRobot FIT0450 encoder specifications
 const PULSES_PER_REV: u32 = 8; // Encoder pulses per motor revolution
-const GEAR_RATIO: u32 = 120; // 120:1 gear reduction
 
 /// Left motor control protected by mutex
 pub static LEFT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
@@ -70,15 +69,16 @@ pub struct Motor {
 }
 
 impl Motor {
-    /// Calculates wheel RPM from encoder pulses
+    /// Calculates motor shaft RPM from encoder pulses
+    /// The encoder is fixed to the motor shaft, so this gives us direct motor speed
+    /// before the 120:1 gear reduction
     fn calculate_rpm(&self, pulses: u16, elapsed_ms: u32) -> f32 {
         let hz = (pulses as f32 * 1000.0) / elapsed_ms as f32;
         let motor_rpm = (hz / PULSES_PER_REV as f32) * 60.0;
-        let wheel_rpm = motor_rpm / GEAR_RATIO as f32;
         if self.forward {
-            wheel_rpm
+            motor_rpm
         } else {
-            -wheel_rpm
+            -motor_rpm
         }
     }
 
@@ -175,25 +175,23 @@ pub async fn drive(d: MotorDriverResources) {
     let mut standby = stby;
     let mut standby_enabled = true;
 
+    // Lock motors for the entire system runtime, since we are the only task that can change motor states
+    let mut left = LEFT_MOTOR.lock().await;
+    let mut right = RIGHT_MOTOR.lock().await;
+    let left = left.as_mut().unwrap();
+    let right = right.as_mut().unwrap();
+
     loop {
         // Process any pending commands
         let command = wait_command().await;
 
         match command {
             Command::Drive(action) => {
-                // Get current state
-                let is_standby = standby_enabled;
-                let left_speed_cmd;
-                let right_speed_cmd;
-                {
-                    let left = LEFT_MOTOR.lock().await;
-                    let right = RIGHT_MOTOR.lock().await;
-                    left_speed_cmd = left.as_ref().unwrap().current_speed();
-                    right_speed_cmd = right.as_ref().unwrap().current_speed();
-                }
+                let left_speed_cmd = left.current_speed();
+                let right_speed_cmd = right.current_speed();
 
                 // Wake from standby if movement requested
-                if is_standby {
+                if standby_enabled {
                     match action {
                         DriveAction::Forward(_)
                         | DriveAction::Backward(_)
@@ -213,33 +211,25 @@ pub async fn drive(d: MotorDriverResources) {
                         // Stop first if currently moving backward
                         if left_speed_cmd < 0 || right_speed_cmd < 0 {
                             info!("in conflicting motion, stopping");
-                            let mut left = LEFT_MOTOR.lock().await;
-                            let mut right = RIGHT_MOTOR.lock().await;
-                            left.as_mut().unwrap().coast().unwrap();
-                            right.as_mut().unwrap().coast().unwrap();
+                            left.coast().unwrap();
+                            right.coast().unwrap();
                         } else {
                             let new_speed = (left_speed_cmd + speed as i8).clamp(0, 100);
-                            let mut left = LEFT_MOTOR.lock().await;
-                            let mut right = RIGHT_MOTOR.lock().await;
-                            left.as_mut().unwrap().set_speed(new_speed).unwrap();
-                            right.as_mut().unwrap().set_speed(new_speed).unwrap();
+                            left.set_speed(new_speed).unwrap();
+                            right.set_speed(new_speed).unwrap();
                         }
                     }
                     DriveAction::Backward(speed) => {
                         // Stop first if currently moving forward
                         if left_speed_cmd > 0 || right_speed_cmd > 0 {
                             info!("in conflicting motion, stopping");
-                            let mut left = LEFT_MOTOR.lock().await;
-                            let mut right = RIGHT_MOTOR.lock().await;
-                            left.as_mut().unwrap().coast().unwrap();
-                            right.as_mut().unwrap().coast().unwrap();
+                            left.coast().unwrap();
+                            right.coast().unwrap();
                         } else {
                             let new_speed = (-left_speed_cmd + speed as i8).clamp(0, 100);
                             let neg_speed = -new_speed;
-                            let mut left = LEFT_MOTOR.lock().await;
-                            let mut right = RIGHT_MOTOR.lock().await;
-                            left.as_mut().unwrap().set_speed(neg_speed).unwrap();
-                            right.as_mut().unwrap().set_speed(neg_speed).unwrap();
+                            left.set_speed(neg_speed).unwrap();
+                            right.set_speed(neg_speed).unwrap();
                         }
                     }
                     DriveAction::Left(speed) => {
@@ -248,31 +238,21 @@ pub async fn drive(d: MotorDriverResources) {
                             if is_turning_in_place(left_speed_cmd, right_speed_cmd) {
                                 // If turning in place, stop completely
                                 info!("stopping turn-in-place maneuver");
-                                let mut left = LEFT_MOTOR.lock().await;
-                                let mut right = RIGHT_MOTOR.lock().await;
-                                left.as_mut().unwrap().coast().unwrap();
-                                right.as_mut().unwrap().coast().unwrap();
+                                left.coast().unwrap();
+                                right.coast().unwrap();
                             } else {
                                 // If turning while moving, restore original motion
                                 let original_speed = (left_speed_cmd + right_speed_cmd) / 2;
-                                let mut left = LEFT_MOTOR.lock().await;
-                                let mut right = RIGHT_MOTOR.lock().await;
-                                left.as_mut().unwrap().set_speed(original_speed).unwrap();
-                                right.as_mut().unwrap().set_speed(original_speed).unwrap();
+                                left.set_speed(original_speed).unwrap();
+                                right.set_speed(original_speed).unwrap();
                             }
                         } else {
                             // Initiate or continue left turn
                             let new_left_speed = (left_speed_cmd - speed as i8).clamp(-100, 100);
                             let target_right_speed =
                                 (right_speed_cmd + speed as i8).clamp(-100, 100);
-                            let mut left = LEFT_MOTOR.lock().await;
-                            let mut right = RIGHT_MOTOR.lock().await;
-                            left.as_mut().unwrap().set_speed(new_left_speed).unwrap();
-                            right
-                                .as_mut()
-                                .unwrap()
-                                .set_speed(target_right_speed)
-                                .unwrap();
+                            left.set_speed(new_left_speed).unwrap();
+                            right.set_speed(target_right_speed).unwrap();
                         }
                     }
                     DriveAction::Right(speed) => {
@@ -281,56 +261,40 @@ pub async fn drive(d: MotorDriverResources) {
                             if is_turning_in_place(left_speed_cmd, right_speed_cmd) {
                                 // If turning in place, stop completely
                                 info!("stopping turn-in-place maneuver");
-                                let mut left = LEFT_MOTOR.lock().await;
-                                let mut right = RIGHT_MOTOR.lock().await;
-                                left.as_mut().unwrap().coast().unwrap();
-                                right.as_mut().unwrap().coast().unwrap();
+                                left.coast().unwrap();
+                                right.coast().unwrap();
                             } else {
                                 // If turning while moving, restore original motion
                                 let original_speed = (left_speed_cmd + right_speed_cmd) / 2;
-                                let mut left = LEFT_MOTOR.lock().await;
-                                let mut right = RIGHT_MOTOR.lock().await;
-                                left.as_mut().unwrap().set_speed(original_speed).unwrap();
-                                right.as_mut().unwrap().set_speed(original_speed).unwrap();
+                                left.set_speed(original_speed).unwrap();
+                                right.set_speed(original_speed).unwrap();
                             }
                         } else {
                             // Initiate or continue right turn
                             let new_left_speed = (left_speed_cmd + speed as i8).clamp(-100, 100);
                             let target_right_speed =
                                 (right_speed_cmd - speed as i8).clamp(-100, 100);
-                            let mut left = LEFT_MOTOR.lock().await;
-                            let mut right = RIGHT_MOTOR.lock().await;
-                            left.as_mut().unwrap().set_speed(new_left_speed).unwrap();
-                            right
-                                .as_mut()
-                                .unwrap()
-                                .set_speed(target_right_speed)
-                                .unwrap();
+                            left.set_speed(new_left_speed).unwrap();
+                            right.set_speed(target_right_speed).unwrap();
                         }
                     }
                     DriveAction::Coast => {
                         info!("coast");
-                        let mut left = LEFT_MOTOR.lock().await;
-                        let mut right = RIGHT_MOTOR.lock().await;
-                        left.as_mut().unwrap().coast().unwrap();
-                        right.as_mut().unwrap().coast().unwrap();
+                        left.coast().unwrap();
+                        right.coast().unwrap();
                     }
                     DriveAction::Brake => {
                         info!("brake");
-                        let mut left = LEFT_MOTOR.lock().await;
-                        let mut right = RIGHT_MOTOR.lock().await;
-                        left.as_mut().unwrap().brake().unwrap();
-                        right.as_mut().unwrap().brake().unwrap();
+                        left.brake().unwrap();
+                        right.brake().unwrap();
                     }
                     DriveAction::Standby => {
-                        if !is_standby {
-                            let mut left = LEFT_MOTOR.lock().await;
-                            let mut right = RIGHT_MOTOR.lock().await;
-                            left.as_mut().unwrap().brake().unwrap();
-                            right.as_mut().unwrap().brake().unwrap();
+                        if !standby_enabled {
+                            left.brake().unwrap();
+                            right.brake().unwrap();
                             Timer::after(Duration::from_millis(100)).await;
-                            left.as_mut().unwrap().coast().unwrap();
-                            right.as_mut().unwrap().coast().unwrap();
+                            left.coast().unwrap();
+                            right.coast().unwrap();
                             Timer::after(Duration::from_millis(100)).await;
                             standby.set_low();
                             standby_enabled = true;
@@ -343,40 +307,45 @@ pub async fn drive(d: MotorDriverResources) {
             }
 
             Command::EncoderFeedback(measurement) => {
-                // Calculate RPMs using current motor states
-                let (left_rpm, right_rpm, left_speed, right_speed) = {
-                    let left = LEFT_MOTOR.lock().await;
-                    let right = RIGHT_MOTOR.lock().await;
-                    let left = left.as_ref().unwrap();
-                    let right = right.as_ref().unwrap();
-                    (
-                        left.calculate_rpm(
-                            measurement.left.pulse_count,
-                            measurement.left.elapsed_ms,
-                        ),
-                        right.calculate_rpm(
-                            measurement.right.pulse_count,
-                            measurement.right.elapsed_ms,
-                        ),
-                        left.current_speed(),
-                        right.current_speed(),
-                    )
-                };
+                // Calculate motor RPMs
+                let left_rpm =
+                    left.calculate_rpm(measurement.left.pulse_count, measurement.left.elapsed_ms);
+                let right_rpm = right
+                    .calculate_rpm(measurement.right.pulse_count, measurement.right.elapsed_ms);
 
                 // Apply speed adjustments if motors are running
+                let left_speed = left.current_speed();
+                let right_speed = right.current_speed();
+
                 if left_speed != 0 || right_speed != 0 {
+                    // Compare raw motor RPMs since encoders are on motor shaft
                     let rpm_ratio = if left_rpm != 0.0 {
                         right_rpm / left_rpm
                     } else {
                         1.0
                     };
 
-                    let adjustment = 1.0 + ((1.0 - rpm_ratio) * 0.5); // 50% correction factor
-                    let adjusted_speed =
-                        (right_speed as f32 * adjustment).clamp(-100.0, 100.0) as i8;
+                    // Calculate how far we are from perfect ratio
+                    let ratio_error = libm::fabsf(1.0 - rpm_ratio);
 
-                    let mut right = RIGHT_MOTOR.lock().await;
-                    right.as_mut().unwrap().set_speed(adjusted_speed).unwrap();
+                    // Only adjust if error is above threshold
+                    if ratio_error > 0.05 {
+                        // 5% tolerance
+                        // Variable correction factor based on error magnitude
+                        let correction_factor = if ratio_error > 0.2 {
+                            0.8 // Aggressive correction when far off
+                        } else {
+                            0.4 // Fine adjustment when closer
+                        };
+
+                        let adjustment = 1.0 + ((1.0 - rpm_ratio) * correction_factor);
+                        let adjusted_speed =
+                            (right_speed as f32 * adjustment).clamp(-100.0, 100.0) as i8;
+                        right.set_speed(adjusted_speed).unwrap();
+
+                        // Signal that we're still adjusting
+                        event::send(Events::DriveCommandExecuted).await;
+                    }
                 }
             }
         }
