@@ -76,6 +76,39 @@ impl Motor {
         })
     }
 
+    /// Creates new motor instances with the given resources using the specified PWM configuration
+    fn setup_motors(
+        d: MotorDriverResources,
+    ) -> Result<(Self, Self, gpio::Output<'static>), MotorError<Infallible, Infallible, PwmError>>
+    {
+        // PWM config for motor control (10kHz)
+        let desired_freq_hz = 10_000;
+        let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
+        let divider = ((clock_freq_hz / desired_freq_hz) / 65535 + 1) as u8;
+        let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
+
+        let mut pwm_config = Config::default();
+        pwm_config.divider = divider.into();
+        pwm_config.top = period;
+
+        // Left motor
+        let left_fwd = gpio::Output::new(d.left_forward_pin, gpio::Level::Low);
+        let left_bckw = gpio::Output::new(d.left_backward_pin, gpio::Level::Low);
+        let left_pwm = pwm::Pwm::new_output_a(d.left_slice, d.left_pwm_pin, pwm_config.clone());
+        let left_motor = Self::new(left_fwd, left_bckw, left_pwm)?;
+
+        // Right motor
+        let right_fwd = gpio::Output::new(d.right_forward_pin, gpio::Level::Low);
+        let right_bckw = gpio::Output::new(d.right_backward_pin, gpio::Level::Low);
+        let right_pwm = pwm::Pwm::new_output_b(d.right_slice, d.right_pwm_pin, pwm_config);
+        let right_motor = Self::new(right_fwd, right_bckw, right_pwm)?;
+
+        // Initialize standby pin in disabled state
+        let standby = gpio::Output::new(d.standby_pin, gpio::Level::Low);
+
+        Ok((left_motor, right_motor, standby))
+    }
+
     fn set_speed(&mut self, speed: i8) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
         self.current_speed = speed;
         self.forward = speed >= 0;
@@ -210,30 +243,8 @@ pub async fn drive(d: MotorDriverResources, e: MotorEncoderResources) {
         config,
     );
 
-    // PWM config for motor control (10kHz)
-    let desired_freq_hz = 10_000;
-    let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
-    let divider = ((clock_freq_hz / desired_freq_hz) / 65535 + 1) as u8;
-    let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
-
-    let mut pwm_config = Config::default();
-    pwm_config.divider = divider.into();
-    pwm_config.top = period;
-
-    // Initialize motor driver pins
-    let stby = gpio::Output::new(d.standby_pin, gpio::Level::Low);
-
-    // Left motor
-    let left_fwd = gpio::Output::new(d.left_forward_pin, gpio::Level::Low);
-    let left_bckw = gpio::Output::new(d.left_backward_pin, gpio::Level::Low);
-    let left_pwm = pwm::Pwm::new_output_a(d.left_slice, d.left_pwm_pin, pwm_config.clone());
-    let left_motor = Motor::new(left_fwd, left_bckw, left_pwm).unwrap();
-
-    // Right motor
-    let right_fwd = gpio::Output::new(d.right_forward_pin, gpio::Level::Low);
-    let right_bckw = gpio::Output::new(d.right_backward_pin, gpio::Level::Low);
-    let right_pwm = pwm::Pwm::new_output_b(d.right_slice, d.right_pwm_pin, pwm_config.clone());
-    let right_motor = Motor::new(right_fwd, right_bckw, right_pwm).unwrap();
+    // Initialize motors
+    let (left_motor, right_motor, stby) = Motor::setup_motors(d).unwrap();
 
     // Initialize encoders
     let encoders = MotorEncoders::new(left_encoder, right_encoder);
