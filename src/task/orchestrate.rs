@@ -91,6 +91,8 @@ async fn process_event(event: event::Events) -> Option<event::Events> {
                 None
             }
         }
+        event::Events::DriveCommandExecuted => Some(event),
+        event::Events::EncoderMeasurementTaken(_measurement) => Some(event),
     }
 }
 
@@ -163,7 +165,15 @@ async fn handle_state_changes(event: event::Events) {
                 state::OperationMode::Manual,
             ))
             .await;
-            drive::send_command(drive::Command::Standby);
+            drive::send_command(drive::Command::Drive(drive::DriveAction::Standby));
+        }
+        event::Events::DriveCommandExecuted => {
+            // Drive command was executed, trigger encoder measurement
+            // The encoder task will automatically take a measurement and send an event
+        }
+        event::Events::EncoderMeasurementTaken(measurement) => {
+            // Send encoder feedback to drive task for speed adjustment
+            drive::send_command(drive::Command::EncoderFeedback(measurement));
         }
     }
 }
