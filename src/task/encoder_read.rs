@@ -1,9 +1,8 @@
-//! Quadrature encoder task for motor speed feedback
+//! Quadrature encoder feedback for motor speed control
 //!
-//! Provides independent encoder readings. Readings are taken on demand (triggered by the orchestrator after a drive command) and are
-//! sent to the orchestrator for further processing.
-//!
-//! We usually want to use the encoder data to determine the motor speed in order to make motor speed corrections.
+//! Provides motor speed measurements using shaft-mounted encoders.
+//! Readings are taken on-demand after drive commands to enable
+//! closed-loop speed control of the motors.
 
 use crate::system::{
     event::{self, Events},
@@ -17,37 +16,47 @@ use embassy_rp::{
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
 
-// Encoder control signal to trigger encoder readings after Duration
+/// Control signal to trigger encoder measurements after specified duration
 pub static ENCODER_CONTROL: Signal<CriticalSectionRawMutex, Duration> = Signal::new();
 
+/// Requests a new encoder measurement after waiting for the specified duration
 pub fn request_measurement(duration: Duration) {
     ENCODER_CONTROL.signal(duration);
 }
 
+/// Blocks until next measurement request, returns the requested delay
 async fn wait() -> Duration {
     ENCODER_CONTROL.wait().await
 }
 
-/// Encoder measurement data
+/// Single encoder measurement data
 #[derive(Clone, Copy, Debug)]
 pub struct EncoderData {
-    /// Raw pulse count since last reading
+    /// Raw pulse count in measurement window
     pub pulse_count: u16,
-    /// Time elapsed since last measurement in milliseconds
+    /// Measurement window duration in milliseconds
     pub elapsed_ms: u32,
 }
 
-/// Encoder measurements for both motors
+/// Combined measurements from both motor encoders
 #[derive(Clone, Copy, Debug)]
 pub struct EncoderMeasurement {
     pub left: EncoderData,
     pub right: EncoderData,
 }
 
-/// Main encoder reading task that publishes measurements periodically
+/// Primary encoder measurement task
+///
+/// Takes periodic measurements using PWM input capture on rising edges.
+/// Measurement timing is calculated for reliable readings at low speeds:
+/// - At 20% speed: ~1400 RPM = 23.33 RPS
+/// - In 100ms window: 2.33 rotations
+/// - With 8 pulses/rev: ~18 pulses per measurement
+/// - Minimum window for 10 pulses (considered still reliable): 54ms
+/// - Using 75ms for some headroom, at higher speeds we will be fine anyway
 #[embassy_executor::task]
 pub async fn read_encoder(resources: MotorEncoderResources) {
-    // Configure PWM input for encoder pulse counting
+    // Configure PWM inputs for pulse counting on rising edges
     let config = Config::default();
     let left_encoder = Pwm::new_input(
         resources.left_encoder_slice,
@@ -65,33 +74,26 @@ pub async fn read_encoder(resources: MotorEncoderResources) {
     );
 
     loop {
-        // Wait for the next measurement request. The Duration received is used to give the motors time to reach their target speed before the
-        // measurements are taken.
+        // Wait for next measurement request with delay for motor stabilization
         let delay = wait().await;
 
-        // Wait for the specified duration before taking measurements
+        // Allow motors to reach target speed
         Timer::after(delay).await;
 
-        // Read encoder values
-        // First reset the counter before reading and get the current Instant
+        // Start measurement window
         let start = Instant::now();
         left_encoder.set_counter(0);
         right_encoder.set_counter(0);
-        // Then wait a defined duration, get the current Instant again and make measurements. We must make sure that we take measurements
-        // of at least 10 pulses.
-        // The encoder is fixed to the motor shaft, so we do not need to concern ourselves with transmission. So:
-        // At 20% speed the motor should have 1.400RPM, 1400/60s = 23.33 rotations per second.
-        // 23,33rps * (100ms/1000ms) = 2.33 rotation in 100ms.
-        // 8 pulses/rev * 2.33rev = 18.64 pulses in 100ms. -> 100ms is plenty. 54ms are bare minimum. So we settle on 70ms to have some margin.
-        // Most of the time the robot will operate at >20% speed, so we will be fine.
-        Timer::after(Duration::from_millis(100)).await;
+
+        // Fixed measurement window for consistent readings
+        Timer::after(Duration::from_millis(75)).await;
         let end = Instant::now();
         let left_pulses = left_encoder.counter();
         let right_pulses = right_encoder.counter();
         let elapsed = end - start;
         let elapsed_ms = elapsed.as_millis() as u32;
 
-        // Create measurement data with raw pulse counts and elapsed time
+        // Package measurement data
         let measurement = EncoderMeasurement {
             left: EncoderData {
                 pulse_count: left_pulses,
@@ -103,7 +105,7 @@ pub async fn read_encoder(resources: MotorEncoderResources) {
             },
         };
 
-        // Log data
+        // Log raw measurement data
         info!(
             "Encoder measurement - Left: {} pulses in {}ms, Right: {} pulses in {}ms",
             measurement.left.pulse_count,
@@ -112,7 +114,7 @@ pub async fn read_encoder(resources: MotorEncoderResources) {
             measurement.right.elapsed_ms
         );
 
-        // Notify system that measurement is ready
+        // Signal measurement completion
         event::send(Events::EncoderMeasurementTaken(measurement)).await;
     }
 }

@@ -1,7 +1,7 @@
-//! Motor control implementation with encoder feedback
+//! Motor control with encoder-based feedback
 //!
-//! Controls the robot's movement through a TB6612FNG dual motor driver with
-//! DFRobot FIT0450 DC motors that include quadrature encoders.
+//! Implements robot movement control using TB6612FNG dual motor driver and
+//! DFRobot FIT0450 DC motors with quadrature encoders.
 
 use crate::system::event::{self, Events};
 use crate::system::resources::MotorDriverResources;
@@ -19,13 +19,13 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use tb6612fng::{DriveCommand, MotorError};
 
-/// Drive control signal for sending commands to the motor task
+/// Dispatches drive commands to the motor control task
 static DRIVE_CONTROL: Signal<CriticalSectionRawMutex, Command> = Signal::new();
 
-/// Motor control commands with speed parameters in range 0-100
+/// Motor control commands with speed parameters (0-100%)
 #[derive(Debug, Clone)]
 pub enum Command {
-    /// Movement commands
+    /// Movement and control commands
     Drive(DriveAction),
     /// Encoder feedback for speed adjustment
     EncoderFeedback(EncoderMeasurement),
@@ -42,26 +42,28 @@ pub enum DriveAction {
     Standby,
 }
 
-/// Sends a drive command to the motor control task
+/// Queues a drive command for execution
 pub fn send_command(command: Command) {
     DRIVE_CONTROL.signal(command);
 }
 
-/// Waits for next motor command
+/// Blocks until next motor command is available
 async fn wait_command() -> Command {
     DRIVE_CONTROL.wait().await
 }
 
-// DFRobot FIT0450 encoder specifications
-const PULSES_PER_REV: u32 = 8; // Encoder pulses per motor revolution
+// Motor shaft encoder characteristics
+const PULSES_PER_REV: u32 = 8; // Pulses per full shaft rotation
 
-/// Left motor control protected by mutex
+// The mutexes are not used to share the resources, but rather to enable better code structuring
+
+/// Left motor controller protected by mutex.
 pub static LEFT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
 
-/// Right motor control protected by mutex
+/// Right motor controller protected by mutex
 pub static RIGHT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
 
-/// Motor control implementation
+/// Single motor control interface
 pub struct Motor {
     motor: tb6612fng::Motor<gpio::Output<'static>, gpio::Output<'static>, Pwm<'static>>,
     forward: bool,
@@ -69,9 +71,8 @@ pub struct Motor {
 }
 
 impl Motor {
-    /// Calculates motor shaft RPM from encoder pulses
-    /// The encoder is fixed to the motor shaft, so this gives us direct motor speed
-    /// before the 120:1 gear reduction
+    /// Converts encoder pulses to motor shaft RPM
+    /// RPM is calculated for the motor shaft before the 120:1 gear reduction
     fn calculate_rpm(&self, pulses: u16, elapsed_ms: u32) -> f32 {
         let hz = (pulses as f32 * 1000.0) / elapsed_ms as f32;
         let motor_rpm = (hz / PULSES_PER_REV as f32) * 60.0;
@@ -82,6 +83,7 @@ impl Motor {
         }
     }
 
+    /// Creates a new motor instance with the given GPIO and PWM resources
     fn new(
         fwd: gpio::Output<'static>,
         bckw: gpio::Output<'static>,
@@ -94,12 +96,12 @@ impl Motor {
         })
     }
 
-    /// Creates new motor instances with the given resources using the specified PWM configuration
+    /// Initializes both motors with configured PWM (10kHz) and GPIO pins
     fn setup_motors(
         d: MotorDriverResources,
     ) -> Result<(Self, Self, gpio::Output<'static>), MotorError<Infallible, Infallible, PwmError>>
     {
-        // PWM config for motor control (10kHz)
+        // Configure PWM for 10kHz operation
         let desired_freq_hz = 10_000;
         let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
         let divider = ((clock_freq_hz / desired_freq_hz) / 65535 + 1) as u8;
@@ -109,24 +111,25 @@ impl Motor {
         pwm_config.divider = divider.into();
         pwm_config.top = period;
 
-        // Left motor
+        // Initialize left motor with its pins
         let left_fwd = gpio::Output::new(d.left_forward_pin, gpio::Level::Low);
         let left_bckw = gpio::Output::new(d.left_backward_pin, gpio::Level::Low);
         let left_pwm = pwm::Pwm::new_output_a(d.left_slice, d.left_pwm_pin, pwm_config.clone());
         let left_motor = Self::new(left_fwd, left_bckw, left_pwm)?;
 
-        // Right motor
+        // Initialize right motor with its pins
         let right_fwd = gpio::Output::new(d.right_forward_pin, gpio::Level::Low);
         let right_bckw = gpio::Output::new(d.right_backward_pin, gpio::Level::Low);
         let right_pwm = pwm::Pwm::new_output_b(d.right_slice, d.right_pwm_pin, pwm_config);
         let right_motor = Self::new(right_fwd, right_bckw, right_pwm)?;
 
-        // Initialize standby pin in disabled state
+        // Initialize standby control pin
         let standby = gpio::Output::new(d.standby_pin, gpio::Level::Low);
 
         Ok((left_motor, right_motor, standby))
     }
 
+    /// Sets motor speed and direction (-100 to +100)
     fn set_speed(&mut self, speed: i8) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
         self.current_speed = speed;
         self.forward = speed >= 0;
@@ -139,27 +142,30 @@ impl Motor {
         Ok(())
     }
 
+    /// Actively stops motor using electrical braking
     fn brake(&mut self) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
         self.current_speed = 0;
         self.motor.drive(DriveCommand::Brake)
     }
 
+    /// Stops motor by letting it spin freely
     fn coast(&mut self) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
         self.current_speed = 0;
         self.motor.drive(DriveCommand::Stop)
     }
 
+    /// Returns current motor speed setting (-100 to +100)
     fn current_speed(&self) -> i8 {
         self.current_speed
     }
 }
 
-/// Checks if robot is executing a pure rotation (turning in place)
+/// Detects if robot is performing a stationary rotation
 fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
     left_speed == -right_speed && left_speed != 0
 }
 
-/// Main motor control task that processes movement commands
+/// Primary motor control task that processes movement commands and encoder feedback
 #[embassy_executor::task]
 pub async fn drive(d: MotorDriverResources) {
     // Initialize motors
