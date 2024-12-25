@@ -96,6 +96,16 @@ pub enum Events {
     /// - No user input for extended period
     /// - Triggers power saving measures
     InactivityTimeout,
+
+    /// Drive command was executed
+    /// - Signals that motor speeds have been set
+    /// - Triggers encoder measurement
+    DriveCommandExecuted,
+
+    /// Encoder measurement completed
+    /// - Contains latest pulse counts and timing
+    /// - Used for speed adjustments
+    EncoderMeasurementTaken(crate::task::encoder_read::EncoderMeasurement),
 }
 
 /// Remote control button identifiers

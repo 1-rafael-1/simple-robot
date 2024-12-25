@@ -88,28 +88,28 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
         (event::ButtonId::A, ButtonActionType::Press) => {
             // Drive forward at 20% power
             rgb_led_indicate::update_indicator(true);
-            drive::send_command(drive::Command::Forward(20));
+            drive::send_command(drive::Command::Drive(drive::DriveAction::Forward(20)));
         }
 
         // Button B - Right turn
         (event::ButtonId::B, ButtonActionType::Press) => {
             // Turn right at 20% differential
             rgb_led_indicate::update_indicator(true);
-            drive::send_command(drive::Command::Right(20));
+            drive::send_command(drive::Command::Drive(drive::DriveAction::Right(20)));
         }
 
         // Button C - Left turn
         (event::ButtonId::C, ButtonActionType::Press) => {
             // Turn left at 20% differential
             rgb_led_indicate::update_indicator(true);
-            drive::send_command(drive::Command::Left(20));
+            drive::send_command(drive::Command::Drive(drive::DriveAction::Left(20)));
         }
 
         // Button D - Reverse
         (event::ButtonId::D, ButtonActionType::Press) => {
             // Drive backward at 20% power
             rgb_led_indicate::update_indicator(true);
-            drive::send_command(drive::Command::Backward(20));
+            drive::send_command(drive::Command::Drive(drive::DriveAction::Backward(20)));
         }
 
         // All other button/action combinations have no effect

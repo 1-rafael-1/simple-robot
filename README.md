@@ -13,15 +13,15 @@ Check out the robot navigating autonomously, download the demo video here: [Auto
   - [x] Replace HC-SR04 ultrasonic sensor with IR sensor for more reliable obstacle detection
     - [ ] Add a second IR sensor because the chassis & tracks is too wide to be covered by one sensor.
   - [ ] Add servo-mounted HC-SR04 as a poor man's LIDAR system for better spatial awareness
-  - [ ] Integrate MPU6050 IMU for improved position control and orientation sensing.
+  - [ ] Integrate MPU6050 IMU or MPU9250 for improved position control and orientation sensing.
 - [ ] Remote control improvements:
   - [ ] Re-wire everything to decouple the RC receiver as much as possible from the motor driver and other noisy components -> for better reception when motors are running
 - [ ] General circuit improvements:
   - [ ] Get rid of the voltage dividers for the RC receiver and the sensors, replace with level shifters instead
 - [ ] Mobility improvements:
   - [x] Replace the simple DC motors with better ones that have higher torque and encoders
-  - [ ] Wire up the encoders and integrate them in code
-  - [ ] Alter code to use encoders for better control and feedback, i.e. drive straight lines, make exact turns, etc.
+  - [ ] Wire up the encoders
+  - [x] Alter code to use encoders for better control and feedback, i.e. drive straight lines
 - [ ] Power management improvements:
   - [x] Improve the battery indicator by refining the color scheme of the battery indicator
   - [ ] Add a charger IC to charge and especially to protect the battery from deep discharge

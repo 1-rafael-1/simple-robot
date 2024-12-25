@@ -49,23 +49,25 @@ const TURN_SPEED_MIN: u8 = 80;
 #[embassy_executor::task]
 pub async fn autonomous_drive() {
     // Initial stop sequence
-    drive::send_command(drive::Command::Coast);
+    drive::send_command(drive::Command::Drive(drive::DriveAction::Coast));
     Timer::after(Duration::from_secs(1)).await;
-    drive::send_command(drive::Command::Brake);
+    drive::send_command(drive::Command::Drive(drive::DriveAction::Brake));
 
     loop {
         match wait_command().await {
             Command::Initialize => {
-                drive::send_command(drive::Command::Coast);
+                drive::send_command(drive::Command::Drive(drive::DriveAction::Coast));
                 Timer::after(Duration::from_millis(100)).await;
             }
             Command::Start => {
                 info!("Autonomous forward");
-                drive::send_command(drive::Command::Forward(FORWARD_SPEED));
+                drive::send_command(drive::Command::Drive(drive::DriveAction::Forward(
+                    FORWARD_SPEED,
+                )));
             }
             Command::Stop => {
                 info!("Autonomous stop");
-                drive::send_command(drive::Command::Brake);
+                drive::send_command(drive::Command::Drive(drive::DriveAction::Brake));
                 Timer::after(Duration::from_millis(200)).await;
                 continue;
             }
@@ -74,14 +76,16 @@ pub async fn autonomous_drive() {
 
                 // Emergency Stop
                 info!("emergency stop");
-                drive::send_command(drive::Command::Brake);
+                drive::send_command(drive::Command::Drive(drive::DriveAction::Brake));
                 Timer::after(Duration::from_millis(500)).await;
 
                 // Back up
                 info!("backing up");
-                drive::send_command(drive::Command::Backward(REVERSE_SPEED));
+                drive::send_command(drive::Command::Drive(drive::DriveAction::Backward(
+                    REVERSE_SPEED,
+                )));
                 Timer::after(BACKUP_DURATION).await;
-                drive::send_command(drive::Command::Brake);
+                drive::send_command(drive::Command::Drive(drive::DriveAction::Brake));
                 Timer::after(Duration::from_millis(100)).await;
 
                 // Random turn
@@ -93,12 +97,14 @@ pub async fn autonomous_drive() {
                 let turn_speed = rng.generate_range(TURN_SPEED_MIN..=100);
                 let turn_duration = Duration::from_millis(rng.generate_range(500..=1500));
                 if rng.generate_range(0..=1) == 0 {
-                    drive::send_command(drive::Command::Left(turn_speed))
+                    drive::send_command(drive::Command::Drive(drive::DriveAction::Left(turn_speed)))
                 } else {
-                    drive::send_command(drive::Command::Right(turn_speed))
+                    drive::send_command(drive::Command::Drive(drive::DriveAction::Right(
+                        turn_speed,
+                    )))
                 };
                 Timer::after(turn_duration).await;
-                drive::send_command(drive::Command::Brake);
+                drive::send_command(drive::Command::Drive(drive::DriveAction::Brake));
                 Timer::after(Duration::from_millis(100)).await;
 
                 // Report complete evasion (we may still or again have an obstacle)

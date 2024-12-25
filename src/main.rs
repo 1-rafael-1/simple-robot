@@ -5,22 +5,24 @@
 #![no_std]
 #![no_main]
 
-use crate::task::autonomous_drive::autonomous_drive;
-use crate::task::battery_charge_read::battery_charge_read;
-use crate::task::drive::drive;
-use crate::task::ir_obstacle_detect::ir_obstacle_detect;
-use crate::task::orchestrate::orchestrate;
-use crate::task::rc_control::{
-    rc_button_a_handle, rc_button_b_handle, rc_button_c_handle, rc_button_d_handle,
+use crate::task::{
+    autonomous_drive::autonomous_drive,
+    battery_charge_read::battery_charge_read,
+    drive::drive,
+    encoder_read::read_encoder,
+    ir_obstacle_detect::ir_obstacle_detect,
+    orchestrate::orchestrate,
+    rc_control::{rc_button_a_handle, rc_button_b_handle, rc_button_c_handle, rc_button_d_handle},
+    rgb_led_indicate::rgb_led_indicate,
+    track_inactivity::track_inactivity,
 };
-use crate::task::rgb_led_indicate::rgb_led_indicate;
-use crate::task::track_inactivity::track_inactivity;
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
 use system::resources::{
     self, AssignedResources, BatteryChargeResources, DistanceSensorResources, IRSensorResources,
-    MotorResources, RCResourcesA, RCResourcesB, RCResourcesC, RCResourcesD, RGBLedResources,
+    MotorDriverResources, MotorEncoderResources, RCResourcesA, RCResourcesB, RCResourcesC,
+    RCResourcesD, RGBLedResources,
 };
 use {defmt_rtt as _, panic_probe as _};
 
@@ -60,7 +62,8 @@ async fn main(spawner: Spawner) {
     spawner.spawn(rc_button_b_handle(r.rc_b)).unwrap();
     spawner.spawn(rc_button_c_handle(r.rc_c)).unwrap();
     spawner.spawn(rc_button_d_handle(r.rc_d)).unwrap();
-    spawner.spawn(drive(r.motor)).unwrap();
+    spawner.spawn(read_encoder(r.motor_encoders)).unwrap();
+    spawner.spawn(drive(r.motor_driver)).unwrap();
     spawner.spawn(autonomous_drive()).unwrap();
     spawner.spawn(track_inactivity()).unwrap();
 }

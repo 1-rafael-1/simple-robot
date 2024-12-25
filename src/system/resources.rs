@@ -82,36 +82,45 @@ assign_resources! {
     },
     /// Remote control button A input
     rc_a: RCResourcesA {
-        btn_a: PIN_6,
+        btn_a: PIN_16,
     },
     /// Remote control button B input
     rc_b: RCResourcesB {
-        btn_b: PIN_7,
+        btn_b: PIN_17,
     },
     /// Remote control button C input
     rc_c: RCResourcesC {
-        btn_c: PIN_8,
+        btn_c: PIN_10,
     },
     /// Remote control button D input
     rc_d: RCResourcesD {
-        btn_d: PIN_9,
+        btn_d: PIN_11,
     },
     /// IR obstacle avoidance sensor (VMA330) - digital output
     ir_sensor: IRSensorResources {
         ir_pin: PIN_26, // Digital input pin
     },
     /// TB6612FNG dual motor driver pins and PWM channels
-    motor: MotorResources {
+    motor_driver: MotorDriverResources {
         standby_pin: PIN_22,
+        // Motor drive PWM
         left_slice: PWM_SLICE6,
         left_pwm_pin: PIN_28,
         left_forward_pin: PIN_21,
         left_backward_pin: PIN_20,
+        // Motor drive PWM
         right_slice: PWM_SLICE5,
         right_pwm_pin: PIN_27,
         right_forward_pin: PIN_19,
         right_backward_pin: PIN_18,
-        },
+    },
+    /// Motor encoder PWM input channels
+    motor_encoders: MotorEncoderResources {
+        left_encoder_slice: PWM_SLICE3,
+        left_encoder_pin: PIN_7,
+        right_encoder_slice: PWM_SLICE4,
+        right_encoder_pin: PIN_9,
+    },
 }
 
 bind_interrupts!(pub struct Irqs {
