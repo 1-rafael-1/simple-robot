@@ -5,7 +5,7 @@
 
 use crate::system::event::{self, Events};
 use crate::system::resources::MotorDriverResources;
-use crate::task::encoder::EncoderMeasurement;
+use crate::task::encoder_read::EncoderMeasurement;
 use core::convert::Infallible;
 use defmt::info;
 use embassy_rp::pwm::PwmError;

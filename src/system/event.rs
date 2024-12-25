@@ -105,7 +105,7 @@ pub enum Events {
     /// Encoder measurement completed
     /// - Contains latest pulse counts and timing
     /// - Used for speed adjustments
-    EncoderMeasurementTaken(crate::task::encoder::EncoderMeasurement),
+    EncoderMeasurementTaken(crate::task::encoder_read::EncoderMeasurement),
 }
 
 /// Remote control button identifiers

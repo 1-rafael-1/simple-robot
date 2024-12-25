@@ -9,7 +9,7 @@ use crate::task::{
     autonomous_drive::autonomous_drive,
     battery_charge_read::battery_charge_read,
     drive::drive,
-    encoder::encoder,
+    encoder_read::read_encoder,
     ir_obstacle_detect::ir_obstacle_detect,
     orchestrate::orchestrate,
     rc_control::{rc_button_a_handle, rc_button_b_handle, rc_button_c_handle, rc_button_d_handle},
@@ -62,9 +62,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(rc_button_b_handle(r.rc_b)).unwrap();
     spawner.spawn(rc_button_c_handle(r.rc_c)).unwrap();
     spawner.spawn(rc_button_d_handle(r.rc_d)).unwrap();
-    // Spawn encoder task first to ensure it's ready to provide measurements
-    spawner.spawn(encoder(r.motor_encoders)).unwrap();
-    // Then spawn drive task which will consume encoder measurements
+    spawner.spawn(read_encoder(r.motor_encoders)).unwrap();
     spawner.spawn(drive(r.motor_driver)).unwrap();
     spawner.spawn(autonomous_drive()).unwrap();
     spawner.spawn(track_inactivity()).unwrap();
