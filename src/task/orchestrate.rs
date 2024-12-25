@@ -150,6 +150,7 @@ async fn handle_state_changes(event: event::Events) {
             track_inactivity::signal_activity();
         }
         event::Events::InactivityTimeout => {
+            // Inactivity timeout occurred, set operation mode to manual and start standby mode
             event::send(event::Events::OperationModeSet(
                 state::OperationMode::Manual,
             ))

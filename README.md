@@ -20,8 +20,8 @@ Check out the robot navigating autonomously, download the demo video here: [Auto
   - [ ] Get rid of the voltage dividers for the RC receiver and the sensors, replace with level shifters instead
 - [ ] Mobility improvements:
   - [x] Replace the simple DC motors with better ones that have higher torque and encoders
-  - [ ] Wire up the encoders and integrate them in code
-  - [ ] Alter code to use encoders for better control and feedback, i.e. drive straight lines, make exact turns, etc.
+  - [ ] Wire up the encoders
+  - [x] Alter code to use encoders for better control and feedback, i.e. drive straight lines
 - [ ] Power management improvements:
   - [x] Improve the battery indicator by refining the color scheme of the battery indicator
   - [ ] Add a charger IC to charge and especially to protect the battery from deep discharge
