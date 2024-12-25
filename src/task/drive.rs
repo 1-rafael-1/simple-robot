@@ -5,7 +5,7 @@
 
 use crate::system::event::{self, Events};
 use crate::system::resources::MotorDriverResources;
-use crate::task::encoder::{EncoderData, EncoderMeasurement};
+use crate::task::encoder::EncoderMeasurement;
 use core::convert::Infallible;
 use defmt::info;
 use embassy_rp::pwm::PwmError;
@@ -21,16 +21,6 @@ use tb6612fng::{DriveCommand, MotorError};
 
 /// Drive control signal for sending commands to the motor task
 static DRIVE_CONTROL: Signal<CriticalSectionRawMutex, Command> = Signal::new();
-
-/// Left motor control protected by mutex
-pub static LEFT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
-
-/// Right motor control protected by mutex
-pub static RIGHT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
-
-/// Last received encoder measurement
-static LAST_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<EncoderMeasurement>> =
-    Mutex::new(None);
 
 /// Motor control commands with speed parameters in range 0-100
 #[derive(Debug, Clone)]
@@ -65,6 +55,12 @@ async fn wait_command() -> Command {
 // DFRobot FIT0450 motor specifications
 const PULSES_PER_REV: u32 = 8; // Encoder pulses per motor revolution
 const GEAR_RATIO: u32 = 120; // 120:1 gear reduction
+
+/// Left motor control protected by mutex
+pub static LEFT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
+
+/// Right motor control protected by mutex
+pub static RIGHT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
 
 /// Motor control implementation
 pub struct Motor {
@@ -366,21 +362,6 @@ pub async fn drive(d: MotorDriverResources) {
                         right.current_speed(),
                     )
                 };
-
-                // Store measurement with calculated RPMs
-                let measurement_with_rpm = EncoderMeasurement {
-                    left: EncoderData {
-                        pulse_count: measurement.left.pulse_count,
-                        elapsed_ms: measurement.left.elapsed_ms,
-                    },
-                    right: EncoderData {
-                        pulse_count: measurement.right.pulse_count,
-                        elapsed_ms: measurement.right.elapsed_ms,
-                    },
-                };
-                critical_section::with(|_| {
-                    *LAST_MEASUREMENT.try_lock().unwrap() = Some(measurement_with_rpm);
-                });
 
                 // Apply speed adjustments if motors are running
                 if left_speed != 0 || right_speed != 0 {
