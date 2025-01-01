@@ -64,7 +64,7 @@ pub fn get_adc() -> &'static Mutex<CriticalSectionRawMutex, Option<Adc<'static, 
 }
 
 assign_resources! {
-    /// HC-SR04 ultrasonic distance sensor pins
+    /// [not used ATM] HC-SR04 ultrasonic distance sensor pins
     distance_sensor: DistanceSensorResources {
        trigger_pin: PIN_15,
        echo_pin: PIN_14,
@@ -121,6 +121,11 @@ assign_resources! {
         right_encoder_slice: PWM_SLICE4,
         right_encoder_pin: PIN_9,
     },
+    /// [not used ATM] MPU9250 9-axis IMU
+    inertial_measurement_unit: InertialMeasurementUnitResources {
+        scl: PIN_13,
+        sda: PIN_12,
+    }
 }
 
 bind_interrupts!(pub struct Irqs {

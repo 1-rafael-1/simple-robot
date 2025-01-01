@@ -1,0 +1,197 @@
+(footprint "Pololu step-up converter 2.5-5.5V in 6V out"
+	(version 20240108)
+	(generator "pcbnew")
+	(generator_version "8.0")
+	(layer "F.Cu")
+	(property "Reference" "REF**"
+		(at 0 -7.62 0)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "cd58c518-d4d7-4f82-98dc-b6a230f3c43e")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.1)
+			)
+		)
+	)
+	(property "Value" "Pololu step-up converter 2.5-5.5V in 6V out"
+		(at 0 1 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "6e709d5c-0b6a-4de4-92fe-0293e2095008")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Footprint" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "e4c6a38b-a0f0-4bdf-a7f6-4bee46babce0")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "ec510b84-6eb0-408b-8396-df41f2c9c8dc")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "3b66b005-9509-4874-9ad9-302aeb069bea")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr through_hole)
+	(fp_rect
+		(start -2.54 -5.08)
+		(end 7.62 5.08)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(fill none)
+		(layer "F.SilkS")
+		(uuid "b461e57a-22f6-46d3-9ad3-32dfa38f1ffe")
+	)
+	(fp_text user "step-up conv."
+		(at -0.8 4.6 90)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "3e4ab12a-c7a9-4fe5-a261-703143633c3d")
+		(effects
+			(font
+				(size 0.8 0.8)
+				(thickness 0.1)
+			)
+			(justify left bottom)
+		)
+	)
+	(fp_text user "VIN"
+		(at 2 3 0)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "8d6736cc-b606-4d34-a31d-a81b55eed926")
+		(effects
+			(font
+				(size 0.8 0.8)
+				(thickness 0.1)
+			)
+			(justify left bottom)
+		)
+	)
+	(fp_text user "6VOUT"
+		(at 0.4 -2 0)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "a427cd81-b5e9-4bd7-9c0e-32f916d7e10e")
+		(effects
+			(font
+				(size 0.8 0.8)
+				(thickness 0.1)
+			)
+			(justify left bottom)
+		)
+	)
+	(fp_text user "GND"
+		(at 1.6 0.5 0)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "b8683168-a892-4a7c-83c6-c5659bdb1db8")
+		(effects
+			(font
+				(size 0.8 0.8)
+				(thickness 0.1)
+			)
+			(justify left bottom)
+		)
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 2.5 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "fc2a0852-0077-461d-b8f9-ed507c781c07")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" thru_hole rect
+		(at 5.08 2.54 180)
+		(size 1.524 1.524)
+		(drill 0.762)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "b911f886-020e-4a6f-83e2-71df31403732")
+	)
+	(pad "2" thru_hole circle
+		(at 5.08 0 180)
+		(size 1.524 1.524)
+		(drill 0.762)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "b184cf83-e584-48e0-bc8a-633a7297f101")
+	)
+	(pad "3" thru_hole circle
+		(at 5.08 -2.54 180)
+		(size 1.524 1.524)
+		(drill 0.762)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "fa130271-bcb2-45d9-b346-45290d0b37e6")
+	)
+	(zone
+		(net 0)
+		(net_name "")
+		(layer "F.SilkS")
+		(uuid "8003142f-5cf8-473b-8e50-334bc6e61b56")
+		(hatch edge 0.5)
+		(connect_pads
+			(clearance 0)
+		)
+		(min_thickness 0.25)
+		(filled_areas_thickness no)
+		(keepout
+			(tracks allowed)
+			(vias allowed)
+			(pads not_allowed)
+			(copperpour allowed)
+			(footprints not_allowed)
+		)
+		(fill
+			(thermal_gap 0.5)
+			(thermal_bridge_width 0.5)
+		)
+		(polygon
+			(pts
+				(xy -2.54 -5.08) (xy 7.62 -5.08) (xy 7.62 5.08) (xy -2.54 5.08)
+			)
+		)
+	)
+)

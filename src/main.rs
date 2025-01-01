@@ -21,8 +21,8 @@ use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
 use system::resources::{
     self, AssignedResources, BatteryChargeResources, DistanceSensorResources, IRSensorResources,
-    MotorDriverResources, MotorEncoderResources, RCResourcesA, RCResourcesB, RCResourcesC,
-    RCResourcesD, RGBLedResources,
+    InertialMeasurementUnitResources, MotorDriverResources, MotorEncoderResources, RCResourcesA,
+    RCResourcesB, RCResourcesC, RCResourcesD, RGBLedResources,
 };
 use {defmt_rtt as _, panic_probe as _};
 

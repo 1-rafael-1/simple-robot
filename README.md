@@ -30,6 +30,10 @@ Check out the robot navigating autonomously, download the demo video here: [Auto
 - [ ] Mechanics improvements:
   - [ ] There must be a solution for tightening the tracks, which are too long by a few mm and sometimes come loose
   - [x] The base frame does not fit well with motors that have encoders -> needs to be adapted
+- [ ] Circuit & Wiring Improvements
+  - [x] Get to grips with KiCad and make an initial Schematic
+  - [x] Make a v0.1 PCB
+  - [ ] ...and make it work
 
 
 I am not yet sure how many of these improvements I can implement in a reasonable timeframe. Maybe I will archive a v2 at some point along the way.
