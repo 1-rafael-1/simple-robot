@@ -2728,6 +2728,298 @@
 				)
 			)
 		)
+		(symbol "Motor:Motor_Servo"
+			(pin_names
+				(offset 0.0254)
+			)
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(property "Reference" "M"
+				(at -5.08 4.445 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Value" "Motor_Servo"
+				(at -5.08 -4.064 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left top)
+				)
+			)
+			(property "Footprint" ""
+				(at 0 -4.826 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" "http://forums.parallax.com/uploads/attachments/46831/74481.png"
+				(at 0 -4.826 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "Servo Motor (Futaba, HiTec, JR connector)"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "Servo Motor"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_fp_filters" "PinHeader*P2.54mm*"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "Motor_Servo_0_1"
+				(polyline
+					(pts
+						(xy 2.413 -1.778) (xy 2.032 -1.778)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 2.413 -1.778) (xy 2.286 -1.397)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 2.413 1.778) (xy 1.905 1.778)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 2.413 1.778) (xy 2.286 1.397)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 6.35 4.445) (xy 2.54 1.27)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 7.62 3.175) (xy 4.191 -1.016)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 5.08 3.556) (xy -5.08 3.556) (xy -5.08 -3.556) (xy 6.35 -3.556) (xy 6.35 1.524)
+					)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(arc
+					(start 2.413 1.778)
+					(mid 1.2406 0)
+					(end 2.413 -1.778)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(circle
+					(center 3.175 0)
+					(radius 0.1778)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(circle
+					(center 3.175 0)
+					(radius 1.4224)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(circle
+					(center 5.969 2.794)
+					(radius 0.127)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(circle
+					(center 6.477 3.302)
+					(radius 0.127)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(circle
+					(center 6.985 3.81)
+					(radius 0.127)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(arc
+					(start 7.62 3.175)
+					(mid 7.4485 4.2735)
+					(end 6.35 4.445)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(symbol "Motor_Servo_1_1"
+				(pin passive line
+					(at -7.62 2.54 0)
+					(length 2.54)
+					(name "PWM"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at -7.62 0 0)
+					(length 2.54)
+					(name "+"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at -7.62 -2.54 0)
+					(length 2.54)
+					(name "-"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+		)
 		(symbol "PCM_SL_Capacitors:100nF_Ceramic"
 			(exclude_from_sim no)
 			(in_bom yes)
@@ -5650,6 +5942,12 @@
 		(uuid "389ea560-89ca-4fc7-b838-dade2cf1468e")
 	)
 	(junction
+		(at 33.02 104.14)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "3925605f-9297-4e59-a58a-edef4377d289")
+	)
+	(junction
 		(at 172.72 41.91)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -5678,6 +5976,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "44a05fec-3bce-4e1f-867b-b519104cc299")
+	)
+	(junction
+		(at 33.02 106.68)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "45d78429-a96a-4d7f-a04b-aed44705f612")
 	)
 	(junction
 		(at 55.88 165.1)
@@ -5732,6 +6036,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "88a76210-6962-47e4-8483-906f4d474f0d")
+	)
+	(junction
+		(at 33.02 109.22)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "891b0cf8-4050-4927-830b-6fd293ecada4")
 	)
 	(junction
 		(at 38.1 134.62)
@@ -5830,6 +6140,12 @@
 		(uuid "dbc3df64-ffd7-489f-97a8-c7ad4d01fec4")
 	)
 	(junction
+		(at 31.75 106.68)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "e2dec7d7-8f41-482a-a9fc-4e476f4f217e")
+	)
+	(junction
 		(at 125.73 109.22)
 		(diameter 0)
 		(color 255 0 0 1)
@@ -5840,6 +6156,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "e789ab97-d731-4512-a000-1fd45a0ceb98")
+	)
+	(junction
+		(at 40.64 127)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "e8618df8-7962-413c-9695-45498cab9433")
 	)
 	(junction
 		(at 189.23 110.49)
@@ -5906,10 +6228,6 @@
 	(no_connect
 		(at 119.38 116.84)
 		(uuid "929d684a-c93d-4d83-a712-4d6ab2bc76e8")
-	)
-	(no_connect
-		(at 83.82 114.3)
-		(uuid "92cf9e6d-273a-4877-9b6e-ad54fc2fbbe1")
 	)
 	(no_connect
 		(at 99.06 152.4)
@@ -5989,6 +6307,17 @@
 			(type default)
 		)
 		(uuid "07a17492-684e-44f2-8e25-46e3679ec5b5")
+	)
+	(wire
+		(pts
+			(xy 31.75 115.57) (xy 31.75 106.68)
+		)
+		(stroke
+			(width 0.2)
+			(type default)
+			(color 255 0 0 1)
+		)
+		(uuid "0ac833cf-91dd-44ed-a865-fe537150635f")
 	)
 	(wire
 		(pts
@@ -6454,6 +6783,16 @@
 	)
 	(wire
 		(pts
+			(xy 33.02 109.22) (xy 33.02 114.3)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "39443fb9-9ff2-49c6-bfee-6605b2324e9c")
+	)
+	(wire
+		(pts
 			(xy 123.19 76.2) (xy 123.19 119.38)
 		)
 		(stroke
@@ -6474,6 +6813,16 @@
 	)
 	(wire
 		(pts
+			(xy 29.21 106.68) (xy 31.75 106.68)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3c78bac4-97d2-4d98-84de-f56dc2654ab1")
+	)
+	(wire
+		(pts
 			(xy 146.05 102.87) (xy 193.04 102.87)
 		)
 		(stroke
@@ -6491,6 +6840,16 @@
 			(type default)
 		)
 		(uuid "3d4a7f01-1b9c-4b54-a339-6ba546353c3b")
+	)
+	(wire
+		(pts
+			(xy 29.21 104.14) (xy 33.02 104.14)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3d6fba24-cbd9-4e11-bb6f-d1e74c885aae")
 	)
 	(wire
 		(pts
@@ -6586,6 +6945,16 @@
 	)
 	(wire
 		(pts
+			(xy 39.37 109.22) (xy 39.37 106.68)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "4349d768-be3a-4093-b3a7-20382945e74f")
+	)
+	(wire
+		(pts
 			(xy 80.01 86.36) (xy 87.63 86.36)
 		)
 		(stroke
@@ -6604,6 +6973,16 @@
 			(type default)
 		)
 		(uuid "452b026b-984c-4820-b86b-498faeccd3df")
+	)
+	(wire
+		(pts
+			(xy 33.02 114.3) (xy 83.82 114.3)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "4566108d-9502-4195-8ae2-2e8ff9084883")
 	)
 	(wire
 		(pts
@@ -6657,6 +7036,17 @@
 			(color 255 0 0 1)
 		)
 		(uuid "49d25d50-b3c8-41bb-9799-095f3270273c")
+	)
+	(wire
+		(pts
+			(xy 40.64 115.57) (xy 31.75 115.57)
+		)
+		(stroke
+			(width 0.2)
+			(type default)
+			(color 255 0 0 1)
+		)
+		(uuid "4c212b11-13e8-4626-9a97-22d468a765a1")
 	)
 	(wire
 		(pts
@@ -7098,6 +7488,17 @@
 	)
 	(wire
 		(pts
+			(xy 40.64 127) (xy 40.64 115.57)
+		)
+		(stroke
+			(width 0.2)
+			(type default)
+			(color 255 0 0 1)
+		)
+		(uuid "86e54b51-05c7-4908-b8dd-1b24f4a2ede7")
+	)
+	(wire
+		(pts
 			(xy 124.46 121.92) (xy 124.46 165.1)
 		)
 		(stroke
@@ -7188,6 +7589,16 @@
 			(type default)
 		)
 		(uuid "932ea9b0-48a5-4e0f-b9a1-7066f41830fa")
+	)
+	(wire
+		(pts
+			(xy 40.64 109.22) (xy 39.37 109.22)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "937207c0-86c2-46f9-9cfe-16b9bb4a1695")
 	)
 	(wire
 		(pts
@@ -7517,6 +7928,16 @@
 	)
 	(wire
 		(pts
+			(xy 33.02 104.14) (xy 40.64 104.14)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "b5bce930-628d-4c85-9f76-49d36bfe1bfb")
+	)
+	(wire
+		(pts
 			(xy 200.66 113.03) (xy 200.66 118.11)
 		)
 		(stroke
@@ -7626,6 +8047,17 @@
 			(type default)
 		)
 		(uuid "bef6a756-a1e1-430c-94c4-d2855f5bebfb")
+	)
+	(wire
+		(pts
+			(xy 40.64 127) (xy 72.39 127)
+		)
+		(stroke
+			(width 0.2)
+			(type default)
+			(color 255 0 0 1)
+		)
+		(uuid "c4e2ae0f-ab2b-4420-950a-ffe6ed9e9f08")
 	)
 	(wire
 		(pts
@@ -7784,6 +8216,16 @@
 			(type default)
 		)
 		(uuid "d4bd3303-f8b3-4879-85b4-5483468dbac6")
+	)
+	(wire
+		(pts
+			(xy 31.75 106.68) (xy 33.02 106.68)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d4f8b08d-1ac5-4ac8-ad7b-6b9e36347821")
 	)
 	(wire
 		(pts
@@ -7983,7 +8425,7 @@
 	)
 	(wire
 		(pts
-			(xy 38.1 127) (xy 72.39 127)
+			(xy 38.1 127) (xy 40.64 127)
 		)
 		(stroke
 			(width 0.2)
@@ -8063,6 +8505,26 @@
 			(type default)
 		)
 		(uuid "f97c9f06-3a74-474a-b5fd-eeb07ac01156")
+	)
+	(wire
+		(pts
+			(xy 29.21 109.22) (xy 33.02 109.22)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "f9d322a1-cd7a-4e20-8e6d-f41811babb52")
+	)
+	(wire
+		(pts
+			(xy 33.02 106.68) (xy 39.37 106.68)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "fa7affcd-fb24-416f-af47-457f44aa32e2")
 	)
 	(wire
 		(pts
@@ -8699,6 +9161,77 @@
 			(project "simple-robot"
 				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
 					(reference "#PWR06")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Motor:Motor_Servo")
+		(at 21.59 106.68 180)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board no)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "1685323e-6901-47bc-ab0d-805723f8d274")
+		(property "Reference" "M3"
+			(at 20.3311 97.79 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "Motor_Servo"
+			(at 20.3311 100.33 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 21.59 101.854 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "http://forums.parallax.com/uploads/attachments/46831/74481.png"
+			(at 21.59 101.854 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Servo Motor (Futaba, HiTec, JR connector)"
+			(at 21.59 106.68 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "7c4bc495-ce4f-4478-854d-3c8fff5c8b69")
+		)
+		(pin "2"
+			(uuid "824ab10a-1887-4178-a362-c9174af46943")
+		)
+		(pin "3"
+			(uuid "4bc71d45-0f9c-4391-ab45-f5514f9b4d02")
+		)
+		(instances
+			(project ""
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "M3")
 					(unit 1)
 				)
 			)
@@ -10203,6 +10736,76 @@
 			(project "simple-robot"
 				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
 					(reference "C7")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "PCM_SL_Capacitors:100nF_Ceramic")
+		(at 40.64 106.68 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "60f458b0-9d90-40f4-8bf5-d6f8e455706a")
+		(property "Reference" "C9"
+			(at 44.45 105.4099 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "100nF_Ceramic"
+			(at 44.45 107.9499 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P2.50mm"
+			(at 44.45 106.68 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 40.64 106.68 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "100nF Ceramic Capacitor"
+			(at 40.64 106.68 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "bb759d8b-dff1-4b50-8ec6-0bf685ca7ee9")
+		)
+		(pin "1"
+			(uuid "79f7b62e-3bc5-4671-9c67-aed446e2ce4e")
+		)
+		(instances
+			(project "simple-robot"
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "C9")
 					(unit 1)
 				)
 			)
@@ -12760,6 +13363,78 @@
 		)
 	)
 	(symbol
+		(lib_id "Connector:Conn_01x03_Pin")
+		(at 38.1 106.68 180)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "cd50ccd6-fcae-4ffb-bf40-ed8963a3ff2c")
+		(property "Reference" "J4"
+			(at 22.098 93.98 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "Conn_01x03_Pin"
+			(at 22.098 96.52 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"
+			(at 38.1 106.68 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 38.1 106.68 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Generic connector, single row, 01x03, script generated"
+			(at 38.1 106.68 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "7190443d-5760-4c19-ac00-7d41316ac4e3")
+		)
+		(pin "3"
+			(uuid "67268a39-b808-43ff-9e85-04f89722017d")
+		)
+		(pin "2"
+			(uuid "798fe1a0-cde1-43e0-a7d4-48971bc9cbe4")
+		)
+		(instances
+			(project ""
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "J4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:GND")
 		(at 162.56 130.81 90)
 		(unit 1)
@@ -13019,6 +13694,72 @@
 			(project "simple-robot"
 				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
 					(reference "TP3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 33.02 104.14 180)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "ec158398-0207-43a0-8bb2-53b656f5a630")
+		(property "Reference" "#PWR029"
+			(at 33.02 97.79 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 33.02 99.06 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 33.02 104.14 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 33.02 104.14 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 33.02 104.14 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "1aa73f10-a492-40c8-ad28-b49af1fb70a2")
+		)
+		(instances
+			(project "simple-robot"
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "#PWR029")
 					(unit 1)
 				)
 			)
