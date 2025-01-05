@@ -23,6 +23,7 @@ use embassy_rp::adc::InterruptHandler as AdcInterruptHandler;
 use embassy_rp::adc::{Adc, Async};
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals;
+use embassy_rp::pio::InterruptHandler as PioInterruptHandler;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
@@ -64,8 +65,8 @@ pub fn get_adc() -> &'static Mutex<CriticalSectionRawMutex, Option<Adc<'static, 
 }
 
 assign_resources! {
-    /// [not used ATM] HC-SR04 ultrasonic distance sensor pins
-    distance_sensor: DistanceSensorResources {
+    /// HC-SR04 ultrasonic distance sensor pins
+    us_distance_sensor: UltrasonicDistanceSensorResources {
        trigger_pin: PIN_15,
        echo_pin: PIN_14,
     },
@@ -121,13 +122,21 @@ assign_resources! {
         right_encoder_slice: PWM_SLICE4,
         right_encoder_pin: PIN_9,
     },
-    /// [not used ATM] MPU9250 9-axis IMU
+    /// MPU6500 6-axis IMU
     inertial_measurement_unit: InertialMeasurementUnitResources {
         scl: PIN_13,
         sda: PIN_12,
-    }
+        int: PIN_8,
+        add: PIN_3
+    },
+    /// Servo for ultrasonic sweep
+    sweep_servo: SweepServoResources {
+        pin: PIN_5,
+        pio: PIO0
+    },
 }
 
 bind_interrupts!(pub struct Irqs {
     ADC_IRQ_FIFO => AdcInterruptHandler;
+    PIO0_IRQ_0 => PioInterruptHandler<peripherals::PIO0>;
 });

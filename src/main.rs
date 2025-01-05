@@ -14,15 +14,17 @@ use crate::task::{
     orchestrate::orchestrate,
     rc_control::{rc_button_a_handle, rc_button_b_handle, rc_button_c_handle, rc_button_d_handle},
     rgb_led_indicate::rgb_led_indicate,
+    sweep_ultrasonic::ultrasonic_sweep,
     track_inactivity::track_inactivity,
 };
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
 use system::resources::{
-    self, AssignedResources, BatteryChargeResources, DistanceSensorResources, IRSensorResources,
+    self, AssignedResources, BatteryChargeResources, IRSensorResources,
     InertialMeasurementUnitResources, MotorDriverResources, MotorEncoderResources, RCResourcesA,
-    RCResourcesB, RCResourcesC, RCResourcesD, RGBLedResources,
+    RCResourcesB, RCResourcesC, RCResourcesD, RGBLedResources, SweepServoResources,
+    UltrasonicDistanceSensorResources,
 };
 use {defmt_rtt as _, panic_probe as _};
 
@@ -66,4 +68,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(drive(r.motor_driver)).unwrap();
     spawner.spawn(autonomous_drive()).unwrap();
     spawner.spawn(track_inactivity()).unwrap();
+    spawner
+        .spawn(ultrasonic_sweep(r.sweep_servo, r.us_distance_sensor))
+        .unwrap();
 }

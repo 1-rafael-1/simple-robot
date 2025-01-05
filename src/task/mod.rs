@@ -7,4 +7,5 @@ pub mod ir_obstacle_detect;
 pub mod orchestrate;
 pub mod rc_control;
 pub mod rgb_led_indicate;
+pub mod sweep_ultrasonic;
 pub mod track_inactivity;
