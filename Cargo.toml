@@ -71,6 +71,9 @@ assign-resources = "0.4.1"
 moving_median = "0.2.0"
 tb6612fng = "1.0.0"
 libm = "0.2.11"
+ssd1306-async = { git = "https://github.com/kalkyl/ssd1306-async" }
+embedded-graphics = "0.8.1"
+static_cell = { version = "2.1.0", features = [] }
 
 [patch.crates-io]
 embassy-rp = { git = "https://github.com/embassy-rs/embassy" }

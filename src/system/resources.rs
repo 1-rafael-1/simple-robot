@@ -19,13 +19,17 @@
 //! performing ADC operations and release it promptly after.
 
 use assign_resources::assign_resources;
+use core::cell::RefCell;
+use core::mem::MaybeUninit;
 use embassy_rp::adc::InterruptHandler as AdcInterruptHandler;
-use embassy_rp::adc::{Adc, Async};
+use embassy_rp::adc::{Adc, Async as AdcAsync};
 use embassy_rp::bind_interrupts;
-use embassy_rp::peripherals;
+use embassy_rp::i2c::{Async as I2cAsync, Config, I2c, InterruptHandler as I2cInterruptHandler};
+use embassy_rp::peripherals::{self, ADC, I2C0, PIN_12, PIN_13, PIO0};
 use embassy_rp::pio::InterruptHandler as PioInterruptHandler;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::mutex::Mutex;
+use static_cell::StaticCell;
 
 /// Global ADC (Analog-to-Digital Converter) instance protected by a mutex.
 ///
@@ -42,13 +46,13 @@ use embassy_sync::mutex::Mutex;
 ///     // Lock is automatically released when scope ends
 /// };
 /// ```
-static ADC: Mutex<CriticalSectionRawMutex, Option<Adc<'static, Async>>> = Mutex::new(None);
+static ADC: Mutex<CriticalSectionRawMutex, Option<Adc<'static, AdcAsync>>> = Mutex::new(None);
 
 /// Initializes the ADC peripheral.
 ///
 /// This should only be called once during system initialization in main.rs,
 /// before any tasks are spawned.
-pub fn init_adc(adc: peripherals::ADC) {
+pub fn init_adc(adc: ADC) {
     let adc = Adc::new(adc, Irqs, embassy_rp::adc::Config::default());
     critical_section::with(|_| {
         *ADC.try_lock().unwrap() = Some(adc);
@@ -60,8 +64,26 @@ pub fn init_adc(adc: peripherals::ADC) {
 /// The returned mutex ensures safe concurrent access to the ADC peripheral.
 /// Tasks should acquire the mutex lock, perform their ADC operations,
 /// and release the lock as quickly as possible.
-pub fn get_adc() -> &'static Mutex<CriticalSectionRawMutex, Option<Adc<'static, Async>>> {
+pub fn get_adc() -> &'static Mutex<CriticalSectionRawMutex, Option<Adc<'static, AdcAsync>>> {
     &ADC
+}
+
+// In resources.rs
+static I2C_BUS: Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, I2cAsync>> = Mutex::new(unsafe {
+    core::mem::zeroed() // This is safe because we initialize before use
+});
+
+pub fn init_i2c(i2c: I2C0, scl: PIN_13, sda: PIN_12) {
+    let mut config = Config::default();
+    config.frequency = 400_000;
+    let i2c = I2c::new_async(i2c, scl, sda, Irqs, config);
+    critical_section::with(|_| {
+        *I2C_BUS.try_lock().unwrap() = i2c;
+    });
+}
+
+pub fn get_i2c() -> &'static Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, I2cAsync>> {
+    &I2C_BUS
 }
 
 assign_resources! {
@@ -124,8 +146,7 @@ assign_resources! {
     },
     /// MPU6500 6-axis IMU
     inertial_measurement_unit: InertialMeasurementUnitResources {
-        scl: PIN_13,
-        sda: PIN_12,
+        // I2C resources handled in mutex
         int: PIN_8,
         add: PIN_3
     },
@@ -138,5 +159,6 @@ assign_resources! {
 
 bind_interrupts!(pub struct Irqs {
     ADC_IRQ_FIFO => AdcInterruptHandler;
-    PIO0_IRQ_0 => PioInterruptHandler<peripherals::PIO0>;
+    PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
+    I2C0_IRQ => I2cInterruptHandler<I2C0>;
 });

@@ -8,8 +8,10 @@
 use crate::task::{
     autonomous_drive::autonomous_drive,
     battery_charge_read::battery_charge_read,
+    display::display,
     drive::drive,
     encoder_read::read_encoder,
+    imu_read::handle_inertial_measurement,
     ir_obstacle_detect::ir_obstacle_detect,
     orchestrate::orchestrate,
     rc_control::{rc_button_a_handle, rc_button_b_handle, rc_button_c_handle, rc_button_d_handle},
@@ -18,8 +20,11 @@ use crate::task::{
     track_inactivity::track_inactivity,
 };
 use embassy_executor::Spawner;
-use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
+use embassy_rp::{
+    block::ImageDef,
+    peripherals::{I2C0, PIN_12, PIN_13},
+};
 use system::resources::{
     self, AssignedResources, BatteryChargeResources, IRSensorResources,
     InertialMeasurementUnitResources, MotorDriverResources, MotorEncoderResources, RCResourcesA,
@@ -50,12 +55,12 @@ async fn main(spawner: Spawner) {
     // 3. No race conditions can occur since this happens before any tasks are spawned
     resources::init_adc(p.ADC);
 
+    // Initialize the I2C bus before spawning any tasks
+    resources::init_i2c(p.I2C0, p.PIN_13, p.PIN_12);
+
     // Split the resources into separate groups for each task, for all the resources that we do not share between tasks.
     let r = split_resources!(p);
 
-    // Finally spawn all the tasks
-    spawner.spawn(orchestrate()).unwrap();
-    spawner.spawn(ir_obstacle_detect(r.ir_sensor)).unwrap();
     spawner
         .spawn(battery_charge_read(r.battery_charge))
         .unwrap();
@@ -71,4 +76,6 @@ async fn main(spawner: Spawner) {
     spawner
         .spawn(ultrasonic_sweep(r.sweep_servo, r.us_distance_sensor))
         .unwrap();
+    spawner.spawn(display()).unwrap();
+    spawner.spawn(handle_inertial_measurement()).unwrap();
 }
