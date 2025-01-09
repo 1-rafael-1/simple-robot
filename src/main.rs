@@ -11,7 +11,7 @@ use crate::task::{
     display::display,
     drive::drive,
     encoder_read::read_encoder,
-    imu_read::handle_inertial_measurement,
+    imu_read::inertial_measurement_handle,
     ir_obstacle_detect::ir_obstacle_detect,
     orchestrate::orchestrate,
     rc_control::{rc_button_a_handle, rc_button_b_handle, rc_button_c_handle, rc_button_d_handle},
@@ -21,10 +21,7 @@ use crate::task::{
 };
 use embassy_executor::Spawner;
 use embassy_rp::config::Config;
-use embassy_rp::{
-    block::ImageDef,
-    peripherals::{I2C0, PIN_12, PIN_13},
-};
+use embassy_rp::block::ImageDef;
 use system::resources::{
     self, AssignedResources, BatteryChargeResources, IRSensorResources,
     InertialMeasurementUnitResources, MotorDriverResources, MotorEncoderResources, RCResourcesA,
@@ -77,5 +74,8 @@ async fn main(spawner: Spawner) {
         .spawn(ultrasonic_sweep(r.sweep_servo, r.us_distance_sensor))
         .unwrap();
     spawner.spawn(display()).unwrap();
-    spawner.spawn(handle_inertial_measurement()).unwrap();
+    spawner.spawn(inertial_measurement_handle()).unwrap();
+    spawner.spawn(ir_obstacle_detect(r.ir_sensor)).unwrap();
+
+    spawner.spawn(orchestrate()).unwrap();
 }

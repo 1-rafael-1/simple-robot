@@ -1,12 +1,7 @@
-use core::borrow::BorrowMut;
 
 use crate::system::resources;
 use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
-use embassy_rp::i2c::{Async, I2c};
-use embassy_rp::peripherals::{I2C0, PIN_12, PIN_13};
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use embedded_graphics::{
     mono_font::{ascii::FONT_9X18_BOLD, MonoTextStyleBuilder},

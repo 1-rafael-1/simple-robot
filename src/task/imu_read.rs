@@ -6,7 +6,7 @@ use embassy_time::{Duration, Timer};
 // You'll need to add the mpu6500 driver crate to your dependencies
 
 #[embassy_executor::task]
-pub async fn handle_inertial_measurement() {
+pub async fn inertial_measurement_handle() {
     let i2c_bus = resources::get_i2c();
     let imu_i2c = I2cDevice::new(i2c_bus);
 

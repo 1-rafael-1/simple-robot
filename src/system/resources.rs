@@ -19,33 +19,20 @@
 //! performing ADC operations and release it promptly after.
 
 use assign_resources::assign_resources;
-use core::cell::RefCell;
-use core::mem::MaybeUninit;
 use embassy_rp::adc::InterruptHandler as AdcInterruptHandler;
 use embassy_rp::adc::{Adc, Async as AdcAsync};
 use embassy_rp::bind_interrupts;
 use embassy_rp::i2c::{Async as I2cAsync, Config, I2c, InterruptHandler as I2cInterruptHandler};
 use embassy_rp::peripherals::{self, ADC, I2C0, PIN_12, PIN_13, PIO0};
 use embassy_rp::pio::InterruptHandler as PioInterruptHandler;
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
-use static_cell::StaticCell;
 
 /// Global ADC (Analog-to-Digital Converter) instance protected by a mutex.
 ///
 /// The mutex ensures safe concurrent access from multiple tasks that need to read analog values
 /// (e.g., battery voltage monitoring). Only one task can access the ADC at a time, preventing
 /// conflicts in hardware access.
-///
-/// Usage pattern:
-/// ```rust
-/// let voltage = {
-///     let mut adc_guard = get_adc().lock().await;
-///     let adc = adc_guard.as_mut().unwrap();
-///     // Perform ADC reading here
-///     // Lock is automatically released when scope ends
-/// };
-/// ```
 static ADC: Mutex<CriticalSectionRawMutex, Option<Adc<'static, AdcAsync>>> = Mutex::new(None);
 
 /// Initializes the ADC peripheral.
@@ -68,11 +55,20 @@ pub fn get_adc() -> &'static Mutex<CriticalSectionRawMutex, Option<Adc<'static, 
     &ADC
 }
 
-// In resources.rs
+/// Global I2C bus instance protected by a mutex.
+///
+/// The mutex ensures safe concurrent access from multiple tasks that need to communicate
+/// over I2C (e.g., IMU readings). Only one task can access the I2C bus at a time,
+/// preventing conflicts in hardware access.
 static I2C_BUS: Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, I2cAsync>> = Mutex::new(unsafe {
     core::mem::zeroed() // This is safe because we initialize before use
 });
 
+/// Initializes the I2C peripheral.
+///
+/// This should only be called once during system initialization in main.rs,
+/// before any tasks are spawned. Configures the I2C bus with a frequency of 400kHz
+/// for fast mode operation.
 pub fn init_i2c(i2c: I2C0, scl: PIN_13, sda: PIN_12) {
     let mut config = Config::default();
     config.frequency = 400_000;
@@ -82,6 +78,7 @@ pub fn init_i2c(i2c: I2C0, scl: PIN_13, sda: PIN_12) {
     });
 }
 
+/// Returns a reference to the protected I2C bus instance.
 pub fn get_i2c() -> &'static Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, I2cAsync>> {
     &I2C_BUS
 }
