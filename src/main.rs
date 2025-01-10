@@ -20,8 +20,8 @@ use crate::task::{
     track_inactivity::track_inactivity,
 };
 use embassy_executor::Spawner;
-use embassy_rp::config::Config;
 use embassy_rp::block::ImageDef;
+use embassy_rp::config::Config;
 use system::resources::{
     self, AssignedResources, BatteryChargeResources, IRSensorResources,
     InertialMeasurementUnitResources, MotorDriverResources, MotorEncoderResources, RCResourcesA,

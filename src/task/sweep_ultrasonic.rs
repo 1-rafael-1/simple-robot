@@ -8,8 +8,11 @@
 use crate::system::resources::{Irqs, SweepServoResources, UltrasonicDistanceSensorResources};
 use core::time::Duration;
 use defmt::info;
-use embassy_rp::pio::{Instance, Pio};
-use embassy_rp::pio_programs::pwm::{PioPwm, PioPwmProgram};
+use embassy_rp::{
+    gpio::{Input, Level, Output, Pull},
+    pio::{Instance, Pio},
+    pio_programs::pwm::{PioPwm, PioPwmProgram},
+};
 use embassy_time::Timer;
 use hcsr04_async::{Config, DistanceUnit, Hcsr04, TemperatureUnit};
 use moving_median::MovingMedian;
