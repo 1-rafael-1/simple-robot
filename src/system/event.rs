@@ -106,6 +106,12 @@ pub enum Events {
     /// - Contains latest pulse counts and timing
     /// - Used for speed adjustments
     EncoderMeasurementTaken(crate::task::encoder_read::EncoderMeasurement),
+
+    /// Ultrasonic sensor reading received
+    /// - Contains distance measurements and servo angle
+    /// - used for display and obstacle detection
+    /// - TODO Used for autonomous navigation
+    UltrasonicSweepReadingTaken(f64, f32),
 }
 
 /// Remote control button identifiers

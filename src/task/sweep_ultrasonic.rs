@@ -5,9 +5,11 @@
 //! At this point in development the Pi Pico2 was out of PWM Pins/Slices, thankfully in the great Embassy rp32 examples
 //! there is a cool example on how to use PIO to substitute PWM.
 
-use crate::system::resources::{Irqs, SweepServoResources, UltrasonicDistanceSensorResources};
+use crate::system::{
+    event::{send, Events},
+    resources::{Irqs, SweepServoResources, UltrasonicDistanceSensorResources},
+};
 use core::time::Duration;
-use defmt::info;
 use embassy_rp::{
     gpio::{Input, Level, Output, Pull},
     pio::{Instance, Pio},
@@ -106,29 +108,6 @@ impl<'d, T: Instance, const SM: usize> Servo<'d, T, SM> {
         self.pwm.start();
     }
 
-    // pub fn stop(&mut self) {
-    //     self.pwm.stop();
-    // }
-
-    // pub fn write_time(&mut self, duration: Duration) {
-    //     self.pwm.write(duration);
-    // }
-
-    // pub fn rotate(&mut self, degree: u64) {
-    //     let degree_per_nano_second = (self.max_pulse_width.as_nanos() as u64
-    //         - self.min_pulse_width.as_nanos() as u64)
-    //         / self.max_degree_rotation;
-    //     let mut duration = Duration::from_nanos(
-    //         degree * degree_per_nano_second + self.min_pulse_width.as_nanos() as u64,
-    //     );
-    //     if self.max_pulse_width < duration {
-    //         duration = self.max_pulse_width;
-    //     }
-    //     info!("duration {}", &duration);
-
-    //     self.pwm.write(duration);
-    // }
-
     pub fn rotate_float(&mut self, degree: f32) {
         let degree = degree.clamp(0.0, self.max_degree_rotation as f32) as f64;
         let degree_per_nano_second = (self.max_pulse_width.as_nanos() as f64
@@ -140,8 +119,6 @@ impl<'d, T: Instance, const SM: usize> Servo<'d, T, SM> {
         if self.max_pulse_width < duration {
             duration = self.max_pulse_width;
         }
-        info!("degree {} duration {}", degree, &duration);
-
         self.pwm.write(duration);
     }
 }
@@ -175,38 +152,40 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
     servo.start();
 
     let mut angle: f32 = 0.0;
-    let mut direction: f32 = 0.25; // Positive for increasing angle, negative for decreasing
+    let mut angle_increment: f32 = 0.25;
+    let mut filtered_distance: f64;
 
     loop {
         // Update servo position
         servo.rotate_float(angle);
 
-        // Take 3 measurements at current angle
-        for _ in 0..3 {
-            let filtered_distance = match sensor.measure(ULTRASONIC_TEMPERATURE).await {
-                Ok(distance_cm) => {
-                    median_filter.add_value(distance_cm);
-                    median_filter.median()
-                }
-                Err(_) => 200.0, // Return safe distance on error to prevent false positives
-            };
-
-            // TODO: Send measurement and angle to the orchestator or process them in any way
-            info!("Angle: {}, Distance: {}", angle, filtered_distance);
-
+        // Take multiple measurements based on ULTRASONIC_MEDIAN_WINDOW_SIZE
+        for _ in 0..ULTRASONIC_MEDIAN_WINDOW_SIZE {
             Timer::after_millis(5).await; // Small delay between measurements
+            median_filter.add_value(match sensor.measure(ULTRASONIC_TEMPERATURE).await {
+                Ok(distance_cm) => distance_cm,
+                Err(_) => 200.0, // Return safe distance on error to prevent false positives
+            });
         }
+
+        // Calculate median distance from the filtered measurements
+        filtered_distance = median_filter.median();
+
+        // Send reading event to orchestration task
+        send(Events::UltrasonicSweepReadingTaken(
+            filtered_distance,
+            angle,
+        ))
+        .await;
 
         // Update angle and check for direction change
-        angle += direction;
-        if angle >= 180.0 {
-            angle = 180.0;
-            direction = -0.25; // Start moving back
+        angle += angle_increment;
+        if angle >= servo.max_degree_rotation as f32 {
+            angle = servo.max_degree_rotation as f32;
+            angle_increment = -0.25; // Start moving back
         } else if angle <= 0.0 {
             angle = 0.0;
-            direction = 0.25; // Start moving forward
+            angle_increment = 0.25; // Start moving forward
         }
-
-        Timer::after_millis(10).await; // Delay for servo movement
     }
 }

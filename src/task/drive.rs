@@ -332,7 +332,8 @@ pub async fn drive(d: MotorDriverResources) {
                     };
 
                     // Calculate how far we are from perfect ratio
-                    let ratio_error = libm::fabsf(1.0 - rpm_ratio);
+                    // let ratio_error = libm::fabsf(1.0 - rpm_ratio);
+                    let ratio_error = (1.0 - rpm_ratio).abs();
 
                     // Only adjust if error is above threshold
                     if ratio_error > 0.05 {
