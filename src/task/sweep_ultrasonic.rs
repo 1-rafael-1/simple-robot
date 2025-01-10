@@ -11,12 +11,35 @@ use defmt::info;
 use embassy_rp::pio::{Instance, Pio};
 use embassy_rp::pio_programs::pwm::{PioPwm, PioPwmProgram};
 use embassy_time::Timer;
+use hcsr04_async::{Config, DistanceUnit, Hcsr04, TemperatureUnit};
+use moving_median::MovingMedian;
 use {defmt_rtt as _, panic_probe as _};
 
-const DEFAULT_MIN_PULSE_WIDTH: u64 = 1000; // uncalibrated default, the shortest duty cycle sent to a servo
-const DEFAULT_MAX_PULSE_WIDTH: u64 = 2000; // uncalibrated default, the longest duty cycle sent to a servo
-const DEFAULT_MAX_DEGREE_ROTATION: u64 = 160; // 160 degrees is typical
-const REFRESH_INTERVAL: u64 = 20000; // The period of each cycle
+// Servo Configuration constants
+
+/// uncalibrated default, the shortest duty cycle sent to a servo
+const SERVO_DEFAULT_MIN_PULSE_WIDTH: u64 = 1000;
+
+/// uncalibrated default, the longest duty cycle sent to a servo
+const SERVO_DEFAULT_MAX_PULSE_WIDTH: u64 = 2000;
+
+/// uncalibrated default, the degree of rotation that corresponds to a full cycle
+const SERVO_DEFAULT_MAX_DEGREE_ROTATION: u64 = 160;
+
+/// The period of each cycle
+const SERVO_REFRESH_INTERVAL: u64 = 20000;
+
+// HCSR04 Configuration constants
+
+/// Size of median filter window (3 samples balances noise reduction vs. latency)
+const ULTRASONIC_MEDIAN_WINDOW_SIZE: usize = 3;
+
+/// Fixed ambient temperature for distance calculations
+/// Slight inaccuracy acceptable as we care more about consistent readings
+const ULTRASONIC_TEMPERATURE: f64 = 21.5;
+
+// /// Distance at which obstacles are detected (22cm gives good reaction time)
+// const ULTRASONIC_MINIMUM_DISTANCE: f64 = 22.0;
 
 pub struct ServoBuilder<'d, T: Instance, const SM: usize> {
     pwm: PioPwm<'d, T, SM>,
@@ -30,10 +53,10 @@ impl<'d, T: Instance, const SM: usize> ServoBuilder<'d, T, SM> {
     pub fn new(pwm: PioPwm<'d, T, SM>) -> Self {
         Self {
             pwm,
-            period: Duration::from_micros(REFRESH_INTERVAL),
-            min_pulse_width: Duration::from_micros(DEFAULT_MIN_PULSE_WIDTH),
-            max_pulse_width: Duration::from_micros(DEFAULT_MAX_PULSE_WIDTH),
-            max_degree_rotation: DEFAULT_MAX_DEGREE_ROTATION,
+            period: Duration::from_micros(SERVO_REFRESH_INTERVAL),
+            min_pulse_width: Duration::from_micros(SERVO_DEFAULT_MIN_PULSE_WIDTH),
+            max_pulse_width: Duration::from_micros(SERVO_DEFAULT_MAX_PULSE_WIDTH),
+            max_degree_rotation: SERVO_DEFAULT_MAX_DEGREE_ROTATION,
         }
     }
 
@@ -122,6 +145,18 @@ impl<'d, T: Instance, const SM: usize> Servo<'d, T, SM> {
 
 #[embassy_executor::task]
 pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSensorResources) {
+    // Initialize the ultrasonic sensor
+    let hcsr04_config: Config = Config {
+        distance_unit: DistanceUnit::Centimeters,
+        temperature_unit: TemperatureUnit::Celsius,
+    };
+    let trigger = Output::new(u.trigger_pin, Level::Low);
+    let echo = Input::new(u.echo_pin, Pull::None);
+    let mut sensor = Hcsr04::new(trigger, echo, hcsr04_config);
+
+    let mut median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
+
+    // Initialize the servo
     let Pio {
         mut common, sm0, ..
     } = Pio::new(s.pio, Irqs);
@@ -129,27 +164,46 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
     let prg = PioPwmProgram::new(&mut common);
     let pwm_pio = PioPwm::new(&mut common, sm0, s.pin, &prg);
     let mut servo = ServoBuilder::new(pwm_pio)
-        .set_max_degree_rotation(180) // Example of adjusting values for MG996R servo
-        .set_min_pulse_width(Duration::from_micros(500)) // This value was detemined by a rough experiment.
-        .set_max_pulse_width(Duration::from_micros(2400)) // Along with this value.
+        .set_max_degree_rotation(180) // TODO: adjust to what the servo actually moves.
+        .set_min_pulse_width(Duration::from_micros(500)) // TODO: adjust to what the servo actually supports.
+        .set_max_pulse_width(Duration::from_micros(2400)) // TODO: adjust to what the servo actually supports.
         .build();
 
     servo.start();
 
+    let mut angle: f32 = 0.0;
+    let mut direction: f32 = 0.25; // Positive for increasing angle, negative for decreasing
+
     loop {
-        // Sweep from 0 to 180 degrees
-        let mut angle: f32 = 0.0;
-        while angle <= 180.0 {
-            servo.rotate_float(angle);
-            angle += 0.25; // Increment by half a degree
-            Timer::after_millis(10).await;
+        // Update servo position
+        servo.rotate_float(angle);
+
+        // Take 3 measurements at current angle
+        for _ in 0..3 {
+            let filtered_distance = match sensor.measure(ULTRASONIC_TEMPERATURE).await {
+                Ok(distance_cm) => {
+                    median_filter.add_value(distance_cm);
+                    median_filter.median()
+                }
+                Err(_) => 200.0, // Return safe distance on error to prevent false positives
+            };
+
+            // TODO: Send measurement and angle to the orchestator or process them in any way
+            info!("Angle: {}, Distance: {}", angle, filtered_distance);
+
+            Timer::after_millis(5).await; // Small delay between measurements
         }
 
-        // Sweep back from 180 to 0 degrees
-        while angle >= 0.0 {
-            servo.rotate_float(angle);
-            angle -= 0.25; // Decrement by half a degree
-            Timer::after_millis(10).await;
+        // Update angle and check for direction change
+        angle += direction;
+        if angle >= 180.0 {
+            angle = 180.0;
+            direction = -0.25; // Start moving back
+        } else if angle <= 0.0 {
+            angle = 0.0;
+            direction = 0.25; // Start moving forward
         }
+
+        Timer::after_millis(10).await; // Delay for servo movement
     }
 }
