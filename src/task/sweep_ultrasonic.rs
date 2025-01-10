@@ -159,9 +159,16 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
         // Update servo position
         servo.rotate_float(angle);
 
+        // Give servo time to reach position (servos typically need 10-20ms to move 60 degrees)
+        Timer::after_millis(20).await;
+
         // Take multiple measurements based on ULTRASONIC_MEDIAN_WINDOW_SIZE
         for _ in 0..ULTRASONIC_MEDIAN_WINDOW_SIZE {
-            Timer::after_millis(5).await; // Small delay between measurements
+            // Adjust timing to achieve roughly 15 FPS
+            // Total time per position = servo movement (20ms) + (3 * measurement delay)
+            // 66.67ms - 20ms = 46.67ms available for measurements
+            // 46.67ms / 3 measurements ≈ 15ms per measurement
+            Timer::after_millis(15).await;
             median_filter.add_value(match sensor.measure(ULTRASONIC_TEMPERATURE).await {
                 Ok(distance_cm) => distance_cm,
                 Err(_) => 200.0, // Return safe distance on error to prevent false positives
