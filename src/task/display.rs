@@ -5,7 +5,7 @@
 //! measurements up to 100cm.
 //! Data visualization includes a sweeping line and persistent points for detected objects.
 
-use crate::resources;
+use crate::system::resources::I2c0BusShared;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embedded_graphics::{
@@ -81,8 +81,7 @@ const MAX_POINTS: usize = 128;
 /// - Remove points within ±0.1 radians of sweep line
 /// - Keep fixed maximum number of points (MAX_POINTS)
 #[embassy_executor::task]
-pub async fn display() {
-    let i2c_bus = resources::get_i2c();
+pub async fn display(i2c_bus: &'static I2c0BusShared) {
     let display_i2c = I2cDevice::new(i2c_bus);
     let interface = I2CDisplayInterface::new(display_i2c);
     let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)

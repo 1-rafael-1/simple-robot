@@ -22,8 +22,8 @@ use assign_resources::assign_resources;
 use embassy_rp::adc::InterruptHandler as AdcInterruptHandler;
 use embassy_rp::adc::{Adc, Async as AdcAsync};
 use embassy_rp::bind_interrupts;
-use embassy_rp::i2c::{Async as I2cAsync, Config, I2c, InterruptHandler as I2cInterruptHandler};
-use embassy_rp::peripherals::{self, ADC, I2C0, PIN_12, PIN_13, PIO0};
+use embassy_rp::i2c::{Async as I2cAsync, I2c, InterruptHandler as I2cInterruptHandler};
+use embassy_rp::peripherals::{self, ADC, I2C0, PIO0};
 use embassy_rp::pio::InterruptHandler as PioInterruptHandler;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
@@ -55,41 +55,15 @@ pub fn get_adc() -> &'static Mutex<CriticalSectionRawMutex, Option<Adc<'static, 
     &ADC
 }
 
-/// Global I2C bus instance protected by a mutex.
-///
-/// The mutex ensures safe concurrent access from multiple tasks that need to communicate
-/// over I2C (e.g., IMU readings). Only one task can access the I2C bus at a time,
-/// preventing conflicts in hardware access.
-static I2C_BUS: Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, I2cAsync>> = Mutex::new(unsafe {
-    core::mem::zeroed() // This is safe because we initialize before use
-});
-
-/// Initializes the I2C peripheral.
-///
-/// This should only be called once during system initialization in main.rs,
-/// before any tasks are spawned. Configures the I2C bus with a frequency of 400kHz
-/// for fast mode operation.
-pub fn init_i2c(i2c: I2C0, scl: PIN_13, sda: PIN_12) {
-    let mut config = Config::default();
-    config.frequency = 400_000;
-    let i2c = I2c::new_async(i2c, scl, sda, Irqs, config);
-    critical_section::with(|_| {
-        *I2C_BUS.try_lock().unwrap() = i2c;
-    });
-}
-
-/// Returns a reference to the protected I2C bus instance.
-pub fn get_i2c() -> &'static Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, I2cAsync>> {
-    &I2C_BUS
-}
+pub type I2c0BusShared = Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, I2cAsync>>;
 
 assign_resources! {
     /// HC-SR04 ultrasonic distance sensor pins
     us_distance_sensor: UltrasonicDistanceSensorResources {
-       trigger_pin: PIN_15,
-       echo_pin: PIN_14,
-    },
-    /// Battery voltage monitoring pin
+        trigger_pin: PIN_15,
+        echo_pin: PIN_14,
+     },
+     /// Battery voltage monitoring pin
     battery_charge: BatteryChargeResources {
        vsys_pin: PIN_29,
     },
@@ -142,6 +116,15 @@ assign_resources! {
     sweep_servo: SweepServoResources {
         pin: PIN_5,
         pio: PIO0
+    },
+    /// I2C0 bus
+    i2c: I2c0BusResources {
+        scl: PIN_13,
+        sda: PIN_12,
+    },
+    /// ADC
+    adc: AdcResources {
+        adc: ADC,
     },
 }
 

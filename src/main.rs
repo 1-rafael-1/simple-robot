@@ -18,10 +18,14 @@ use crate::{
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
+use embassy_rp::i2c::{Config as I2cConfig, I2c};
+use embassy_sync::mutex::Mutex;
+use static_cell::StaticCell;
 use system::resources::{
-    self, AssignedResources, BatteryChargeResources, IRSensorResources,
-    InertialMeasurementUnitResources, MotorDriverResources, MotorEncoderResources, RCResources,
-    RGBLedResources, SweepServoResources, UltrasonicDistanceSensorResources,
+    init_adc, AdcResources, AssignedResources, BatteryChargeResources, I2c0BusResources,
+    I2c0BusShared, IRSensorResources, InertialMeasurementUnitResources, Irqs, MotorDriverResources,
+    MotorEncoderResources, RCResources, RGBLedResources, SweepServoResources,
+    UltrasonicDistanceSensorResources,
 };
 use {defmt_rtt as _, panic_probe as _};
 
@@ -40,18 +44,18 @@ mod task;
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Config::default());
 
-    // Initialize the global ADC instance before spawning any tasks.
-    // This initialization must happen here to ensure:
-    // 1. The ADC is ready before any tasks that need it (e.g., battery monitoring)
-    // 2. We only initialize once, as multiple initializations could corrupt the hardware state
-    // 3. No race conditions can occur since this happens before any tasks are spawned
-    resources::init_adc(p.ADC);
-
-    // Initialize the I2C bus before spawning any tasks
-    resources::init_i2c(p.I2C0, p.PIN_13, p.PIN_12);
-
     // Split the resources into separate groups for each task, for all the resources that we do not share between tasks.
     let r = split_resources!(p);
+
+    // Initialize the ADC instance before spawning any tasks
+    init_adc(r.adc.adc);
+
+    // Initialize the I2C bus before spawning any tasks
+    let mut i2c_config = I2cConfig::default();
+    i2c_config.frequency = 400_000;
+    let i2c = I2c::new_async(p.I2C0, r.i2c.scl, r.i2c.sda, Irqs, i2c_config);
+    static I2C_BUS: StaticCell<I2c0BusShared> = StaticCell::new();
+    let i2c_bus = I2C_BUS.init(Mutex::new(i2c));
 
     spawner.spawn(orchestrate()).unwrap();
     spawner
@@ -77,7 +81,7 @@ async fn main(spawner: Spawner) {
     spawner
         .spawn(ultrasonic_sweep(r.sweep_servo, r.us_distance_sensor))
         .unwrap();
-    spawner.spawn(display()).unwrap();
-    spawner.spawn(inertial_measurement_handle()).unwrap();
+    spawner.spawn(display(i2c_bus)).unwrap();
+    spawner.spawn(inertial_measurement_handle(i2c_bus)).unwrap();
     spawner.spawn(ir_obstacle_detect(r.ir_sensor)).unwrap();
 }
