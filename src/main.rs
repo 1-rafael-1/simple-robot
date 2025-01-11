@@ -58,8 +58,8 @@ async fn main(spawner: Spawner) {
     // Split the resources into separate groups for each task, for all the resources that we do not share between tasks.
     let r = split_resources!(p);
 
-    spawner
     spawner.spawn(orchestrate()).unwrap();
+    spawner
         .spawn(battery_charge_read(r.battery_charge))
         .unwrap();
     spawner.spawn(rgb_led_indicate(r.rgb_led)).unwrap();
