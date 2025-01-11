@@ -19,14 +19,14 @@
 //! performing ADC operations and release it promptly after.
 
 use assign_resources::assign_resources;
-use embassy_rp::adc::InterruptHandler as AdcInterruptHandler;
-use embassy_rp::adc::{Adc, Async as AdcAsync};
-use embassy_rp::bind_interrupts;
-use embassy_rp::i2c::{Async as I2cAsync, I2c, InterruptHandler as I2cInterruptHandler};
-use embassy_rp::peripherals::{self, ADC, I2C0, PIO0};
-use embassy_rp::pio::InterruptHandler as PioInterruptHandler;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
+use embassy_rp::{
+    adc::{Adc, Async as AdcAsync, InterruptHandler as AdcInterruptHandler},
+    bind_interrupts,
+    i2c::{Async as I2cAsync, I2c, InterruptHandler as I2cInterruptHandler},
+    peripherals::{self, ADC, I2C0, PIO0},
+    pio::InterruptHandler as PioInterruptHandler,
+};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 
 /// Global ADC (Analog-to-Digital Converter) instance protected by a mutex.
 ///
@@ -55,6 +55,7 @@ pub fn get_adc() -> &'static Mutex<CriticalSectionRawMutex, Option<Adc<'static, 
     &ADC
 }
 
+/// public type for better readability in main.rs and tasks
 pub type I2c0BusShared = Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, I2cAsync>>;
 
 assign_resources! {

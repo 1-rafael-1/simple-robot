@@ -34,10 +34,10 @@
 //! - Blink sequence for mode changes
 //! - Quick flash for movement commands
 
-use crate::system::event;
-use crate::system::state;
-use crate::task::drive;
-use crate::task::rgb_led_indicate;
+use crate::{
+    system::{event, state},
+    task::{drive, rgb_led_indicate},
+};
 
 /// Button interaction types defining how a button event is interpreted
 #[derive(Debug, Clone, Copy)]
@@ -61,10 +61,7 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
             // Any button press in autonomous mode switches to manual
             let state = state::SYSTEM_STATE.lock().await;
             if state.operation_mode == state::OperationMode::Autonomous {
-                event::send(event::Events::OperationModeSet(
-                    state::OperationMode::Manual,
-                ))
-                .await;
+                event::send(event::Events::OperationModeSet(state::OperationMode::Manual)).await;
                 return;
             }
         }

@@ -12,10 +12,13 @@
 //! - High (1) when no obstacle present
 //! - Edge detection ensures immediate response to changes
 
-use crate::system::event::{send, Events};
-use crate::system::resources::IRSensorResources;
 use embassy_rp::gpio::{Input, Pull};
 use embassy_time::{Duration, Timer};
+
+use crate::system::{
+    event::{send, Events},
+    resources::IRSensorResources,
+};
 
 /// Debounce delay to filter out noise
 const DEBOUNCE_DELAY: Duration = Duration::from_millis(100);

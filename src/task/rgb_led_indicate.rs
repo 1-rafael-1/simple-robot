@@ -22,15 +22,15 @@
 //! - Duty cycle proportional to battery level
 //! - Smooth transitions between states
 
-use crate::system::resources::RGBLedResources;
-use crate::system::state::{OperationMode, SYSTEM_STATE};
-use embassy_futures::select::select;
-use embassy_futures::select::Either;
-use embassy_rp::pwm;
-use embassy_rp::pwm::SetDutyCycle;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::signal::Signal;
+use embassy_futures::select::{select, Either};
+use embassy_rp::{pwm, pwm::SetDutyCycle};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
+
+use crate::system::{
+    resources::RGBLedResources,
+    state::{OperationMode, SYSTEM_STATE},
+};
 
 /// Signal for triggering LED state updates
 pub static INDICATOR_CHANGED: Signal<CriticalSectionRawMutex, bool> = Signal::new();
@@ -149,9 +149,7 @@ pub async fn rgb_led_indicate(r: RGBLedResources) {
                     led_on = !led_on;
 
                     // Break blink loop if new indicator update received
-                    if let Either::Second(_) =
-                        select(Timer::after(MODE_BLINK_INTERVAL), wait_indicator()).await
-                    {
+                    if let Either::Second(_) = select(Timer::after(MODE_BLINK_INTERVAL), wait_indicator()).await {
                         update_indicator(true);
                         break 'autonomous_blink;
                     }

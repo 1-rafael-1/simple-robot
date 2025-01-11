@@ -28,12 +28,14 @@
 //! - Lock acquired only during reading
 //! - Quick release ensures other tasks can access ADC
 
-use crate::system::event;
-use crate::system::resources::{get_adc, BatteryChargeResources};
-use embassy_rp::adc::Channel;
-use embassy_rp::gpio::Pull;
+use embassy_rp::{adc::Channel, gpio::Pull};
 use embassy_time::{Duration, Timer};
 use moving_median::MovingMedian;
+
+use crate::system::{
+    event,
+    resources::{get_adc, BatteryChargeResources},
+};
 
 /// Time between voltage measurements (20s provides good balance of
 /// responsiveness and power efficiency)
@@ -84,8 +86,7 @@ pub async fn battery_charge_read(r: BatteryChargeResources) {
 
             // Read ADC value and convert to voltage
             // Formula: (adc_value * reference_voltage * voltage_divider_ratio) / adc_resolution
-            f32::from(adc.read(&mut channel).await.unwrap_or(0)) * REF_VOLTAGE * V_DIVIDER_RATIO
-                / ADC_RANGE
+            f32::from(adc.read(&mut channel).await.unwrap_or(0)) * REF_VOLTAGE * V_DIVIDER_RATIO / ADC_RANGE
             // Lock is automatically dropped here when scope ends
         };
 
@@ -102,15 +103,11 @@ pub async fn battery_charge_read(r: BatteryChargeResources) {
         } else if filtered_voltage <= BATTERY_VOLTAGE_LOWER {
             0.0
         } else {
-            (filtered_voltage - BATTERY_VOLTAGE_LOWER)
-                / (BATTERY_VOLTAGE_UPPER - BATTERY_VOLTAGE_LOWER)
+            (filtered_voltage - BATTERY_VOLTAGE_LOWER) / (BATTERY_VOLTAGE_UPPER - BATTERY_VOLTAGE_LOWER)
         };
 
         // Send battery level event (as percentage)
-        event::send(event::Events::BatteryLevelMeasured(
-            (battery_level * 100.0) as u8,
-        ))
-        .await;
+        event::send(event::Events::BatteryLevelMeasured((battery_level * 100.0) as u8)).await;
 
         // Wait for next measurement interval
         Timer::after(MEASUREMENT_INTERVAL).await;

@@ -3,8 +3,7 @@
 //! Monitors user interaction and triggers standby after timeout.
 
 use embassy_futures::select::{select, Either};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::signal::Signal;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 
 use crate::system::event;

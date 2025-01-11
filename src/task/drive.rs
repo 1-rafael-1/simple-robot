@@ -3,21 +3,24 @@
 //! Implements robot movement control using TB6612FNG dual motor driver and
 //! DFRobot FIT0450 DC motors with quadrature encoders.
 
-use crate::system::event::{self, Events};
-use crate::system::resources::MotorDriverResources;
-use crate::task::encoder_read::EncoderMeasurement;
 use core::convert::Infallible;
+
 use defmt::info;
-use embassy_rp::pwm::PwmError;
 use embassy_rp::{
     gpio::{self},
-    pwm::{self, Config, Pwm},
+    pwm::{self, Config, Pwm, PwmError},
 };
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
-use embassy_sync::signal::Signal;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 use tb6612fng::{DriveCommand, MotorError};
+
+use crate::{
+    system::{
+        event::{self, Events},
+        resources::MotorDriverResources,
+    },
+    task::encoder_read::EncoderMeasurement,
+};
 
 /// Dispatches drive commands to the motor control task
 static DRIVE_CONTROL: Signal<CriticalSectionRawMutex, Command> = Signal::new();
@@ -99,8 +102,7 @@ impl Motor {
     /// Initializes both motors with configured PWM (10kHz) and GPIO pins
     fn setup_motors(
         d: MotorDriverResources,
-    ) -> Result<(Self, Self, gpio::Output<'static>), MotorError<Infallible, Infallible, PwmError>>
-    {
+    ) -> Result<(Self, Self, gpio::Output<'static>), MotorError<Infallible, Infallible, PwmError>> {
         // Configure PWM for 10kHz operation
         let desired_freq_hz = 10_000;
         let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
@@ -255,8 +257,7 @@ pub async fn drive(d: MotorDriverResources) {
                         } else {
                             // Initiate or continue left turn
                             let new_left_speed = (left_speed_cmd - speed as i8).clamp(-100, 100);
-                            let target_right_speed =
-                                (right_speed_cmd + speed as i8).clamp(-100, 100);
+                            let target_right_speed = (right_speed_cmd + speed as i8).clamp(-100, 100);
                             left.set_speed(new_left_speed).unwrap();
                             right.set_speed(target_right_speed).unwrap();
                         }
@@ -278,8 +279,7 @@ pub async fn drive(d: MotorDriverResources) {
                         } else {
                             // Initiate or continue right turn
                             let new_left_speed = (left_speed_cmd + speed as i8).clamp(-100, 100);
-                            let target_right_speed =
-                                (right_speed_cmd - speed as i8).clamp(-100, 100);
+                            let target_right_speed = (right_speed_cmd - speed as i8).clamp(-100, 100);
                             left.set_speed(new_left_speed).unwrap();
                             right.set_speed(target_right_speed).unwrap();
                         }
@@ -314,10 +314,8 @@ pub async fn drive(d: MotorDriverResources) {
 
             Command::EncoderFeedback(measurement) => {
                 // Calculate motor RPMs
-                let left_rpm =
-                    left.calculate_rpm(measurement.left.pulse_count, measurement.left.elapsed_ms);
-                let right_rpm = right
-                    .calculate_rpm(measurement.right.pulse_count, measurement.right.elapsed_ms);
+                let left_rpm = left.calculate_rpm(measurement.left.pulse_count, measurement.left.elapsed_ms);
+                let right_rpm = right.calculate_rpm(measurement.right.pulse_count, measurement.right.elapsed_ms);
 
                 // Apply speed adjustments if motors are running
                 let left_speed = left.current_speed();
@@ -325,11 +323,7 @@ pub async fn drive(d: MotorDriverResources) {
 
                 if left_speed != 0 || right_speed != 0 {
                     // Compare raw motor RPMs since encoders are on motor shaft
-                    let rpm_ratio = if left_rpm != 0.0 {
-                        right_rpm / left_rpm
-                    } else {
-                        1.0
-                    };
+                    let rpm_ratio = if left_rpm != 0.0 { right_rpm / left_rpm } else { 1.0 };
 
                     // Calculate how far we are from perfect ratio
                     // let ratio_error = libm::fabsf(1.0 - rpm_ratio);
@@ -346,8 +340,7 @@ pub async fn drive(d: MotorDriverResources) {
                         };
 
                         let adjustment = 1.0 + ((1.0 - rpm_ratio) * correction_factor);
-                        let adjusted_speed =
-                            (right_speed as f32 * adjustment).clamp(-100.0, 100.0) as i8;
+                        let adjusted_speed = (right_speed as f32 * adjustment).clamp(-100.0, 100.0) as i8;
                         right.set_speed(adjusted_speed).unwrap();
 
                         // Signal that we're still adjusting

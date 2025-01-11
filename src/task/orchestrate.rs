@@ -15,16 +15,17 @@
 //!
 //! Additional states like standby and obstacle detection are managed across modes.
 
-use crate::system::button_actions;
-use crate::system::event::{send, wait, Events};
-use crate::system::state;
-use crate::system::state::{OperationMode, SYSTEM_STATE};
-use crate::task::drive;
-use crate::task::encoder_read;
-use crate::task::rgb_led_indicate;
-use crate::task::track_inactivity;
-use crate::task::{autonomous_drive, display};
 use embassy_time::Duration;
+
+use crate::{
+    system::{
+        button_actions,
+        event::{send, wait, Events},
+        state,
+        state::{OperationMode, SYSTEM_STATE},
+    },
+    task::{autonomous_drive, display, drive, encoder_read, rgb_led_indicate, track_inactivity},
+};
 
 /// Main coordination task that implements the system's event loop
 #[embassy_executor::task]
@@ -76,9 +77,7 @@ async fn process_event(event: Events) -> Option<Events> {
                 None
             }
         }
-        Events::ButtonPressed(_) | Events::ButtonHoldStart(_) | Events::ButtonHoldEnd(_) => {
-            Some(event)
-        }
+        Events::ButtonPressed(_) | Events::ButtonHoldStart(_) | Events::ButtonHoldEnd(_) => Some(event),
         Events::InactivityTimeout => {
             if !state.standby {
                 Some(event)
@@ -127,27 +126,15 @@ async fn handle_state_changes(event: Events) {
             rgb_led_indicate::update_indicator(false);
         }
         Events::ButtonPressed(button_id) => {
-            button_actions::handle_button_action(
-                button_id,
-                button_actions::ButtonActionType::Press,
-            )
-            .await;
+            button_actions::handle_button_action(button_id, button_actions::ButtonActionType::Press).await;
             track_inactivity::signal_activity();
         }
         Events::ButtonHoldStart(button_id) => {
-            button_actions::handle_button_action(
-                button_id,
-                button_actions::ButtonActionType::HoldStart,
-            )
-            .await;
+            button_actions::handle_button_action(button_id, button_actions::ButtonActionType::HoldStart).await;
             track_inactivity::signal_activity();
         }
         Events::ButtonHoldEnd(button_id) => {
-            button_actions::handle_button_action(
-                button_id,
-                button_actions::ButtonActionType::HoldEnd,
-            )
-            .await;
+            button_actions::handle_button_action(button_id, button_actions::ButtonActionType::HoldEnd).await;
             track_inactivity::signal_activity();
         }
         Events::InactivityTimeout => {

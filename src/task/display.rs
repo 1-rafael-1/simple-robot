@@ -5,7 +5,6 @@
 //! measurements up to 100cm.
 //! Data visualization includes a sweeping line and persistent points for detected objects.
 
-use crate::system::resources::I2c0BusShared;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embedded_graphics::{
@@ -19,6 +18,8 @@ use embedded_graphics::{
 use heapless::Vec;
 use micromath::F32Ext;
 use ssd1306_async::{prelude::*, I2CDisplayInterface, Ssd1306};
+
+use crate::system::resources::I2c0BusShared;
 
 /// Display actions that can be requested by other tasks
 pub enum DisplayAction {
@@ -84,8 +85,8 @@ const MAX_POINTS: usize = 128;
 pub async fn display(i2c_bus: &'static I2c0BusShared) {
     let display_i2c = I2cDevice::new(i2c_bus);
     let interface = I2CDisplayInterface::new(display_i2c);
-    let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
-        .into_buffered_graphics_mode();
+    let mut display =
+        Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0).into_buffered_graphics_mode();
     display.init().await.unwrap();
 
     let text_style = MonoTextStyleBuilder::new()
@@ -123,13 +124,10 @@ pub async fn display(i2c_bus: &'static I2c0BusShared) {
                 // Calculate and draw sweep line
                 let line_end_x = CENTER_X + (RADIUS as f32 * rad_angle.cos()) as i32;
                 let line_end_y = CENTER_Y + (RADIUS as f32 * rad_angle.sin()) as i32;
-                Line::new(
-                    Point::new(CENTER_X, CENTER_Y),
-                    Point::new(line_end_x, line_end_y),
-                )
-                .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
-                .draw(&mut display)
-                .unwrap();
+                Line::new(Point::new(CENTER_X, CENTER_Y), Point::new(line_end_x, line_end_y))
+                    .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
+                    .draw(&mut display)
+                    .unwrap();
 
                 // Process distance point
                 if distance <= MAX_DISTANCE_CM as f64 {

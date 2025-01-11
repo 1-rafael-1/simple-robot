@@ -4,10 +4,6 @@
 //! Readings are taken on-demand after drive commands to enable
 //! closed-loop speed control of the motors.
 
-use crate::system::{
-    event::{self, Events},
-    resources::MotorEncoderResources,
-};
 use defmt::info;
 use embassy_rp::{
     gpio::Pull,
@@ -15,6 +11,11 @@ use embassy_rp::{
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
+
+use crate::system::{
+    event::{self, Events},
+    resources::MotorEncoderResources,
+};
 
 /// Control signal to trigger encoder measurements after specified duration
 pub static ENCODER_CONTROL: Signal<CriticalSectionRawMutex, Duration> = Signal::new();

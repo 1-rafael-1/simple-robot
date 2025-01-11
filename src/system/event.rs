@@ -24,10 +24,10 @@
 //! let event = event::wait().await;
 //! ```
 
-use crate::system::state::OperationMode;
 use defmt::Format;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
+
+use crate::system::state::OperationMode;
 
 /// Multi-producer, single-consumer event channel
 ///

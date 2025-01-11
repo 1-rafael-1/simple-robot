@@ -24,8 +24,7 @@
 //! ```
 
 use defmt::Format;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 
 /// Global system state protected by a mutex
 ///

@@ -2,13 +2,12 @@
 //!
 //! Controls robot movement patterns and obstacle avoidance via commands.
 
-use crate::system::event;
-use crate::task::drive;
 use defmt::info;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::signal::Signal;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
 use nanorand::{Rng, WyRand};
+
+use crate::{system::event, task::drive};
 
 /// Control signal for autonomous operations
 static AUTONOMOUS_CONTROL: Signal<CriticalSectionRawMutex, Command> = Signal::new();
@@ -61,9 +60,7 @@ pub async fn autonomous_drive() {
             }
             Command::Start => {
                 info!("Autonomous forward");
-                drive::send_command(drive::Command::Drive(drive::DriveAction::Forward(
-                    FORWARD_SPEED,
-                )));
+                drive::send_command(drive::Command::Drive(drive::DriveAction::Forward(FORWARD_SPEED)));
             }
             Command::Stop => {
                 info!("Autonomous stop");
@@ -81,9 +78,7 @@ pub async fn autonomous_drive() {
 
                 // Back up
                 info!("backing up");
-                drive::send_command(drive::Command::Drive(drive::DriveAction::Backward(
-                    REVERSE_SPEED,
-                )));
+                drive::send_command(drive::Command::Drive(drive::DriveAction::Backward(REVERSE_SPEED)));
                 Timer::after(BACKUP_DURATION).await;
                 drive::send_command(drive::Command::Drive(drive::DriveAction::Brake));
                 Timer::after(Duration::from_millis(100)).await;
@@ -99,9 +94,7 @@ pub async fn autonomous_drive() {
                 if rng.generate_range(0..=1) == 0 {
                     drive::send_command(drive::Command::Drive(drive::DriveAction::Left(turn_speed)))
                 } else {
-                    drive::send_command(drive::Command::Drive(drive::DriveAction::Right(
-                        turn_speed,
-                    )))
+                    drive::send_command(drive::Command::Drive(drive::DriveAction::Right(turn_speed)))
                 };
                 Timer::after(turn_duration).await;
                 drive::send_command(drive::Command::Drive(drive::DriveAction::Brake));

@@ -5,11 +5,9 @@
 //! At this point in development the Pi Pico2 was out of PWM Pins/Slices, thankfully in the great Embassy rp32 examples
 //! there is a cool example on how to use PIO to substitute PWM.
 
-use crate::system::{
-    event::{send, Events},
-    resources::{Irqs, SweepServoResources, UltrasonicDistanceSensorResources},
-};
 use core::time::Duration;
+
+use defmt_rtt as _;
 use embassy_rp::{
     gpio::{Input, Level, Output, Pull},
     pio::{Instance, Pio},
@@ -18,7 +16,12 @@ use embassy_rp::{
 use embassy_time::Timer;
 use hcsr04_async::{Config, DistanceUnit, Hcsr04, TemperatureUnit};
 use moving_median::MovingMedian;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
+
+use crate::system::{
+    event::{send, Events},
+    resources::{Irqs, SweepServoResources, UltrasonicDistanceSensorResources},
+};
 
 // Servo Configuration constants
 
@@ -110,12 +113,10 @@ impl<'d, T: Instance, const SM: usize> Servo<'d, T, SM> {
 
     pub fn rotate_float(&mut self, degree: f32) {
         let degree = degree.clamp(0.0, self.max_degree_rotation as f32) as f64;
-        let degree_per_nano_second = (self.max_pulse_width.as_nanos() as f64
-            - self.min_pulse_width.as_nanos() as f64)
+        let degree_per_nano_second = (self.max_pulse_width.as_nanos() as f64 - self.min_pulse_width.as_nanos() as f64)
             / self.max_degree_rotation as f64;
-        let mut duration = Duration::from_nanos(
-            (degree * degree_per_nano_second + self.min_pulse_width.as_nanos() as f64) as u64,
-        );
+        let mut duration =
+            Duration::from_nanos((degree * degree_per_nano_second + self.min_pulse_width.as_nanos() as f64) as u64);
         if self.max_pulse_width < duration {
             duration = self.max_pulse_width;
         }
@@ -137,9 +138,7 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
     let mut median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
 
     // Initialize the servo
-    let Pio {
-        mut common, sm0, ..
-    } = Pio::new(s.pio, Irqs);
+    let Pio { mut common, sm0, .. } = Pio::new(s.pio, Irqs);
 
     let prg = PioPwmProgram::new(&mut common);
     let pwm_pio = PioPwm::new(&mut common, sm0, s.pin, &prg);
@@ -179,11 +178,7 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
         filtered_distance = median_filter.median();
 
         // Send reading event to orchestration task
-        send(Events::UltrasonicSweepReadingTaken(
-            filtered_distance,
-            angle,
-        ))
-        .await;
+        send(Events::UltrasonicSweepReadingTaken(filtered_distance, angle)).await;
 
         // Update angle and check for direction change
         angle += angle_increment;

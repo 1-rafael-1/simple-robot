@@ -2,10 +2,11 @@
 //!
 //! Processes RC controller button inputs and generates events.
 
-use crate::system::event::{send, ButtonId, Events};
 use embassy_futures::select::{select, Either};
 use embassy_rp::gpio::{AnyPin, Input, Level, Pull};
 use embassy_time::{Duration, Timer};
+
+use crate::system::event::{send, ButtonId, Events};
 
 /// Button hold threshold (ms)
 const HOLD_DURATION: Duration = Duration::from_millis(700);

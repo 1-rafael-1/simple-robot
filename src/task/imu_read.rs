@@ -1,8 +1,9 @@
 // in task/handle_inertial_measurement.rs
-use crate::system::resources::I2c0BusShared;
 use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_time::{Duration, Timer};
+
+use crate::system::resources::I2c0BusShared;
 // You'll need to add the mpu6500 driver crate to your dependencies
 
 #[embassy_executor::task]

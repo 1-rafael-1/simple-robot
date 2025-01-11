@@ -5,29 +5,31 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
+use embassy_executor::Spawner;
+use embassy_rp::{
+    block::ImageDef,
+    config::Config,
+    i2c::{Config as I2cConfig, I2c},
+};
+use embassy_sync::mutex::Mutex;
+use panic_probe as _;
+use static_cell::StaticCell;
+use system::resources::{
+    init_adc, AdcResources, AssignedResources, BatteryChargeResources, I2c0BusResources, I2c0BusShared,
+    IRSensorResources, InertialMeasurementUnitResources, Irqs, MotorDriverResources, MotorEncoderResources,
+    RCResources, RGBLedResources, SweepServoResources, UltrasonicDistanceSensorResources,
+};
+
 use crate::{
     system::event::ButtonId,
     task::{
-        autonomous_drive::autonomous_drive, battery_charge_read::battery_charge_read,
-        display::display, drive::drive, encoder_read::read_encoder,
-        imu_read::inertial_measurement_handle, ir_obstacle_detect::ir_obstacle_detect,
+        autonomous_drive::autonomous_drive, battery_charge_read::battery_charge_read, display::display, drive::drive,
+        encoder_read::read_encoder, imu_read::inertial_measurement_handle, ir_obstacle_detect::ir_obstacle_detect,
         orchestrate::orchestrate, rc_control::rc_button_handle, rgb_led_indicate::rgb_led_indicate,
         sweep_ultrasonic::ultrasonic_sweep, track_inactivity::track_inactivity,
     },
 };
-use embassy_executor::Spawner;
-use embassy_rp::block::ImageDef;
-use embassy_rp::config::Config;
-use embassy_rp::i2c::{Config as I2cConfig, I2c};
-use embassy_sync::mutex::Mutex;
-use static_cell::StaticCell;
-use system::resources::{
-    init_adc, AdcResources, AssignedResources, BatteryChargeResources, I2c0BusResources,
-    I2c0BusShared, IRSensorResources, InertialMeasurementUnitResources, Irqs, MotorDriverResources,
-    MotorEncoderResources, RCResources, RGBLedResources, SweepServoResources,
-    UltrasonicDistanceSensorResources,
-};
-use {defmt_rtt as _, panic_probe as _};
 
 /// Firmware image type for bootloader
 #[link_section = ".start_block"]
@@ -58,22 +60,12 @@ async fn main(spawner: Spawner) {
     let i2c_bus = I2C_BUS.init(Mutex::new(i2c));
 
     spawner.spawn(orchestrate()).unwrap();
-    spawner
-        .spawn(battery_charge_read(r.battery_charge))
-        .unwrap();
+    spawner.spawn(battery_charge_read(r.battery_charge)).unwrap();
     spawner.spawn(rgb_led_indicate(r.rgb_led)).unwrap();
-    spawner
-        .spawn(rc_button_handle(r.rc.btn_a.into(), ButtonId::A))
-        .unwrap();
-    spawner
-        .spawn(rc_button_handle(r.rc.btn_b.into(), ButtonId::B))
-        .unwrap();
-    spawner
-        .spawn(rc_button_handle(r.rc.btn_c.into(), ButtonId::C))
-        .unwrap();
-    spawner
-        .spawn(rc_button_handle(r.rc.btn_d.into(), ButtonId::D))
-        .unwrap();
+    spawner.spawn(rc_button_handle(r.rc.btn_a.into(), ButtonId::A)).unwrap();
+    spawner.spawn(rc_button_handle(r.rc.btn_b.into(), ButtonId::B)).unwrap();
+    spawner.spawn(rc_button_handle(r.rc.btn_c.into(), ButtonId::C)).unwrap();
+    spawner.spawn(rc_button_handle(r.rc.btn_d.into(), ButtonId::D)).unwrap();
     spawner.spawn(read_encoder(r.motor_encoders)).unwrap();
     spawner.spawn(drive(r.motor_driver)).unwrap();
     spawner.spawn(autonomous_drive()).unwrap();
