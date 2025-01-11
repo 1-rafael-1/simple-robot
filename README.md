@@ -39,7 +39,7 @@ Check out the v1-robot navigating autonomously, download the demo video here: [A
   - [ ] Add more detailed instructions on how to power the robot
 
 
-I am not yet sure how many of these improvements I can implement in a reasonable timeframe. Maybe I will archive a v2 at some point along the way.
+I am not yet sure how many of these improvements I can implement in a reasonable time frame. Maybe I will archive a v2 at some point along the way.
 
 I will update the readme with these improvements once they are implemented. Let's get started!
 
@@ -69,7 +69,7 @@ You can find the KiCad project here: [misc/KiCad/simple-robot](misc/KiCad/simple
 An excellent resource I found perfect to learn KiCad is a series of Youtube videos: [KiCad Tutorial: Beginning to End](https://www.youtube.com/watch?v=vLnu21fS22s&list=PLUOaI24LpvQPls1Ru_qECJrENwzD7XImd). This is crisp and to the point but easy to follow for a beginner like me.
 
 ![robot-schematic](misc/media/schematic_picture.png)
-*The schamatic*
+*The schematic*
 
 ![robot-pcb](misc/media/pcb_picture.png)
 *The PCB*
