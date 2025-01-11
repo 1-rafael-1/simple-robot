@@ -100,20 +100,11 @@ assign_resources! {
         red_pin: PIN_2,
         green_pin: PIN_4,
     },
-    /// Remote control button A input
-    rc_a: RCResourcesA {
+    /// Remote control buttons
+    rc: RCResources {
         btn_a: PIN_16,
-    },
-    /// Remote control button B input
-    rc_b: RCResourcesB {
         btn_b: PIN_17,
-    },
-    /// Remote control button C input
-    rc_c: RCResourcesC {
         btn_c: PIN_10,
-    },
-    /// Remote control button D input
-    rc_d: RCResourcesD {
         btn_d: PIN_11,
     },
     /// IR obstacle avoidance sensor (VMA330) - digital output

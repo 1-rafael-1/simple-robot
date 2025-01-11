@@ -2,10 +2,9 @@
 //!
 //! Processes RC controller button inputs and generates events.
 
-use crate::system::event;
-use crate::system::resources::{RCResourcesA, RCResourcesB, RCResourcesC, RCResourcesD};
+use crate::system::event::{send, ButtonId, Events};
 use embassy_futures::select::{select, Either};
-use embassy_rp::gpio::{Input, Level, Pull};
+use embassy_rp::gpio::{AnyPin, Input, Level, Pull};
 use embassy_time::{Duration, Timer};
 
 /// Button hold threshold (ms)
@@ -14,32 +13,11 @@ const HOLD_DURATION: Duration = Duration::from_millis(700);
 /// Button debounce delay (ms)
 const DEBOUNCE_DURATION: Duration = Duration::from_millis(30);
 
-/// Button A handler
-#[embassy_executor::task]
-pub async fn rc_button_a_handle(r: RCResourcesA) {
-    let mut btn = Input::new(r.btn_a, Pull::Down);
-    handle_button(&mut btn, event::ButtonId::A).await;
-}
-
-/// Button B handler
-#[embassy_executor::task]
-pub async fn rc_button_b_handle(r: RCResourcesB) {
-    let mut btn = Input::new(r.btn_b, Pull::Down);
-    handle_button(&mut btn, event::ButtonId::B).await;
-}
-
-/// Button C handler
-#[embassy_executor::task]
-pub async fn rc_button_c_handle(r: RCResourcesC) {
-    let mut btn = Input::new(r.btn_c, Pull::Down);
-    handle_button(&mut btn, event::ButtonId::C).await;
-}
-
-/// Button D handler
-#[embassy_executor::task]
-pub async fn rc_button_d_handle(r: RCResourcesD) {
-    let mut btn = Input::new(r.btn_d, Pull::Down);
-    handle_button(&mut btn, event::ButtonId::D).await;
+/// Button handler task
+#[embassy_executor::task(pool_size = 4)]
+pub async fn rc_button_handle(pin: AnyPin, id: ButtonId) {
+    let mut btn = Input::new(pin, Pull::Down);
+    handle_button(&mut btn, id).await;
 }
 
 /// Processes button input and generates events
@@ -47,7 +25,7 @@ pub async fn rc_button_d_handle(r: RCResourcesD) {
 /// Generates:
 /// - ButtonPressed for short press
 /// - ButtonHoldStart/End for long press
-async fn handle_button(button: &mut Input<'static>, id: event::ButtonId) {
+async fn handle_button(button: &mut Input<'static>, id: ButtonId) {
     loop {
         let init_level = debounce(button).await;
 
@@ -57,12 +35,12 @@ async fn handle_button(button: &mut Input<'static>, id: event::ButtonId) {
 
         match select(Timer::after(HOLD_DURATION), debounce(button)).await {
             Either::First(()) => {
-                event::send(event::Events::ButtonHoldStart(id)).await;
+                send(Events::ButtonHoldStart(id)).await;
                 button.wait_for_low().await;
-                event::send(event::Events::ButtonHoldEnd(id)).await;
+                send(Events::ButtonHoldEnd(id)).await;
             }
             Either::Second(_) => {
-                event::send(event::Events::ButtonPressed(id)).await;
+                send(Events::ButtonPressed(id)).await;
             }
         };
     }
