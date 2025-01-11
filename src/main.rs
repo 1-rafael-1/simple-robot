@@ -59,6 +59,7 @@ async fn main(spawner: Spawner) {
     let r = split_resources!(p);
 
     spawner
+    spawner.spawn(orchestrate()).unwrap();
         .spawn(battery_charge_read(r.battery_charge))
         .unwrap();
     spawner.spawn(rgb_led_indicate(r.rgb_led)).unwrap();
@@ -76,6 +77,4 @@ async fn main(spawner: Spawner) {
     spawner.spawn(display()).unwrap();
     spawner.spawn(inertial_measurement_handle()).unwrap();
     spawner.spawn(ir_obstacle_detect(r.ir_sensor)).unwrap();
-
-    spawner.spawn(orchestrate()).unwrap();
 }

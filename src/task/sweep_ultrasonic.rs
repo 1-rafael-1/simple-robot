@@ -164,7 +164,7 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
 
         // Take multiple measurements based on ULTRASONIC_MEDIAN_WINDOW_SIZE
         for _ in 0..ULTRASONIC_MEDIAN_WINDOW_SIZE {
-            // Adjust timing to achieve roughly 15 FPS
+            // Adjust timing to achieve roughly 15 FPS on the display output
             // Total time per position = servo movement (20ms) + (3 * measurement delay)
             // 66.67ms - 20ms = 46.67ms available for measurements
             // 46.67ms / 3 measurements ≈ 15ms per measurement

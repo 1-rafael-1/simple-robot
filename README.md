@@ -1,26 +1,26 @@
 # simple-robot
 
-A very simple robot with HC-SR04 distance sensor and autonomous as well as remote controlled movement written in Rust
+A no-longer-too-simple robot with different sensors and autonomous as well as remote controlled movement written in Rust.
 
 ![Robot Side View](misc/media/right.jpg)
-*Side view showing the robot's profile and sensor placement*
+*Side view showing the robot's profile - picture of the v1 iteration. Now outdated.*
 
-Check out the robot navigating autonomously, download the demo video here: [Autonomous Operation](misc/media/autonomous-mode.mp4).
+Check out the v1-robot navigating autonomously, download the demo video here: [Autonomous Operation](misc/media/autonomous-mode.mp4).
 
 > Note: The initial version of this robot is preserved in the [`v1` tag](../../tree/v1). That version represents a simple but functional autonomous robot using basic components. The main branch now tracks the development of an improved version with the following planned enhancements:
 
 - [ ] Sensor improvements:
   - [x] Replace HC-SR04 ultrasonic sensor with IR sensor for more reliable obstacle detection
-    - [ ] Add a second IR sensor because the chassis & tracks is too wide to be covered by one sensor.
-  - [ ] Add servo-mounted HC-SR04 as a poor man's LIDAR system for better spatial awareness
-  - [ ] Integrate MPU6050 IMU or MPU9250 for improved position control and orientation sensing.
+    - [x] Add a second IR sensor because the chassis & tracks is too wide to be covered by one sensor.
+  - [x] Add servo-mounted HC-SR04 as a poor man's LIDAR system for better spatial awareness
+  - [ ] Integrate MPU6500 IMU for improved position control and orientation sensing.
 - [ ] Remote control improvements:
-  - [ ] Re-wire everything to decouple the RC receiver as much as possible from the motor driver and other noisy components -> for better reception when motors are running
+  - [x] Re-wire everything to decouple the RC receiver as much as possible from the motor driver and other noisy components -> for better reception when motors are running
 - [ ] General circuit improvements:
-  - [ ] Get rid of the voltage dividers for the RC receiver and the sensors, replace with level shifters instead
+  - [x] Get rid of the voltage dividers for the RC receiver and the sensors, replace with level shifters instead
 - [ ] Mobility improvements:
   - [x] Replace the simple DC motors with better ones that have higher torque and encoders
-  - [ ] Wire up the encoders
+  - [x] Wire up the encoders
   - [x] Alter code to use encoders for better control and feedback, i.e. drive straight lines
 - [ ] Power management improvements:
   - [x] Improve the battery indicator by refining the color scheme of the battery indicator
@@ -32,8 +32,11 @@ Check out the robot navigating autonomously, download the demo video here: [Auto
   - [x] The base frame does not fit well with motors that have encoders -> needs to be adapted
 - [ ] Circuit & Wiring Improvements
   - [x] Get to grips with KiCad and make an initial Schematic
-  - [x] Make a v0.1 PCB
-  - [ ] ...and make it work
+  - [x] Make a PCB and get it manufactured
+  - [ ] Solder the components on the PCB and test it
+- [ ] Documentation Improvements
+  - [ ] Add more detailed instructions on how to assemble the robot
+  - [ ] Add more detailed instructions on how to power the robot
 
 
 I am not yet sure how many of these improvements I can implement in a reasonable timeframe. Maybe I will archive a v2 at some point along the way.
@@ -42,7 +45,7 @@ I will update the readme with these improvements once they are implemented. Let'
 
 ## What is it?
 
-This is a hobby project for my 9-year-old son, who wanted me to build a robot for him. The thing is a rather simple machine. I was aiming at the following:
+This is a hobby project for my 9-year-old son, who wanted me to build a robot for him. The thing started as a rather simple machine. I was aiming at the following:
 
 + Use a chassis that is easily printed. For now, I have settled on <https://www.thingiverse.com/thing:972768>. The author of that design has moved on to more sophisticated designs, I will surely come back to those. But right now this was just as simple and versatile as I wanted it to be, really cool what people have made.
   + It became necessary to adapt the base frame to fit well with motors that have encoders -> I imported the base frame from the Thingiverse design into FreeCAD, made a body out of the mesh and changed it to ba a solid body with cut-outs for the encoders. You can find the modified base frame here: [misc/chassis](misc/chassis)
@@ -52,6 +55,24 @@ This is a hobby project for my 9-year-old son, who wanted me to build a robot fo
   + step-up converters to 5V
   + HC-SR04 distance sensor
   + ...but of course this is ample opportunity to buy even more stuff... so a motor driver module, motors, and a simple RC unit and receiver... not to mention one absolutely has to buy two Pi Picos to make one device.
+
+At this point I got a little carried away, see the list of ToDos above. 
+
+## Schematic
+
+While adding more and more things to this project I realized that I needed a schematic to keep track of all the connections and components. So I spent some time learning KiCad 8 and made one, which was a fun experience.
+
+While at it I became aware that it might not be too hard to design a PCB for this project. In fact, with all the components involved a breadboard becomes less and less useful. So I ended up designing a PCB and ordered it made overseas. The thing has yet to arrive, so no pictures yet.
+
+You can find the KiCad project here: [misc/KiCad/simple-robot](misc/KiCad/simple-robot). Some of the boards I used had no symbols & footprints and so I created them as i went. You can find them here: [misc/KiCad/symbols](misc/KiCad/symbols). The Pi Pico symbol I found online here: [/ncarandini/KiCad-RP-Pico]/(https://github.com/ncarandini/KiCad-RP-Pico).
+
+An excellent resource I found perfect to learn KiCad is a series of Youtube videos: [KiCad Tutorial: Beginning to End](https://www.youtube.com/watch?v=vLnu21fS22s&list=PLUOaI24LpvQPls1Ru_qECJrENwzD7XImd). This is crisp and to the point but easy to follow for a beginner like me.
+
+![robot-schematic](misc/media/schematic_picture.png)
+*The schamatic*
+
+![robot-pcb](misc/media/pcb_picture.png)
+*The PCB*
 
 ## What does it do?
 
@@ -78,7 +99,7 @@ The manual mode is pure RC control without any safety features - it's up to you 
 In this mode, the robot becomes self-driving with the following behaviors:
 
 + Continuously moves forward while monitoring its environment
-+ Uses the HC-SR04 ultrasonic sensor to measure distances (in centimeters)
++ Uses two IR sensors to detect obstacles. For lack of GPIO pins, I used two IR sensors connected through a Schottky diode each to one Pin on the controller.
 + When detecting an obstacle:
   + Stops at a safe distance (currently set to avoid close encounters)
   + Executes an avoidance maneuver:
