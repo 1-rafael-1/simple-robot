@@ -23,16 +23,16 @@
 /// - Cleared when sweep line approaches (10° zone)
 /// - Maximum 1500 points stored
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embedded_graphics::{
     geometry::Size,
-    mono_font::{ascii::FONT_9X18_BOLD, MonoTextStyleBuilder},
+    mono_font::{ascii::FONT_9X15_BOLD as Font, MonoTextStyleBuilder},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Arc, Circle, Line, PrimitiveStyle, Rectangle},
+    primitives::{Arc, Line, PrimitiveStyle, Rectangle},
     text::{Baseline, Text},
 };
-use heapless::Vec;
+use heapless::{String, Vec};
 use micromath::F32Ext;
 use ssd1306_async::{prelude::*, I2CDisplayInterface, Ssd1306};
 
@@ -43,23 +43,32 @@ pub enum DisplayAction {
     /// Show a sensor sweep pattern with distance (cm) and angle (degrees)
     ShowSweep(f64, f32),
     /// Show a text message on the display
-    ShowText(&'static str, u8),
+    ShowText(String<20>, u8),
     /// Clear the entire display
     Clear,
 }
 
-/// Control signal to trigger display updates
-pub static DISPLAY_CONTROL: Signal<CriticalSectionRawMutex, DisplayAction> = Signal::new();
+/// Control channel to trigger display updates
+pub static DISPLAY_CHANNEL: Channel<CriticalSectionRawMutex, DisplayAction, 4> = Channel::new();
 
 /// Requests a display update with the specified action
-pub fn request_update(display_action: DisplayAction) {
-    DISPLAY_CONTROL.signal(display_action);
+pub async fn request_update(display_action: DisplayAction) {
+    DISPLAY_CHANNEL.send(display_action).await;
 }
 
 /// Blocks until next update request, returns the requested display action
 async fn wait() -> DisplayAction {
-    DISPLAY_CONTROL.wait().await
+    DISPLAY_CHANNEL.receive().await
 }
+
+// Display dimensions
+
+/// Display width in pixels
+const DISPLAY_WIDTH: i32 = 128;
+/// Display height in pixels
+const DISPLAY_HEIGHT: i32 = 64;
+/// Header height in pixels for text/status display
+const DISPLAY_HEADER_HEIGHT: i32 = 16;
 
 // Sweep visualization parameters
 
@@ -127,7 +136,7 @@ pub async fn display(i2c_bus: &'static I2c0BusShared) {
     display.init().await.unwrap();
 
     let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_9X18_BOLD)
+        .font(&Font)
         .text_color(BinaryColor::On)
         .build();
 
@@ -136,20 +145,26 @@ pub async fn display(i2c_bus: &'static I2c0BusShared) {
     let mut last_angle: f32 = 0.0; // Move state into the task
     let mut moving_right: bool = true; // Move state into the task
 
-    request_update(DisplayAction::Clear);
+    request_update(DisplayAction::Clear).await;
+
+    display.clear();
+    display.flush().await.unwrap();
 
     loop {
         // Wait for the next display update request and clear the display
         display_action = wait().await;
-        display.clear();
+        // display.clear();
 
         match display_action {
             DisplayAction::ShowSweep(distance, angle) => {
-                // Clear sweep area
-                Circle::new(Point::new(CENTER_X - RADIUS, CENTER_Y - RADIUS), DIAMETER)
-                    .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
-                    .draw(&mut display)
-                    .unwrap();
+                // Clear only sweep area (below header)
+                Rectangle::new(
+                    Point::new(0, DISPLAY_HEADER_HEIGHT),
+                    Size::new(DISPLAY_WIDTH as u32, (DISPLAY_HEIGHT - DISPLAY_HEADER_HEIGHT) as u32),
+                )
+                .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
+                .draw(&mut display)
+                .unwrap();
 
                 // Draw base half-circle
                 Arc::new(
@@ -233,14 +248,14 @@ pub async fn display(i2c_bus: &'static I2c0BusShared) {
                     _ => panic!("Invalid line number"),
                 };
 
-                // clear the existing text before drawing new text
-                let text_bounds = Rectangle::new(point, Size::new(128, 16));
-                text_bounds
+                // Clear only text line area
+                Rectangle::new(point, Size::new(DISPLAY_WIDTH as u32, 16))
                     .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
                     .draw(&mut display)
                     .unwrap();
-                // draw the new text
-                Text::with_baseline(text, point, text_style, Baseline::Top)
+
+                // Draw text
+                Text::with_baseline(&text, point, text_style, Baseline::Top)
                     .draw(&mut display)
                     .unwrap();
             }

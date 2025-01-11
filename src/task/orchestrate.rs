@@ -15,7 +15,11 @@
 //!
 //! Additional states like standby and obstacle detection are managed across modes.
 
+use core::fmt::Write;
+
 use embassy_time::Duration;
+use heapless::String;
+use micromath::F32Ext;
 
 use crate::{
     system::{
@@ -152,8 +156,10 @@ async fn handle_state_changes(event: Events) {
         }
         Events::UltrasonicSweepReadingTaken(distance, angle) => {
             // Ultrasonic sensor reading received, send distance and servo angle to display and obstacle detection
-            display::request_update(display::DisplayAction::ShowText("Test", 0));
-            display::request_update(display::DisplayAction::ShowSweep(distance, angle));
+            let mut txt: String<20> = String::new();
+            let _ = write!(txt, "{}deg {}cm", angle.round(), (distance as f32).round());
+            display::request_update(display::DisplayAction::ShowText(txt, 0)).await;
+            display::request_update(display::DisplayAction::ShowSweep(distance, angle)).await;
         }
     }
 }
