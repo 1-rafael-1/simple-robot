@@ -13,8 +13,9 @@ Check out the v1-robot navigating autonomously, download the demo video here: [A
   - [x] Replace HC-SR04 ultrasonic sensor with IR sensor for more reliable obstacle detection
     - [x] Add a second IR sensor because the chassis & tracks is too wide to be covered by one sensor.
   - [x] Add servo-mounted HC-SR04 as a poor man's LIDAR system for better spatial awareness
+  - [ ] Do something with the data... right now it only shows on the display
   - [ ] Integrate MPU6500 IMU for improved position control and orientation sensing.
-- [ ] Remote control improvements:
+- [x] Remote control improvements:
   - [x] Re-wire everything to decouple the RC receiver as much as possible from the motor driver and other noisy components -> for better reception when motors are running
 - [ ] General circuit improvements:
   - [x] Get rid of the voltage dividers for the RC receiver and the sensors, replace with level shifters instead
@@ -26,7 +27,7 @@ Check out the v1-robot navigating autonomously, download the demo video here: [A
   - [x] Improve the battery indicator by refining the color scheme of the battery indicator
   - [ ] Add a charger IC to charge and especially to protect the battery from deep discharge
   - [ ] Gracefully power down when the battery is low
-  - [ ] Some sort of on/off switch would be kind of nice, even if plugging the ground cable into the breadboard as a switch is nerdy fun
+  - [x] Some sort of on/off switch would be kind of nice, even if plugging the ground cable into the breadboard as a switch is nerdy fun
 - [ ] Mechanics improvements:
   - [ ] There must be a solution for tightening the tracks, which are too long by a few mm and sometimes come loose
   - [x] The base frame does not fit well with motors that have encoders -> needs to be adapted

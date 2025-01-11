@@ -1,12 +1,12 @@
-//! Ultrasonic Sensor Sweep
+//! Ultrasonic Sensor Sweep Control
 //!
-//! Collects data of objects found in a <180° circle in front of the robot by sweeping a HC-SR04 sensor on a servo.
-//! Data collection is TODO
-//! At this point in development the Pi Pico2 was out of PWM Pins/Slices, thankfully in the great Embassy rp32 examples
-//! there is a cool example on how to use PIO to substitute PWM.
+//! Controls a servo-mounted HC-SR04 ultrasonic sensor to scan for objects in a 180° arc in front of the robot.
+//! Uses PIO (Programmable I/O) for servo control due to PWM pin limitations on the Pi Pico.
+//! Implements median filtering to reduce noise in distance measurements.
 
 use core::time::Duration;
 
+use defmt::info;
 use defmt_rtt as _;
 use embassy_rp::{
     gpio::{Input, Level, Output, Pull},
@@ -49,6 +49,10 @@ const ULTRASONIC_TEMPERATURE: f64 = 21.5;
 // /// Distance at which obstacles are detected (22cm gives good reaction time)
 // const ULTRASONIC_MINIMUM_DISTANCE: f64 = 22.0;
 
+/// Builder for configuring and creating a servo instance
+///
+/// Provides a fluent interface for setting servo parameters like pulse widths
+/// and rotation limits before constructing the final servo instance.
 pub struct ServoBuilder<'d, T: Instance, const SM: usize> {
     pwm: PioPwm<'d, T, SM>,
     period: Duration,
@@ -99,6 +103,10 @@ impl<'d, T: Instance, const SM: usize> ServoBuilder<'d, T, SM> {
     }
 }
 
+/// Controls a servo motor using PIO-based PWM
+///
+/// Handles conversion between desired angle and PWM pulse width,
+/// accounting for servo-specific timing requirements.
 pub struct Servo<'d, T: Instance, const SM: usize> {
     pwm: PioPwm<'d, T, SM>,
     min_pulse_width: Duration,
@@ -111,6 +119,13 @@ impl<'d, T: Instance, const SM: usize> Servo<'d, T, SM> {
         self.pwm.start();
     }
 
+    /// Rotates the servo to the specified angle in degrees
+    ///
+    /// # Arguments
+    /// * `degree` - Target angle between 0° and max_degree_rotation°
+    ///
+    /// Automatically clamps input to valid range and converts
+    /// angle to appropriate PWM pulse width for the servo.
     pub fn rotate_float(&mut self, degree: f32) {
         let degree = degree.clamp(0.0, self.max_degree_rotation as f32) as f64;
         let degree_per_nano_second = (self.max_pulse_width.as_nanos() as f64 - self.min_pulse_width.as_nanos() as f64)
@@ -143,31 +158,32 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
     let prg = PioPwmProgram::new(&mut common);
     let pwm_pio = PioPwm::new(&mut common, sm0, s.pin, &prg);
     let mut servo = ServoBuilder::new(pwm_pio)
-        .set_max_degree_rotation(180) // TODO: adjust to what the servo actually moves.
-        .set_min_pulse_width(Duration::from_micros(500)) // TODO: adjust to what the servo actually supports.
-        .set_max_pulse_width(Duration::from_micros(2400)) // TODO: adjust to what the servo actually supports.
+        .set_max_degree_rotation(180) // SG90 servo has 180° range of motion
+        .set_min_pulse_width(Duration::from_micros(500)) // SG90 minimum pulse width
+        .set_max_pulse_width(Duration::from_micros(2400)) // SG90 maximum pulse width
         .build();
 
     servo.start();
 
     let mut angle: f32 = 0.0;
-    let mut angle_increment: f32 = 0.25;
+    let mut angle_increment: f32 = 0.5;
     let mut filtered_distance: f64;
 
+    servo.rotate_float(90.0);
+    Timer::after_millis(500).await;
+
     loop {
+        // servo.rotate_float(90.0);
+
         // Update servo position
         servo.rotate_float(angle);
 
         // Give servo time to reach position (servos typically need 10-20ms to move 60 degrees)
-        Timer::after_millis(20).await;
+        Timer::after_millis(3).await;
 
         // Take multiple measurements based on ULTRASONIC_MEDIAN_WINDOW_SIZE
         for _ in 0..ULTRASONIC_MEDIAN_WINDOW_SIZE {
-            // Adjust timing to achieve roughly 15 FPS on the display output
-            // Total time per position = servo movement (20ms) + (3 * measurement delay)
-            // 66.67ms - 20ms = 46.67ms available for measurements
-            // 46.67ms / 3 measurements ≈ 15ms per measurement
-            Timer::after_millis(15).await;
+            Timer::after_millis(5).await;
             median_filter.add_value(match sensor.measure(ULTRASONIC_TEMPERATURE).await {
                 Ok(distance_cm) => distance_cm,
                 Err(_) => 200.0, // Return safe distance on error to prevent false positives
@@ -178,6 +194,7 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
         filtered_distance = median_filter.median();
 
         // Send reading event to orchestration task
+        info!("Angle {}, Distance: {}", angle, filtered_distance);
         send(Events::UltrasonicSweepReadingTaken(filtered_distance, angle)).await;
 
         // Update angle and check for direction change

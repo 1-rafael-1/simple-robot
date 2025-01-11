@@ -1,10 +1,27 @@
 //! Display
 //!
-//! Handles the SSD1306 OLED display output, primarily showing a radar-like visualization
-//! of the ultrasonic sensor sweep. Displays detected objects in a 160° arc, with distance
-//! measurements up to 100cm.
-//! Data visualization includes a sweeping line and persistent points for detected objects.
-
+/// Display task managing SSD1306 OLED screen (128x64 pixels)
+/// Layout:
+/// - Top 16px: Reserved for text/status
+/// - Bottom 48px: Radar sweep visualization
+/// - Origin (0,0): Top-left of display
+/// - Y axis increases downward
+///
+/// Coordinate Systems:
+/// - Display: (0,0) at top-left, y increases downward
+/// - Servo: 0° left, 90° up, 180° right
+/// - Radar: Center at (64,64), 0° left through 180° right
+///
+/// Sweep Visualization:
+/// - Half-circle arc at bottom (180° span)
+/// - Moving line showing current servo angle
+/// - Length represents maximum range (200cm)
+///
+/// Distance Points:
+/// - Created when object detected (distance < 200cm)
+/// - Position: polar to cartesian conversion from sweep angle
+/// - Cleared when sweep line approaches (10° zone)
+/// - Maximum 1500 points stored
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embedded_graphics::{
@@ -12,7 +29,7 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_9X18_BOLD, MonoTextStyleBuilder},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Circle, Line, PrimitiveStyle, Rectangle},
+    primitives::{Arc, Circle, Line, PrimitiveStyle, Rectangle},
     text::{Baseline, Text},
 };
 use heapless::Vec;
@@ -31,7 +48,7 @@ pub enum DisplayAction {
     Clear,
 }
 
-// Control signal to trigger display updates
+/// Control signal to trigger display updates
 pub static DISPLAY_CONTROL: Signal<CriticalSectionRawMutex, DisplayAction> = Signal::new();
 
 /// Requests a display update with the specified action
@@ -44,16 +61,36 @@ async fn wait() -> DisplayAction {
     DISPLAY_CONTROL.wait().await
 }
 
+// Sweep visualization parameters
+
 /// Center X coordinate for the radar display (middle of 128px width)
 const CENTER_X: i32 = 64;
-/// Center Y coordinate for the radar display (middle of 64px height)
-const CENTER_Y: i32 = 32;
-/// Radius of the radar display in pixels
-const RADIUS: i32 = 30;
+/// Center Y coordinate for the radar display (bottom of display)
+const CENTER_Y: i32 = 64;
+/// Radius of the sweep display in pixels
+const RADIUS: i32 = 45;
+/// Diameter of the sweep display in pixels
+const DIAMETER: u32 = (RADIUS * 2) as u32;
 /// Maximum distance to display (maps to RADIUS pixels)
-const MAX_DISTANCE_CM: f32 = 100.0;
+const MAX_DISTANCE_CM: f32 = 200.0;
 /// Maximum number of stored points for display, limited to define heapless Vec
-const MAX_POINTS: usize = 128;
+const MAX_POINTS: usize = 1500;
+
+/// Point storage for detected objects
+#[derive(Clone, Copy)]
+struct SweepPoint {
+    /// Display X coordinate
+    x: i32,
+    /// Display Y coordinate
+    y: i32,
+    /// Servo angle at which point was detected
+    angle: f32,
+}
+
+/// Clear zone angle in degrees
+const CLEAR_ZONE: f32 = 10.0;
+
+type PointsBuffer = heapless::Vec<SweepPoint, MAX_POINTS>;
 
 /// Main display task that manages the SSD1306 OLED screen
 ///
@@ -95,7 +132,9 @@ pub async fn display(i2c_bus: &'static I2c0BusShared) {
         .build();
 
     let mut display_action: DisplayAction;
-    let mut points: Vec<(i32, i32), MAX_POINTS> = Vec::new();
+    let mut points: PointsBuffer = Vec::new();
+    let mut last_angle: f32 = 0.0; // Move state into the task
+    let mut moving_right: bool = true; // Move state into the task
 
     request_update(DisplayAction::Clear);
 
@@ -106,53 +145,82 @@ pub async fn display(i2c_bus: &'static I2c0BusShared) {
 
         match display_action {
             DisplayAction::ShowSweep(distance, angle) => {
-                // Clear sweep area with filled black circle
-                Circle::new(Point::new(CENTER_X, CENTER_Y), RADIUS as u32)
+                // Clear sweep area
+                Circle::new(Point::new(CENTER_X - RADIUS, CENTER_Y - RADIUS), DIAMETER)
                     .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
                     .draw(&mut display)
                     .unwrap();
 
                 // Draw base half-circle
-                Circle::new(Point::new(CENTER_X, CENTER_Y), RADIUS as u32)
-                    .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
-                    .draw(&mut display)
-                    .unwrap();
+                Arc::new(
+                    Point::new(CENTER_X - RADIUS, CENTER_Y - RADIUS), // Bounding box top-left
+                    DIAMETER,
+                    Angle::from_degrees(180.0), // Start at left
+                    Angle::from_degrees(180.0), // Sweep clockwise to right
+                )
+                .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
+                .draw(&mut display)
+                .unwrap();
 
-                // Convert angle to radians (adjust from -80° to +80° range)
-                let rad_angle = (angle - 90.0) * core::f32::consts::PI / 180.0;
+                // Convert servo angle to display coordinates
+                // Servo angles: 0° (left) to 180° (right)
+                // Display angles: 180° (left) to 0° (right) for standard trig
+                let rad_angle = (180.0 - angle).to_radians();
 
-                // Calculate and draw sweep line
+                // Calculate sweep line endpoint using polar to cartesian conversion
+                // cos(angle) gives x component, sin(angle) gives y component
+                // Subtract Y since display coordinates increase downward
                 let line_end_x = CENTER_X + (RADIUS as f32 * rad_angle.cos()) as i32;
-                let line_end_y = CENTER_Y + (RADIUS as f32 * rad_angle.sin()) as i32;
+                let line_end_y = CENTER_Y - (RADIUS as f32 * rad_angle.sin()) as i32;
                 Line::new(Point::new(CENTER_X, CENTER_Y), Point::new(line_end_x, line_end_y))
                     .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
                     .draw(&mut display)
                     .unwrap();
 
-                // Process distance point
-                if distance <= MAX_DISTANCE_CM as f64 {
-                    let scaled_distance = (distance as f32 / MAX_DISTANCE_CM) * RADIUS as f32;
-                    let point_x = CENTER_X + (scaled_distance * rad_angle.cos()) as i32;
-                    let point_y = CENTER_Y + (scaled_distance * rad_angle.sin()) as i32;
+                // Track sweep direction for point clearing
+                // Large angle changes (>90°) indicate direction reversal
+                // Otherwise compare with last angle to determine direction
+                let moving_right_new = if (angle - last_angle).abs() > 90.0 {
+                    !moving_right // Reversed direction
+                } else {
+                    angle > last_angle // Moving right if angle increasing
+                };
+                last_angle = angle;
+                moving_right = moving_right_new;
 
-                    // Clear points near sweep line
-                    points.retain(|&(px, py)| {
-                        let dx = px - CENTER_X;
-                        let dy = py - CENTER_Y;
-                        let point_angle = (dy as f32).atan2(dx as f32);
-                        (point_angle - rad_angle).abs() > 0.1
-                    });
-
-                    // Store new point and remove oldest if necessary
-                    if points.push((point_x, point_y)).is_err() {
-                        points.remove(0);
-                        let _ = points.push((point_x, point_y));
+                // Clear points near sweep line based on direction
+                // Points are removed when the sweep line approaches within CLEAR_ZONE degrees
+                // Different retention logic based on sweep direction to properly clear points
+                points.retain(|point| {
+                    let angle_diff = (point.angle - angle).rem_euclid(180.0);
+                    if moving_right {
+                        angle_diff > CLEAR_ZONE && angle_diff < 180.0
+                    } else {
+                        angle_diff < (180.0 - CLEAR_ZONE) && angle_diff > 0.0
                     }
+                });
+
+                // Add new detection point if object within range
+                if distance <= MAX_DISTANCE_CM as f64 {
+                    // Scale distance from cm to display pixels
+                    // Maps 0-200cm to 0-RADIUS pixels proportionally
+                    let scaled_distance = (distance as f32 / MAX_DISTANCE_CM) * RADIUS as f32;
+
+                    // Convert polar coordinates (distance, angle) to cartesian (x, y)
+                    let rad_angle = (180.0 - angle).to_radians();
+                    let point = SweepPoint {
+                        x: CENTER_X + (scaled_distance * rad_angle.cos()) as i32,
+                        y: CENTER_Y - (scaled_distance * rad_angle.sin()) as i32,
+                        angle, // Store angle for later point clearing
+                    };
+                    let _ = points.push(point); // Add to fixed-size buffer
                 }
 
-                // Draw all stored points
-                for &(px, py) in points.iter() {
-                    display.set_pixel(px as u32, py as u32, true);
+                // Draw all points
+                for point in points.iter() {
+                    Pixel(Point::new(point.x, point.y), BinaryColor::On)
+                        .draw(&mut display)
+                        .unwrap();
                 }
             }
             DisplayAction::ShowText(text, line) => {

@@ -43,8 +43,7 @@ embassy-rp = { version = "0.3", features = [
 embassy-embedded-hal = { version = "0.3", features = ["defmt"] }
 embassy-sync = { version = "0.6.1", features = ["defmt"] }
 embassy-executor = { version = "0.7", features = [
-    # "task-arena-size-98304",
-    "task-arena-size-4096",
+    "task-arena-size-98304",
     "arch-cortex-m",
     "executor-thread",
     "executor-interrupt",
