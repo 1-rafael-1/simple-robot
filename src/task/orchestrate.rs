@@ -92,6 +92,7 @@ async fn process_event(event: Events) -> Option<Events> {
         Events::DriveCommandExecuted => Some(event),
         Events::EncoderMeasurementTaken(_) => Some(event),
         Events::UltrasonicSweepReadingTaken(_, _) => Some(event),
+        Events::InertialMeasurementTaken(_) => Some(event),
     }
 }
 
@@ -160,6 +161,29 @@ async fn handle_state_changes(event: Events) {
             let _ = write!(txt, "{}deg {}cm", angle.round(), (distance as f32).round());
             display::request_update(display::DisplayAction::ShowText(txt, 0)).await;
             display::request_update(display::DisplayAction::ShowSweep(distance, angle)).await;
+        }
+        Events::InertialMeasurementTaken(measurement) => {
+            // IMU sensor reading taken, send data to display
+            let mut txt: String<20> = String::new();
+            let _ = write!(txt, "Acceleration");
+            display::request_update(display::DisplayAction::ShowText(txt, 0)).await;
+            let mut txt: String<20> = String::new();
+            let _ = write!(
+                txt,
+                "{}/{}/{}",
+                measurement.accel.x, measurement.accel.y, measurement.accel.z
+            );
+            display::request_update(display::DisplayAction::ShowText(txt, 1)).await;
+            let mut txt: String<20> = String::new();
+            let _ = write!(txt, "Gyro");
+            display::request_update(display::DisplayAction::ShowText(txt, 2)).await;
+            let mut txt: String<20> = String::new();
+            let _ = write!(
+                txt,
+                "{}/{}/{}",
+                measurement.gyro.x, measurement.gyro.y, measurement.gyro.z
+            );
+            display::request_update(display::DisplayAction::ShowText(txt, 3)).await;
         }
     }
 }

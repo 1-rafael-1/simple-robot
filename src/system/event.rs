@@ -27,7 +27,10 @@
 use defmt::Format;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
-use crate::system::state::OperationMode;
+use crate::{
+    system::state::OperationMode,
+    task::{encoder_read::EncoderMeasurement, imu_read::ImuMeasurement},
+};
 
 /// Multi-producer, single-consumer event channel
 ///
@@ -105,13 +108,19 @@ pub enum Events {
     /// Encoder measurement completed
     /// - Contains latest pulse counts and timing
     /// - Used for speed adjustments
-    EncoderMeasurementTaken(crate::task::encoder_read::EncoderMeasurement),
+    EncoderMeasurementTaken(EncoderMeasurement),
 
     /// Ultrasonic sensor reading received
     /// - Contains distance measurements and servo angle
     /// - used for display and obstacle detection
     /// - TODO Used for autonomous navigation
     UltrasonicSweepReadingTaken(f64, f32),
+
+    /// IMU sensor reading taken
+    /// - Contains accelerometer and gyroscope data
+    /// - Used for orientation and movement control
+    /// - TODO Used for autonomous navigation
+    InertialMeasurementTaken(ImuMeasurement),
 }
 
 /// Remote control button identifiers

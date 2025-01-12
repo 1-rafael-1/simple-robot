@@ -13,7 +13,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal}
 use embassy_time::{Duration, Instant, Timer};
 
 use crate::system::{
-    event::{self, Events},
+    event::{send, Events},
     resources::MotorEncoderResources,
 };
 
@@ -116,6 +116,6 @@ pub async fn read_encoder(resources: MotorEncoderResources) {
         );
 
         // Signal measurement completion
-        event::send(Events::EncoderMeasurementTaken(measurement)).await;
+        send(Events::EncoderMeasurementTaken(measurement)).await;
     }
 }

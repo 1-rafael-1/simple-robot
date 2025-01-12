@@ -71,6 +71,7 @@ embedded-graphics = "0.8.1"
 static_cell = { version = "2.1.0", features = [] }
 heapless = "0.8.0"
 micromath = "2.1.0"
+mpu6050-dmp = { version = "0.6.0", features = ["async"] }
 
 # [patch.crates-io]
 # embassy-rp = { git = "https://github.com/embassy-rs/embassy" }

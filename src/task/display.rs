@@ -129,8 +129,8 @@ type PointsBuffer = heapless::Vec<SweepPoint, MAX_POINTS>;
 /// - Keep fixed maximum number of points (MAX_POINTS)
 #[embassy_executor::task]
 pub async fn display(i2c_bus: &'static I2c0BusShared) {
-    let display_i2c = I2cDevice::new(i2c_bus);
-    let interface = I2CDisplayInterface::new(display_i2c);
+    let i2c = I2cDevice::new(i2c_bus);
+    let interface = I2CDisplayInterface::new(i2c);
     let mut display =
         Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0).into_buffered_graphics_mode();
     display.init().await.unwrap();

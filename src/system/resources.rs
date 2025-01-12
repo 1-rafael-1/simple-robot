@@ -82,9 +82,9 @@ assign_resources! {
         btn_c: PIN_10,
         btn_d: PIN_11,
     },
-    /// IR obstacle avoidance sensor (VMA330) - digital output
+    /// IR obstacle avoidance sensor - digital output
     ir_sensor: IRSensorResources {
-        ir_pin: PIN_26, // Digital input pin
+        ir_pin: PIN_26,
     },
     /// TB6612FNG dual motor driver pins and PWM channels
     motor_driver: MotorDriverResources {
@@ -109,7 +109,7 @@ assign_resources! {
     },
     /// MPU6500 6-axis IMU
     inertial_measurement_unit: InertialMeasurementUnitResources {
-        // I2C resources handled in mutex
+        // I2C resources handled in I2C0 bus
         int: PIN_8,
         add: PIN_3
     },
