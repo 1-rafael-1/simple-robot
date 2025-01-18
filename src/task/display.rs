@@ -52,7 +52,7 @@ pub enum DisplayAction {
 pub static DISPLAY_CHANNEL: Channel<CriticalSectionRawMutex, DisplayAction, 4> = Channel::new();
 
 /// Requests a display update with the specified action
-pub async fn request_update(display_action: DisplayAction) {
+pub async fn display_update(display_action: DisplayAction) {
     DISPLAY_CHANNEL.send(display_action).await;
 }
 
@@ -145,7 +145,7 @@ pub async fn display(i2c_bus: &'static I2c0BusShared) {
     let mut last_angle: f32 = 0.0; // Move state into the task
     let mut moving_right: bool = true; // Move state into the task
 
-    request_update(DisplayAction::Clear).await;
+    display_update(DisplayAction::Clear).await;
 
     display.clear();
     display.flush().await.unwrap();

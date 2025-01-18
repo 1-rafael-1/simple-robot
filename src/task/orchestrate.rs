@@ -24,7 +24,7 @@ use micromath::F32Ext;
 use crate::{
     system::{
         button_actions,
-        event::{send, wait, Events},
+        event::{send_event, wait, Events},
         state,
         state::{OperationMode, SYSTEM_STATE},
     },
@@ -92,7 +92,8 @@ async fn process_event(event: Events) -> Option<Events> {
         Events::DriveCommandExecuted => Some(event),
         Events::EncoderMeasurementTaken(_) => Some(event),
         Events::UltrasonicSweepReadingTaken(_, _) => Some(event),
-        Events::InertialMeasurementTaken(_) => Some(event),
+        Events::ImuMeasurementTaken(_) => Some(event),
+        Events::RotationCompleted => Some(event),
     }
 }
 
@@ -102,12 +103,12 @@ async fn handle_state_changes(event: Events) {
         Events::OperationModeSet(new_mode) => match new_mode {
             OperationMode::Manual => {
                 rgb_led_indicate::update_indicator(true);
-                autonomous_drive::send_command(autonomous_drive::Command::Stop);
+                autonomous_drive::send_autonomous_command(autonomous_drive::Command::Stop);
             }
             OperationMode::Autonomous => {
                 rgb_led_indicate::update_indicator(true);
-                autonomous_drive::send_command(autonomous_drive::Command::Initialize);
-                autonomous_drive::send_command(autonomous_drive::Command::Start);
+                autonomous_drive::send_autonomous_command(autonomous_drive::Command::Initialize);
+                autonomous_drive::send_autonomous_command(autonomous_drive::Command::Start);
             }
         },
         Events::ObstacleDetected(is_detected) => {
@@ -115,7 +116,7 @@ async fn handle_state_changes(event: Events) {
             {
                 let state = SYSTEM_STATE.lock().await;
                 if state.operation_mode == OperationMode::Autonomous {
-                    autonomous_drive::send_command(if is_detected {
+                    autonomous_drive::send_autonomous_command(if is_detected {
                         autonomous_drive::Command::AvoidObstacle
                     } else {
                         autonomous_drive::Command::Start
@@ -125,7 +126,7 @@ async fn handle_state_changes(event: Events) {
         }
         Events::ObstacleAvoidanceAttempted => {
             rgb_led_indicate::update_indicator(true);
-            autonomous_drive::send_command(autonomous_drive::Command::AvoidObstacle);
+            autonomous_drive::send_autonomous_command(autonomous_drive::Command::AvoidObstacle);
         }
         Events::BatteryLevelMeasured(_) => {
             rgb_led_indicate::update_indicator(false);
@@ -144,46 +145,45 @@ async fn handle_state_changes(event: Events) {
         }
         Events::InactivityTimeout => {
             // Inactivity timeout occurred, set operation mode to manual and start standby mode
-            send(Events::OperationModeSet(state::OperationMode::Manual)).await;
-            drive::send_command(drive::Command::Drive(drive::DriveAction::Standby));
+            send_event(Events::OperationModeSet(state::OperationMode::Manual)).await;
+            drive::send_drive_command(drive::DriveCommand::Drive(drive::DriveAction::Standby));
         }
         Events::DriveCommandExecuted => {
             // Drive command was executed, trigger encoder measurement
-            encoder_read::request_measurement(Duration::from_millis(100));
+            encoder_read::request_encoder_measurement(Duration::from_millis(100));
         }
         Events::EncoderMeasurementTaken(measurement) => {
             // Send encoder feedback to drive task for speed adjustment
-            drive::send_command(drive::Command::EncoderFeedback(measurement));
+            drive::send_drive_command(drive::DriveCommand::EncoderFeedback(measurement));
         }
         Events::UltrasonicSweepReadingTaken(distance, angle) => {
             // Ultrasonic sensor reading received, send distance and servo angle to display and obstacle detection
             let mut txt: String<20> = String::new();
             let _ = write!(txt, "{}deg {}cm", angle.round(), (distance as f32).round());
-            display::request_update(display::DisplayAction::ShowText(txt, 0)).await;
-            display::request_update(display::DisplayAction::ShowSweep(distance, angle)).await;
+            display::display_update(display::DisplayAction::ShowText(txt, 0)).await;
+            display::display_update(display::DisplayAction::ShowSweep(distance, angle)).await;
         }
-        Events::InertialMeasurementTaken(measurement) => {
-            // IMU sensor reading taken, send data to display
+        Events::ImuMeasurementTaken(measurement) => {
+            drive::send_drive_command(drive::DriveCommand::ImuFeedback(measurement));
+            // update display with rotation rate
             let mut txt: String<20> = String::new();
-            let _ = write!(txt, "Acceleration");
-            display::request_update(display::DisplayAction::ShowText(txt, 0)).await;
+            let _ = write!(txt, "Yaw: {}°", measurement.orientation.yaw);
+            display::display_update(display::DisplayAction::ShowText(txt, 2)).await;
             let mut txt: String<20> = String::new();
-            let _ = write!(
-                txt,
-                "{}/{}/{}",
-                measurement.accel.x, measurement.accel.y, measurement.accel.z
-            );
-            display::request_update(display::DisplayAction::ShowText(txt, 1)).await;
+            let _ = write!(txt, "Pitch: {}°", measurement.orientation.pitch);
+            display::display_update(display::DisplayAction::ShowText(txt, 3)).await;
             let mut txt: String<20> = String::new();
-            let _ = write!(txt, "Gyro");
-            display::request_update(display::DisplayAction::ShowText(txt, 2)).await;
+            let _ = write!(txt, "Roll: {}°", measurement.orientation.roll);
+            display::display_update(display::DisplayAction::ShowText(txt, 4)).await;
+        }
+        Events::RotationCompleted => {
+            // Flash LED to indicate completion
+            rgb_led_indicate::update_indicator(true);
+
+            // Update display
             let mut txt: String<20> = String::new();
-            let _ = write!(
-                txt,
-                "{}/{}/{}",
-                measurement.gyro.x, measurement.gyro.y, measurement.gyro.z
-            );
-            display::request_update(display::DisplayAction::ShowText(txt, 3)).await;
+            let _ = write!(txt, "Rotation Done");
+            display::display_update(display::DisplayAction::ShowText(txt, 3)).await;
         }
     }
 }

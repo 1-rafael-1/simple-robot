@@ -107,7 +107,7 @@ pub async fn battery_charge_read(r: BatteryChargeResources) {
         };
 
         // Send battery level event (as percentage)
-        event::send(event::Events::BatteryLevelMeasured((battery_level * 100.0) as u8)).await;
+        event::send_event(event::Events::BatteryLevelMeasured((battery_level * 100.0) as u8)).await;
 
         // Wait for next measurement interval
         Timer::after(MEASUREMENT_INTERVAL).await;

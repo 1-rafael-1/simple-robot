@@ -16,7 +16,7 @@ use embassy_rp::gpio::{Input, Pull};
 use embassy_time::{Duration, Timer};
 
 use crate::system::{
-    event::{send, Events},
+    event::{send_event, Events},
     resources::IRSensorResources,
 };
 
@@ -37,7 +37,7 @@ pub async fn ir_obstacle_detect(r: IRSensorResources) {
     let current_state = ir_pin.is_low();
     let mut last_state = current_state;
     // and send initial event
-    send(Events::ObstacleDetected(current_state)).await;
+    send_event(Events::ObstacleDetected(current_state)).await;
 
     loop {
         // Wait for any edge (rising or falling)
@@ -51,7 +51,7 @@ pub async fn ir_obstacle_detect(r: IRSensorResources) {
 
         // Only send event if state has changed
         if current_state != last_state {
-            send(Events::ObstacleDetected(current_state)).await;
+            send_event(Events::ObstacleDetected(current_state)).await;
             last_state = current_state;
         }
     }

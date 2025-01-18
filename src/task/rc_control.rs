@@ -6,7 +6,7 @@ use embassy_futures::select::{select, Either};
 use embassy_rp::gpio::{AnyPin, Input, Level, Pull};
 use embassy_time::{Duration, Timer};
 
-use crate::system::event::{send, ButtonId, Events};
+use crate::system::event::{send_event, ButtonId, Events};
 
 /// Button hold threshold (ms)
 const HOLD_DURATION: Duration = Duration::from_millis(700);
@@ -36,12 +36,12 @@ async fn handle_button(button: &mut Input<'static>, id: ButtonId) {
 
         match select(Timer::after(HOLD_DURATION), debounce(button)).await {
             Either::First(()) => {
-                send(Events::ButtonHoldStart(id)).await;
+                send_event(Events::ButtonHoldStart(id)).await;
                 button.wait_for_low().await;
-                send(Events::ButtonHoldEnd(id)).await;
+                send_event(Events::ButtonHoldEnd(id)).await;
             }
             Either::Second(_) => {
-                send(Events::ButtonPressed(id)).await;
+                send_event(Events::ButtonPressed(id)).await;
             }
         };
     }

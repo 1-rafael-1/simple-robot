@@ -13,7 +13,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal}
 use embassy_time::{Duration, Instant, Timer};
 
 use crate::system::{
-    event::{send, Events},
+    event::{send_event, Events},
     resources::MotorEncoderResources,
 };
 
@@ -21,7 +21,7 @@ use crate::system::{
 pub static ENCODER_CONTROL: Signal<CriticalSectionRawMutex, Duration> = Signal::new();
 
 /// Requests a new encoder measurement after waiting for the specified duration
-pub fn request_measurement(duration: Duration) {
+pub fn request_encoder_measurement(duration: Duration) {
     ENCODER_CONTROL.signal(duration);
 }
 
@@ -116,6 +116,6 @@ pub async fn read_encoder(resources: MotorEncoderResources) {
         );
 
         // Signal measurement completion
-        send(Events::EncoderMeasurementTaken(measurement)).await;
+        send_event(Events::EncoderMeasurementTaken(measurement)).await;
     }
 }

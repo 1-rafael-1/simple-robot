@@ -44,7 +44,7 @@ pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Events, 10> = Channel
 ///
 /// Events are queued if channel is full. If multiple events
 /// occur simultaneously, they are processed in order of arrival.
-pub async fn send(event: Events) {
+pub async fn send_event(event: Events) {
     EVENT_CHANNEL.sender().send(event).await;
 }
 
@@ -113,14 +113,18 @@ pub enum Events {
     /// Ultrasonic sensor reading received
     /// - Contains distance measurements and servo angle
     /// - used for display and obstacle detection
-    /// - TODO Used for autonomous navigation
+    /// - TODO: Use for autonomous navigation
     UltrasonicSweepReadingTaken(f64, f32),
 
-    /// IMU sensor reading taken
-    /// - Contains accelerometer and gyroscope data
-    /// - Used for orientation and movement control
-    /// - TODO Used for autonomous navigation
-    InertialMeasurementTaken(ImuMeasurement),
+    /// IMU measurement data available
+    /// - Contains orientation and timestamp
+    /// - Used for navigation and stabilization
+    ImuMeasurementTaken(ImuMeasurement),
+
+    /// Precise rotation completed
+    /// - Signals that a RotateExact command finished
+    /// - Used for sequencing movements
+    RotationCompleted,
 }
 
 /// Remote control button identifiers

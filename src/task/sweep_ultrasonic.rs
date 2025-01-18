@@ -19,7 +19,7 @@ use moving_median::MovingMedian;
 use panic_probe as _;
 
 use crate::system::{
-    event::{send, Events},
+    event::{send_event, Events},
     resources::{Irqs, SweepServoResources, UltrasonicDistanceSensorResources},
 };
 
@@ -195,7 +195,7 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
 
         // Send reading event to orchestration task
         info!("Angle {}, Distance: {}", angle, filtered_distance);
-        send(Events::UltrasonicSweepReadingTaken(filtered_distance, angle)).await;
+        send_event(Events::UltrasonicSweepReadingTaken(filtered_distance, angle)).await;
 
         // Update angle and check for direction change
         angle += angle_increment;

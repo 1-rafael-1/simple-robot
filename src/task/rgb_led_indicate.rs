@@ -43,7 +43,7 @@ pub fn update_indicator(affirm: bool) {
 }
 
 /// Waits for next indicator state change signal
-async fn wait_indicator() -> bool {
+async fn wait() -> bool {
     INDICATOR_CHANGED.wait().await
 }
 
@@ -89,7 +89,7 @@ pub async fn rgb_led_indicate(r: RGBLedResources) {
     let _ = pwm_green.set_duty_cycle_fully_off();
 
     loop {
-        let affirm = wait_indicator().await;
+        let affirm = wait().await;
 
         // Show state change confirmation sequence if requested
         if affirm {
@@ -149,7 +149,7 @@ pub async fn rgb_led_indicate(r: RGBLedResources) {
                     led_on = !led_on;
 
                     // Break blink loop if new indicator update received
-                    if let Either::Second(_) = select(Timer::after(MODE_BLINK_INTERVAL), wait_indicator()).await {
+                    if let Either::Second(_) = select(Timer::after(MODE_BLINK_INTERVAL), wait()).await {
                         update_indicator(true);
                         break 'autonomous_blink;
                     }

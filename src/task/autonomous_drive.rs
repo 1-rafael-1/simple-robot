@@ -7,7 +7,10 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal}
 use embassy_time::{Duration, Instant, Timer};
 use nanorand::{Rng, WyRand};
 
-use crate::{system::event, task::drive};
+use crate::{
+    system::event::{send_event, Events},
+    task::drive::{send_drive_command, DriveAction, DriveCommand, RotationDirection, RotationMotion},
+};
 
 /// Control signal for autonomous operations
 static AUTONOMOUS_CONTROL: Signal<CriticalSectionRawMutex, Command> = Signal::new();
@@ -26,12 +29,12 @@ pub enum Command {
 }
 
 /// Sends command to autonomous control
-pub fn send_command(command: Command) {
+pub fn send_autonomous_command(command: Command) {
     AUTONOMOUS_CONTROL.signal(command);
 }
 
 /// Waits for next command
-async fn wait_command() -> Command {
+async fn wait() -> Command {
     AUTONOMOUS_CONTROL.wait().await
 }
 
@@ -41,30 +44,32 @@ const BACKUP_DURATION: Duration = Duration::from_millis(1000);
 const FORWARD_SPEED: u8 = 80;
 /// Backup maneuver speed
 const REVERSE_SPEED: u8 = 80;
-/// Minimum turn speed
-const TURN_SPEED_MIN: u8 = 80;
+/// Minimum turn angle
+const TURN_ANGLE_MIN: u8 = 45;
+/// Maximum turn angle
+const TURN_ANGLE_MAX: u8 = 180;
 
 /// Autonomous driving control task
 #[embassy_executor::task]
 pub async fn autonomous_drive() {
     // Initial stop sequence
-    drive::send_command(drive::Command::Drive(drive::DriveAction::Coast));
+    send_drive_command(DriveCommand::Drive(DriveAction::Coast));
     Timer::after(Duration::from_secs(1)).await;
-    drive::send_command(drive::Command::Drive(drive::DriveAction::Brake));
+    send_drive_command(DriveCommand::Drive(DriveAction::Brake));
 
     loop {
-        match wait_command().await {
+        match wait().await {
             Command::Initialize => {
-                drive::send_command(drive::Command::Drive(drive::DriveAction::Coast));
+                send_drive_command(DriveCommand::Drive(DriveAction::Coast));
                 Timer::after(Duration::from_millis(100)).await;
             }
             Command::Start => {
                 info!("Autonomous forward");
-                drive::send_command(drive::Command::Drive(drive::DriveAction::Forward(FORWARD_SPEED)));
+                send_drive_command(DriveCommand::Drive(DriveAction::Forward(FORWARD_SPEED)));
             }
             Command::Stop => {
                 info!("Autonomous stop");
-                drive::send_command(drive::Command::Drive(drive::DriveAction::Brake));
+                send_drive_command(DriveCommand::Drive(DriveAction::Brake));
                 Timer::after(Duration::from_millis(200)).await;
                 continue;
             }
@@ -73,14 +78,14 @@ pub async fn autonomous_drive() {
 
                 // Emergency Stop
                 info!("emergency stop");
-                drive::send_command(drive::Command::Drive(drive::DriveAction::Brake));
+                send_drive_command(DriveCommand::Drive(DriveAction::Brake));
                 Timer::after(Duration::from_millis(500)).await;
 
                 // Back up
                 info!("backing up");
-                drive::send_command(drive::Command::Drive(drive::DriveAction::Backward(REVERSE_SPEED)));
+                send_drive_command(DriveCommand::Drive(DriveAction::Backward(REVERSE_SPEED)));
                 Timer::after(BACKUP_DURATION).await;
-                drive::send_command(drive::Command::Drive(drive::DriveAction::Brake));
+                send_drive_command(DriveCommand::Drive(DriveAction::Brake));
                 Timer::after(Duration::from_millis(100)).await;
 
                 // Random turn
@@ -89,19 +94,23 @@ pub async fn autonomous_drive() {
                 let mut rng = WyRand::new_seed(seed);
 
                 info!("turning");
-                let turn_speed = rng.generate_range(TURN_SPEED_MIN..=100);
-                let turn_duration = Duration::from_millis(rng.generate_range(500..=1500));
-                if rng.generate_range(0..=1) == 0 {
-                    drive::send_command(drive::Command::Drive(drive::DriveAction::Left(turn_speed)))
+                let turn_angle = rng.generate_range(TURN_ANGLE_MIN..=TURN_ANGLE_MAX);
+                let rotation_motion = RotationMotion::Stationary;
+                let rotation_direction = if rng.generate_range(0..=1) == 0 {
+                    RotationDirection::CounterClockwise
                 } else {
-                    drive::send_command(drive::Command::Drive(drive::DriveAction::Right(turn_speed)))
+                    RotationDirection::Clockwise
                 };
-                Timer::after(turn_duration).await;
-                drive::send_command(drive::Command::Drive(drive::DriveAction::Brake));
+                send_drive_command(DriveCommand::Drive(DriveAction::RotateExact {
+                    degrees: turn_angle as f32,
+                    direction: rotation_direction,
+                    motion: rotation_motion,
+                }));
+
                 Timer::after(Duration::from_millis(100)).await;
 
                 // Report complete evasion (we may still or again have an obstacle)
-                event::send(event::Events::ObstacleAvoidanceAttempted).await;
+                send_event(Events::ObstacleAvoidanceAttempted).await;
             }
         }
     }

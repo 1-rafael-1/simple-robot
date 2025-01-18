@@ -30,7 +30,7 @@ pub async fn track_inactivity() {
     loop {
         match select(Timer::after(INACTIVITY_TIMEOUT), wait()).await {
             Either::First(_) => {
-                event::send(event::Events::InactivityTimeout).await;
+                event::send_event(event::Events::InactivityTimeout).await;
             }
             Either::Second(_) => {
                 continue;
