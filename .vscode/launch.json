@@ -1,0 +1,56 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "preLaunchTask": "rust: cargo build",
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "Debug (Release)",
+            "chip": "rp2350",
+            "connectUnderReset": false,
+            "cwd": "${workspaceFolder}",
+            "speed": 4000,
+            "runtimeExecutable": "probe-rs-wip",
+            "runtimeArgs": [
+                "dap-server"
+            ],
+            "coreConfigs": [
+                {
+                    "coreIndex": 0,
+                    "rttEnabled": true,
+                    "programBinary": "${workspaceRoot}/target/thumbv8m.main-none-eabihf/debug/simple-robot",
+                    "svdFile": "./.vscode/rp2350.svd"
+                }
+            ],
+            "flashingConfig": {
+                "flashingEnabled": true,
+                "haltAfterReset": true
+            },
+            "consoleLogLevel": "Info", //Error, Warn, Info, Debug, Trace
+            "wireProtocol": "Swd"
+        },
+        {
+            "type": "probe-rs-debug",
+            "request": "attach",
+            "name": "Attach without flashing",
+            "chip": "rp2350",
+            "connectUnderReset": false,
+            "cwd": "${workspaceFolder}",
+            "speed": 4000,
+            "runtimeExecutable": "probe-rs-wip",
+            "runtimeArgs": [
+                "dap-server"
+            ],
+            "coreConfigs": [
+                {
+                    "coreIndex": 0,
+                    "rttEnabled": true,
+                    "programBinary": "${workspaceRoot}/target/thumbv8m.main-none-eabihf/debug/simple-robot",
+                    "svdFile": "./.vscode/rp2350.svd"
+                }
+            ],
+            "consoleLogLevel": "Info",
+            "wireProtocol": "Swd"
+        }
+    ]
+}
