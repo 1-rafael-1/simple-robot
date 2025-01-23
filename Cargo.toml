@@ -1,6 +1,6 @@
 [package]
 name = "simple-robot"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 authors = ["Rafael Koch <rafael.koch@gmx.net>"]
@@ -25,6 +25,12 @@ lto = 'fat'
 opt-level = 's'
 
 [dependencies]
+heapless = "0.8.0"1ssy" }
+# embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy" }
+# embassy-sync = { git = "https://github.com/embassy-rs/embassy" }
+# embassy-executor = { git = "https://github.com/embassy-rs/embassy" }
+# embassy-time = { git = "https://github.com/embassy-rs/embassy" }
+# embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
 embassy-rp = { version = "0.3", features = [
     "defmt",
     "unstable-pac",
@@ -61,14 +67,3 @@ tb6612fng = "1.0.0"
 ssd1306-async = { git = "https://github.com/kalkyl/ssd1306-async" }
 embedded-graphics = "0.8.1"
 static_cell = { version = "2.1.0", features = [] }
-heapless = "0.8.0"
-micromath = "2.1.0"
-mpu6050-dmp = { version = "0.6.0", features = ["async"] }
-
-# [patch.crates-io]
-# embassy-rp = { git = "https://github.com/embassy-rs/embassy" }
-# embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy" }
-# embassy-sync = { git = "https://github.com/embassy-rs/embassy" }
-# embassy-executor = { git = "https://github.com/embassy-rs/embassy" }
-# embassy-time = { git = "https://github.com/embassy-rs/embassy" }
-# embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
