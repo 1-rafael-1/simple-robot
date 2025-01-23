@@ -13,8 +13,8 @@ use embassy_rp::{
     pio::{Instance, Pio},
     pio_programs::pwm::{PioPwm, PioPwmProgram},
 };
-use embassy_time::Timer;
-use hcsr04_async::{Config, DistanceUnit, Hcsr04, TemperatureUnit};
+use embassy_time::{Delay, Instant, Timer};
+use hcsr04_async::{Config, DistanceUnit, Hcsr04, Now, TemperatureUnit};
 use moving_median::MovingMedian;
 use panic_probe as _;
 
@@ -139,6 +139,15 @@ impl<'d, T: Instance, const SM: usize> Servo<'d, T, SM> {
     }
 }
 
+/// clock for use in the HCSR04 driver
+struct Clock;
+
+impl Now for Clock {
+    fn now_micros(&self) -> u64 {
+        Instant::now().as_micros()
+    }
+}
+
 #[embassy_executor::task]
 pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSensorResources) {
     // Initialize the ultrasonic sensor
@@ -148,7 +157,7 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
     };
     let trigger = Output::new(u.trigger_pin, Level::Low);
     let echo = Input::new(u.echo_pin, Pull::None);
-    let mut sensor = Hcsr04::new(trigger, echo, hcsr04_config);
+    let mut sensor = Hcsr04::new(trigger, echo, hcsr04_config, Clock, Delay);
 
     let mut median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
 
