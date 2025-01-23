@@ -167,7 +167,7 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
     let prg = PioPwmProgram::new(&mut common);
     let pwm_pio = PioPwm::new(&mut common, sm0, s.pin, &prg);
     let mut servo = ServoBuilder::new(pwm_pio)
-        .set_max_degree_rotation(180) // SG90 servo has 180° range of motion
+        .set_max_degree_rotation(160) // SG90 servo has 160° range of motion
         .set_min_pulse_width(Duration::from_micros(500)) // SG90 minimum pulse width
         .set_max_pulse_width(Duration::from_micros(2400)) // SG90 maximum pulse width
         .build();
@@ -178,7 +178,8 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
     let mut angle_increment: f32 = 0.5;
     let mut filtered_distance: f64;
 
-    servo.rotate_float(90.0);
+    // 80 degrees is middle, 0 is right, 160 is left
+    servo.rotate_float(80.0);
     Timer::after_millis(500).await;
 
     loop {
@@ -202,7 +203,7 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
         // Calculate median distance from the filtered measurements
         filtered_distance = median_filter.median();
 
-        // Send reading event to orchestration task
+        Send reading event to orchestration task
         info!("Angle {}, Distance: {}", angle, filtered_distance);
         send_event(Events::UltrasonicSweepReadingTaken(filtered_distance, angle)).await;
 
