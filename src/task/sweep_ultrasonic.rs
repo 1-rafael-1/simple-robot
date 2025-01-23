@@ -203,7 +203,7 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
         // Calculate median distance from the filtered measurements
         filtered_distance = median_filter.median();
 
-        Send reading event to orchestration task
+        // Send reading event to orchestration task
         info!("Angle {}, Distance: {}", angle, filtered_distance);
         send_event(Events::UltrasonicSweepReadingTaken(filtered_distance, angle)).await;
 
