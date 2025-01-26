@@ -39,6 +39,9 @@ use crate::system::{
     resources::I2c0BusShared,
 };
 
+// Sampling configuration
+const SAMPLE_INTERVAL: Duration = Duration::from_millis(10); // 100Hz sampling
+
 /// Complete IMU measurement data
 #[derive(Debug, Clone, Copy)]
 pub struct ImuMeasurement {
@@ -60,14 +63,15 @@ pub struct Orientation {
 }
 
 /// Commands for IMU reading control
-#[derive(Clone, Copy)]
-pub enum ImuCommand {
+enum ImuCommand {
+    /// Start IMU readings
     Start,
+    /// Stop IMU readings
     Stop,
 }
 
 /// Control signal for IMU reading state
-pub static IMU_CONTROL: Signal<CriticalSectionRawMutex, ImuCommand> = Signal::new();
+static IMU_CONTROL: Signal<CriticalSectionRawMutex, ImuCommand> = Signal::new();
 
 /// Start continuous IMU readings
 pub fn start_imu_readings() {
@@ -78,9 +82,6 @@ pub fn start_imu_readings() {
 pub fn stop_imu_readings() {
     IMU_CONTROL.signal(ImuCommand::Stop);
 }
-
-// Sampling configuration
-const SAMPLE_INTERVAL: Duration = Duration::from_millis(10); // 100Hz sampling
 
 /// Embassy task that handles IMU measurements
 #[embassy_executor::task]
@@ -147,7 +148,7 @@ pub async fn inertial_measurement_handle(i2c_bus: &'static I2c0BusShared) {
                 }
             }
             ImuCommand::Stop => {
-                // Return to waiting for a new command
+                // Return to waiting for next command
                 continue 'command;
             }
         }

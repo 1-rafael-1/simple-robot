@@ -29,7 +29,10 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 
 use crate::{
     system::state::OperationMode,
-    task::{encoder_read::EncoderMeasurement, imu_read::ImuMeasurement},
+    task::{
+        drive::DriveAction, encoder_read::EncoderMeasurement, imu_read::ImuMeasurement,
+        monitor_motion::MotionCorrectionInstruction,
+    },
 };
 
 /// Multi-producer, single-consumer event channel
@@ -103,7 +106,7 @@ pub enum Events {
     /// Drive command was executed
     /// - Signals that motor speeds have been set
     /// - Triggers encoder measurement
-    DriveCommandExecuted,
+    DriveCommandExecuted(DriveAction),
 
     /// Encoder measurement completed
     /// - Contains latest pulse counts and timing
@@ -125,6 +128,10 @@ pub enum Events {
     /// - Signals that a RotateExact command finished
     /// - Used for sequencing movements
     RotationCompleted,
+
+    /// Motion correction needed
+    /// - Signals that the robot needs to correct its current drive settings
+    MotionCorrectionNeeded(MotionCorrectionInstruction),
 }
 
 /// Remote control button identifiers

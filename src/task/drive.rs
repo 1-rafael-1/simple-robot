@@ -50,7 +50,7 @@ pub enum DriveCommand {
 }
 
 /// Motion control commands with associated parameters
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DriveAction {
     /// Differential steering by reducing torque on one side
     TorqueBias {
@@ -81,7 +81,7 @@ pub enum DriveAction {
 }
 
 /// Motor side selection for differential steering
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MotorSide {
     /// Left side motor
     Left,
@@ -90,7 +90,7 @@ pub enum MotorSide {
 }
 
 /// Rotation direction for precise turning
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RotationDirection {
     /// Clockwise rotation (right turn)
     Clockwise,
@@ -99,7 +99,7 @@ pub enum RotationDirection {
 }
 
 /// Combined motion options during rotation
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RotationMotion {
     /// Rotate in place
     Stationary,
@@ -618,168 +618,168 @@ pub async fn drive(d: MotorDriverResources) {
                 }
 
                 // Notify that drive command was executed
-                event::send_event(Events::DriveCommandExecuted).await;
+                event::send_event(Events::DriveCommandExecuted(action)).await;
             }
 
             DriveCommand::EncoderFeedback(measurement) => {
-                // Skip encoder feedback during precise rotation
-                if rotation_state.is_some() {
-                    continue;
-                }
+                // // Skip encoder feedback during precise rotation
+                // if rotation_state.is_some() {
+                //     continue;
+                // }
 
-                // Calculate motor RPMs
-                let left_rpm = left.calculate_rpm(measurement.left.pulse_count, measurement.left.elapsed_ms);
-                let right_rpm = right.calculate_rpm(measurement.right.pulse_count, measurement.right.elapsed_ms);
+                // // Calculate motor RPMs
+                // let left_rpm = left.calculate_rpm(measurement.left.pulse_count, measurement.left.elapsed_ms);
+                // let right_rpm = right.calculate_rpm(measurement.right.pulse_count, measurement.right.elapsed_ms);
 
-                // Apply speed adjustments if motors are running
-                let left_speed = left.current_speed();
-                let right_speed = right.current_speed();
+                // // Apply speed adjustments if motors are running
+                // let left_speed = left.current_speed();
+                // let right_speed = right.current_speed();
 
-                if left_speed != 0 || right_speed != 0 {
-                    // Compare raw motor RPMs since encoders are on motor shaft
-                    let rpm_ratio = if left_rpm != 0.0 { right_rpm / left_rpm } else { 1.0 };
+                // if left_speed != 0 || right_speed != 0 {
+                //     // Compare raw motor RPMs since encoders are on motor shaft
+                //     let rpm_ratio = if left_rpm != 0.0 { right_rpm / left_rpm } else { 1.0 };
 
-                    // Calculate how far we are from perfect ratio
-                    let ratio_error = (1.0 - rpm_ratio).abs();
+                //     // Calculate how far we are from perfect ratio
+                //     let ratio_error = (1.0 - rpm_ratio).abs();
 
-                    // Only adjust if error is above threshold
-                    if ratio_error > 0.05 {
-                        // 5% tolerance
-                        // Variable correction factor based on error magnitude
-                        let correction_factor = if ratio_error > 0.2 {
-                            0.8 // Aggressive correction when far off
-                        } else {
-                            0.4 // Fine adjustment when closer
-                        };
+                //     // Only adjust if error is above threshold
+                //     if ratio_error > 0.05 {
+                //         // 5% tolerance
+                //         // Variable correction factor based on error magnitude
+                //         let correction_factor = if ratio_error > 0.2 {
+                //             0.8 // Aggressive correction when far off
+                //         } else {
+                //             0.4 // Fine adjustment when closer
+                //         };
 
-                        let adjustment = 1.0 + ((1.0 - rpm_ratio) * correction_factor);
-                        let adjusted_speed = (right_speed as f32 * adjustment).clamp(-100.0, 100.0) as i8;
-                        right.set_speed(adjusted_speed).unwrap();
+                //         let adjustment = 1.0 + ((1.0 - rpm_ratio) * correction_factor);
+                //         let adjusted_speed = (right_speed as f32 * adjustment).clamp(-100.0, 100.0) as i8;
+                //         right.set_speed(adjusted_speed).unwrap();
 
-                        // Signal that we're still adjusting
-                        event::send_event(Events::DriveCommandExecuted).await;
-                    }
-                }
+                //         // Signal that we're still adjusting
+                //         event::send_event(Events::DriveCommandExecuted).await;
+                //     }
+                // }
             }
 
             DriveCommand::ImuFeedback(measurement) => {
-                // Part 1: Tilt Compensation for Forward/Backward Motion
-                // --------------------------------------------------
-                // Only apply tilt compensation when:
-                // - Not in a rotation maneuver
-                // - Motors are running
-                // - Both motors at same speed (pure forward/backward motion)
-                //
-                // Example scenario:
-                // Robot driving forward at 50% speed encounters a 10° incline
-                // - Base speed: 50
-                // - Tilt: +10° (positive = climbing)
-                // - Adjustment factor: ~0.067 (10° / 45° * 0.3)
-                // - New speed: 50 * (1 + 0.067) = 53
-                // This increases power to maintain speed while climbing
-                if !rotation_state.is_some() && (left.current_speed() != 0 || right.current_speed() != 0) {
-                    if left.current_speed() == right.current_speed() {
-                        left.set_speed_with_tilt(left.current_speed(), measurement.orientation.pitch)
-                            .unwrap();
-                        right
-                            .set_speed_with_tilt(right.current_speed(), measurement.orientation.pitch)
-                            .unwrap();
-                    }
-                }
+                // // Part 1: Tilt Compensation for Forward/Backward Motion
+                // // --------------------------------------------------
+                // // Only apply tilt compensation when:
+                // // - Not in a rotation maneuver
+                // // - Motors are running
+                // // - Both motors at same speed (pure forward/backward motion)
+                // //
+                // // Example scenario:
+                // // Robot driving forward at 50% speed encounters a 10° incline
+                // // - Base speed: 50
+                // // - Tilt: +10° (positive = climbing)
+                // // - Adjustment factor: ~0.067 (10° / 45° * 0.3)
+                // // - New speed: 50 * (1 + 0.067) = 53
+                // // This increases power to maintain speed while climbing
+                // if !rotation_state.is_some() && (left.current_speed() != 0 || right.current_speed() != 0) {
+                //     if left.current_speed() == right.current_speed() {
+                //         left.set_speed_with_tilt(left.current_speed(), measurement.orientation.pitch)
+                //             .unwrap();
+                //         right
+                //             .set_speed_with_tilt(right.current_speed(), measurement.orientation.pitch)
+                //             .unwrap();
+                //     }
+                // }
 
-                // Part 2: Rotation Control
-                // -----------------------
-                // Handle active rotation maneuvers using yaw measurements
-                if let Some(rot_state) = rotation_state.as_mut() {
-                    // Check if target angle reached using yaw tracking
-                    // Example: 90° clockwise turn
-                    // - Target: 90°
-                    // - Current accumulated: 88°
-                    // - Tolerance: ±2°
-                    // - Status: Almost complete, using reduced speed
-                    if rot_state.update(&measurement) {
-                        // Target angle reached
-                        info!("rotation complete");
+                // // Part 2: Rotation Control
+                // // -----------------------
+                // // Handle active rotation maneuvers using yaw measurements
+                // if let Some(rot_state) = rotation_state.as_mut() {
+                //     // Check if target angle reached using yaw tracking
+                //     // Example: 90° clockwise turn
+                //     // - Target: 90°
+                //     // - Current accumulated: 88°
+                //     // - Tolerance: ±2°
+                //     // - Status: Almost complete, using reduced speed
+                //     if rot_state.update(&measurement) {
+                //         // Target angle reached
+                //         info!("rotation complete");
 
-                        // Handle post-rotation motion:
-                        // 1. For combined movements (e.g., "rotate while moving forward")
-                        //    continue with the base motion including tilt compensation
-                        // 2. For stationary rotations, stop completely
-                        //
-                        // Example: After 90° turn while moving forward at 30%
-                        // - continue_speed returns Some(30)
-                        // - Apply tilt compensation to maintain 30% on any incline
-                        if let Some(continue_speed) = rot_state.continuation_speed() {
-                            left.set_speed_with_tilt(continue_speed, measurement.orientation.pitch)
-                                .unwrap();
-                            right
-                                .set_speed_with_tilt(continue_speed, measurement.orientation.pitch)
-                                .unwrap();
-                        } else {
-                            // Stationary rotation complete - brake both motors
-                            left.brake().unwrap();
-                            right.brake().unwrap();
-                        }
+                //         // Handle post-rotation motion:
+                //         // 1. For combined movements (e.g., "rotate while moving forward")
+                //         //    continue with the base motion including tilt compensation
+                //         // 2. For stationary rotations, stop completely
+                //         //
+                //         // Example: After 90° turn while moving forward at 30%
+                //         // - continue_speed returns Some(30)
+                //         // - Apply tilt compensation to maintain 30% on any incline
+                //         if let Some(continue_speed) = rot_state.continuation_speed() {
+                //             left.set_speed_with_tilt(continue_speed, measurement.orientation.pitch)
+                //                 .unwrap();
+                //             right
+                //                 .set_speed_with_tilt(continue_speed, measurement.orientation.pitch)
+                //                 .unwrap();
+                //         } else {
+                //             // Stationary rotation complete - brake both motors
+                //             left.brake().unwrap();
+                //             right.brake().unwrap();
+                //         }
 
-                        rotation_state = None;
-                        event::send_event(Events::RotationCompleted).await;
-                    } else {
-                        // Rotation still in progress
-                        // Calculate differential speeds based on:
-                        // - Remaining angle
-                        // - Current motion type (stationary or moving)
-                        // - Direction of rotation
-                        //
-                        // Example: Mid-way through 90° clockwise turn
-                        // - Accumulated: 45°
-                        // - Remaining: 45°
-                        // - Speed: ROTATION_SPEED_MAX (50%)
-                        // - Results in: Left=+50%, Right=-50% for stationary turn
-                        let (left_speed, right_speed) = rot_state.calculate_motor_speeds();
-                        left.set_speed(left_speed).unwrap();
-                        right.set_speed(right_speed).unwrap();
-                    }
-                }
+                //         rotation_state = None;
+                //         event::send_event(Events::RotationCompleted).await;
+                //     } else {
+                //         // Rotation still in progress
+                //         // Calculate differential speeds based on:
+                //         // - Remaining angle
+                //         // - Current motion type (stationary or moving)
+                //         // - Direction of rotation
+                //         //
+                //         // Example: Mid-way through 90° clockwise turn
+                //         // - Accumulated: 45°
+                //         // - Remaining: 45°
+                //         // - Speed: ROTATION_SPEED_MAX (50%)
+                //         // - Results in: Left=+50%, Right=-50% for stationary turn
+                //         let (left_speed, right_speed) = rot_state.calculate_motor_speeds();
+                //         left.set_speed(left_speed).unwrap();
+                //         right.set_speed(right_speed).unwrap();
+                //     }
+                // }
 
-                // Part 3: Straight-Line Motion Correction
-                // --------------------------------------
-                // Adjust motor speeds to maintain straight line motion
+                // // Part 3: Straight-Line Motion Correction
+                // // --------------------------------------
+                // // Adjust motor speeds to maintain straight line motion
 
-                // Check if we should initialize straight-line tracking
-                if straight_line_state.is_none()
-                    && left.current_speed() == right.current_speed()
-                    && left.current_speed() != 0
-                {
-                    // Starting new straight-line motion
-                    info!("Starting straight line control at yaw: {}", measurement.orientation.yaw);
-                    straight_line_state = Some(StraightLineState::new(measurement.orientation.yaw));
-                }
+                // // Check if we should initialize straight-line tracking
+                // if straight_line_state.is_none()
+                //     && left.current_speed() == right.current_speed()
+                //     && left.current_speed() != 0
+                // {
+                //     // Starting new straight-line motion
+                //     info!("Starting straight line control at yaw: {}", measurement.orientation.yaw);
+                //     straight_line_state = Some(StraightLineState::new(measurement.orientation.yaw));
+                // }
 
-                // Apply straight-line correction if active
-                if let Some(straight_state) = straight_line_state.as_mut() {
-                    if left.current_speed() == right.current_speed() && left.current_speed() != 0 {
-                        let (left_adj, right_adj) =
-                            straight_state.calculate_correction(measurement.orientation.yaw, measurement.timestamp_ms);
+                // // Apply straight-line correction if active
+                // if let Some(straight_state) = straight_line_state.as_mut() {
+                //     if left.current_speed() == right.current_speed() && left.current_speed() != 0 {
+                //         let (left_adj, right_adj) =
+                //             straight_state.calculate_correction(measurement.orientation.yaw, measurement.timestamp_ms);
 
-                        let base_speed = left.current_speed();
-                        let left_corrected = (base_speed as f32 * left_adj) as i8;
-                        let right_corrected = (base_speed as f32 * right_adj) as i8;
+                //         let base_speed = left.current_speed();
+                //         let left_corrected = (base_speed as f32 * left_adj) as i8;
+                //         let right_corrected = (base_speed as f32 * right_adj) as i8;
 
-                        info!(
-                            "Straight correction L:{} R:{} (base:{})",
-                            left_corrected, right_corrected, base_speed
-                        );
+                //         info!(
+                //             "Straight correction L:{} R:{} (base:{})",
+                //             left_corrected, right_corrected, base_speed
+                //         );
 
-                        left.set_speed_with_tilt(left_corrected, measurement.orientation.pitch)
-                            .unwrap();
-                        right
-                            .set_speed_with_tilt(right_corrected, measurement.orientation.pitch)
-                            .unwrap();
-                    } else {
-                        // No longer in straight-line motion
-                        straight_line_state = None;
-                    }
-                }
+                //         left.set_speed_with_tilt(left_corrected, measurement.orientation.pitch)
+                //             .unwrap();
+                //         right
+                //             .set_speed_with_tilt(right_corrected, measurement.orientation.pitch)
+                //             .unwrap();
+                //     } else {
+                //         // No longer in straight-line motion
+                //         straight_line_state = None;
+                //     }
+                // }
             }
         }
     }

@@ -89,11 +89,12 @@ async fn process_event(event: Events) -> Option<Events> {
                 None
             }
         }
-        Events::DriveCommandExecuted => Some(event),
+        Events::DriveCommandExecuted(_) => Some(event),
         Events::EncoderMeasurementTaken(_) => Some(event),
         Events::UltrasonicSweepReadingTaken(_, _) => Some(event),
         Events::ImuMeasurementTaken(_) => Some(event),
         Events::RotationCompleted => Some(event),
+        Events::MotionCorrectionNeeded(_) => Some(event),
     }
 }
 
@@ -148,13 +149,13 @@ async fn handle_state_changes(event: Events) {
             send_event(Events::OperationModeSet(state::OperationMode::Manual)).await;
             drive::send_drive_command(drive::DriveCommand::Drive(drive::DriveAction::Standby));
         }
-        Events::DriveCommandExecuted => {
+        Events::DriveCommandExecuted(drive_action) => {
             // Drive command was executed, trigger encoder measurement
-            encoder_read::request_encoder_measurement(Duration::from_millis(100));
+            // encoder_read::request_encoder_measurement(Duration::from_millis(100));
         }
         Events::EncoderMeasurementTaken(measurement) => {
             // Send encoder feedback to drive task for speed adjustment
-            drive::send_drive_command(drive::DriveCommand::EncoderFeedback(measurement));
+            // drive::send_drive_command(drive::DriveCommand::EncoderFeedback(measurement));
         }
         Events::UltrasonicSweepReadingTaken(distance, angle) => {
             // Ultrasonic sensor reading received, send distance and servo angle to display and obstacle detection
@@ -164,17 +165,17 @@ async fn handle_state_changes(event: Events) {
             display::display_update(display::DisplayAction::ShowSweep(distance, angle)).await;
         }
         Events::ImuMeasurementTaken(measurement) => {
-            drive::send_drive_command(drive::DriveCommand::ImuFeedback(measurement));
-            // update display with rotation rate
-            let mut txt: String<20> = String::new();
-            let _ = write!(txt, "Yaw: {}°", measurement.orientation.yaw);
-            display::display_update(display::DisplayAction::ShowText(txt, 2)).await;
-            let mut txt: String<20> = String::new();
-            let _ = write!(txt, "Pitch: {}°", measurement.orientation.pitch);
-            display::display_update(display::DisplayAction::ShowText(txt, 3)).await;
-            let mut txt: String<20> = String::new();
-            let _ = write!(txt, "Roll: {}°", measurement.orientation.roll);
-            display::display_update(display::DisplayAction::ShowText(txt, 4)).await;
+            // drive::send_drive_command(drive::DriveCommand::ImuFeedback(measurement));
+            // // update display with rotation rate
+            // let mut txt: String<20> = String::new();
+            // let _ = write!(txt, "Yaw: {}°", measurement.orientation.yaw);
+            // display::display_update(display::DisplayAction::ShowText(txt, 2)).await;
+            // let mut txt: String<20> = String::new();
+            // let _ = write!(txt, "Pitch: {}°", measurement.orientation.pitch);
+            // display::display_update(display::DisplayAction::ShowText(txt, 3)).await;
+            // let mut txt: String<20> = String::new();
+            // let _ = write!(txt, "Roll: {}°", measurement.orientation.roll);
+            // display::display_update(display::DisplayAction::ShowText(txt, 4)).await;
         }
         Events::RotationCompleted => {
             // Flash LED to indicate completion
@@ -184,6 +185,10 @@ async fn handle_state_changes(event: Events) {
             let mut txt: String<20> = String::new();
             let _ = write!(txt, "Rotation Done");
             display::display_update(display::DisplayAction::ShowText(txt, 3)).await;
+        }
+        Events::MotionCorrectionNeeded(correction_instruction) => {
+            // Correct motion based on sensor data
+            // send to drive task for correction
         }
     }
 }
