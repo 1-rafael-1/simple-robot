@@ -6,7 +6,7 @@
 
 use core::time::Duration;
 
-use defmt::info;
+use defmt::{error, info};
 use defmt_rtt as _;
 use embassy_rp::{
     gpio::{Input, Level, Output, Pull},
@@ -175,7 +175,7 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
     servo.start();
 
     let mut angle: f32 = 0.0;
-    let mut angle_increment: f32 = 0.5;
+    let mut angle_increment: f32 = 1.0;
     let mut filtered_distance: f64;
 
     // 80 degrees is middle, 0 is right, 160 is left
@@ -189,14 +189,17 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
         servo.rotate_float(angle);
 
         // Give servo time to reach position (servos typically need 10-20ms to move 60 degrees)
-        Timer::after_millis(3).await;
+        Timer::after_millis(10).await;
 
         // Take multiple measurements based on ULTRASONIC_MEDIAN_WINDOW_SIZE
         for _ in 0..ULTRASONIC_MEDIAN_WINDOW_SIZE {
-            Timer::after_millis(5).await;
+            Timer::after_millis(50).await;
             median_filter.add_value(match sensor.measure(ULTRASONIC_TEMPERATURE).await {
                 Ok(distance_cm) => distance_cm,
-                Err(_) => 200.0, // Return safe distance on error to prevent false positives
+                Err(_) => {
+                    error!("Failed to measure ultrasonic distance");
+                    200.0 // Return safe distance on error to prevent false positives
+                }
             });
         }
 
@@ -204,17 +207,16 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
         filtered_distance = median_filter.median();
 
         // Send reading event to orchestration task
-        info!("Angle {}, Distance: {}", angle, filtered_distance);
         send_event(Events::UltrasonicSweepReadingTaken(filtered_distance, angle)).await;
 
         // Update angle and check for direction change
         angle += angle_increment;
         if angle >= servo.max_degree_rotation as f32 {
             angle = servo.max_degree_rotation as f32;
-            angle_increment = -0.25; // Start moving back
+            angle_increment = angle_increment * -1.0; // Start moving back
         } else if angle <= 0.0 {
             angle = 0.0;
-            angle_increment = 0.25; // Start moving forward
+            angle_increment = angle_increment * -1.0; // Start moving forward
         }
     }
 }

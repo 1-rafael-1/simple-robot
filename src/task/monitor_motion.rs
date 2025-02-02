@@ -1,12 +1,13 @@
 //!
 
+use defmt::info;
 use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal};
 use embassy_time::{Delay, Duration, Instant, Timer};
 use heapless::Vec;
 
 use crate::{
-    system::event::{self, send_event, Events},
+    system::event::{send_event, Events},
     task::{
         drive::{self, DriveAction},
         encoder_read::EncoderMeasurement,
@@ -64,6 +65,11 @@ static MOTION_DATA_CHANNEL: Channel<CriticalSectionRawMutex, MotionData, 10> = C
 /// Send motion data to the motion correction controller
 pub async fn send_motion_data(data: MotionData) {
     MOTION_DATA_CHANNEL.sender().send(data).await;
+}
+
+/// Receive motion data
+pub async fn receive_motion_data() -> MotionData {
+    MOTION_DATA_CHANNEL.receiver().receive().await
 }
 
 /// Combined motion data for correction
@@ -372,52 +378,81 @@ impl MotionFusion {
     }
 }
 
+/// Instructions for motion correction
 #[derive(Debug, Clone)]
 pub struct MotionCorrectionInstruction {
+    /// Speed setting for left motor (0-100)
     pub left_speed: u8,
+    /// Speed setting for right motor (0-100)
     pub right_speed: u8,
+    /// How long this correction should be applied
     pub duration: Duration,
+    /// Type of correction being performed
     pub correction_type: CorrectionType,
+    /// Whether this is an emergency stop situation
     pub emergency_stop: bool,
 }
 
+/// Types of motion corrections that can be performed
 #[derive(Debug, Clone)]
 pub enum CorrectionType {
+    /// Compensation for driving up/down slopes
     TiltCompensation,
+    /// Correction to maintain straight line motion
     StraightLineCorrection,
+    /// Correction during rotation maneuvers
     RotationCorrection,
+    /// Emergency stop due to unsafe conditions
     EmergencyStop,
 }
 
+/// Main task for motion correction control that:
+/// - Receives motion data from various sensors
+/// - Fuses sensor data together
+/// - Determines if corrections are needed
+/// - Sends correction commands
+///
+/// The task runs in a loop waiting for start/stop commands and processes
+/// motion data when running. It will:
+///
+/// 1. Wait for a start command
+/// 2. Begin collecting motion data
+/// 3. Process incoming sensor measurements and drive commands
+/// 4. Calculate needed corrections based on fused data
+/// 5. Send correction events when needed
+/// 6. Stop when commanded and clear history
 #[embassy_executor::task]
-pub async fn motion_correction_controller() {
+pub async fn motion_correction_control() {
     'command: loop {
         let mut motion_fusion = MotionFusion::new();
 
-        // Wait for a command, consuming it
         match MOTION_CONTROL.wait().await {
             MotionDataCommand::Start => {
-                // Start motion control
-                'read: loop {
-                    // Check if we should read the MOTION_CONTROL signal again because we possibly have a new command
-                    if MOTION_CONTROL.signaled() {
-                        break 'read;
-                    }
+                info!("Starting motion correction control");
+                send_event(Events::StartStopMotionDataCollection(true)).await;
 
-                    // Wait for new data
-                    let data = MOTION_DATA_CHANNEL.receiver().receive().await;
-
-                    motion_fusion.ingest_motion_data(data);
-                    let correction_instruction = motion_fusion.correct_motion();
-                    if let Some(correction_instruction) = correction_instruction {
-                        // send correction to drive task
-                        send_event(Events::MotionCorrectionNeeded(correction_instruction)).await;
+                loop {
+                    match select(MOTION_CONTROL.wait(), receive_motion_data()).await {
+                        Either::First(MotionDataCommand::Stop) => {
+                            info!("Motion control stopped");
+                            motion_fusion.clear();
+                            send_event(Events::StartStopMotionDataCollection(false)).await;
+                            continue 'command;
+                        }
+                        Either::First(_) => continue,
+                        Either::Second(data) => {
+                            motion_fusion.ingest_motion_data(data);
+                            if let Some(correction) = motion_fusion.correct_motion() {
+                                send_event(Events::MotionCorrectionRequired(correction)).await;
+                            }
+                        }
                     }
                 }
             }
             MotionDataCommand::Stop => {
+                info!("Motion control stopped");
                 motion_fusion.clear();
-                // Stop motion control
+                send_event(Events::StartStopMotionDataCollection(false)).await;
                 continue 'command;
             }
         }

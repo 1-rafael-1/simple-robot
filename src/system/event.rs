@@ -131,7 +131,15 @@ pub enum Events {
 
     /// Motion correction needed
     /// - Signals that the robot needs to correct its current drive settings
-    MotionCorrectionNeeded(MotionCorrectionInstruction),
+    MotionCorrectionRequired(MotionCorrectionInstruction),
+
+    /// Start or stop motion data collection
+    /// - Signals that the robot must start or stop motion data collection
+    StartStopMotionDataCollection(bool),
+
+    /// Start or stop ultrasonic sweep
+    /// - Signals that the robot needs to start or stop ultrasonic sweep
+    StartStopUltrasonicSweep(bool),
 }
 
 /// Remote control button identifiers

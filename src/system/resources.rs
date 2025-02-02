@@ -77,10 +77,10 @@ assign_resources! {
     },
     /// Remote control buttons
     rc: RCResources {
-        btn_a: PIN_16,
-        btn_b: PIN_17,
-        btn_c: PIN_10,
-        btn_d: PIN_11,
+        btn_a: PIN_10,
+        btn_b: PIN_16,
+        btn_c: PIN_11,
+        btn_d: PIN_17,
     },
     /// IR obstacle avoidance sensor - digital output
     ir_sensor: IRSensorResources {

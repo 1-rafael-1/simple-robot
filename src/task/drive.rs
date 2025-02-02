@@ -505,11 +505,8 @@ pub async fn drive(d: MotorDriverResources) {
                             standby.set_high();
                             standby_enabled = false;
                             Timer::after(Duration::from_millis(100)).await;
-                            start_imu_readings();
                         }
-                        _ => {
-                            stop_imu_readings();
-                        }
+                        _ => {}
                     }
                 }
 
@@ -524,8 +521,9 @@ pub async fn drive(d: MotorDriverResources) {
                         // Stop first if currently moving backward
                         if left_speed_cmd < 0 || right_speed_cmd < 0 {
                             info!("in conflicting motion, stopping");
-                            left.coast().unwrap();
-                            right.coast().unwrap();
+                            send_drive_command(DriveCommand::Drive(DriveAction::Coast));
+                            // left.coast().unwrap();
+                            // right.coast().unwrap();
                         } else {
                             let new_speed = (left_speed_cmd + speed as i8).clamp(0, 100);
                             left.set_speed(new_speed).unwrap();
@@ -536,8 +534,9 @@ pub async fn drive(d: MotorDriverResources) {
                         // Stop first if currently moving forward
                         if left_speed_cmd > 0 || right_speed_cmd > 0 {
                             info!("in conflicting motion, stopping");
-                            left.coast().unwrap();
-                            right.coast().unwrap();
+                            send_drive_command(DriveCommand::Drive(DriveAction::Coast));
+                            // left.coast().unwrap();
+                            // right.coast().unwrap();
                         } else {
                             let new_speed = (-left_speed_cmd + speed as i8).clamp(0, 100);
                             let neg_speed = -new_speed;
@@ -553,8 +552,9 @@ pub async fn drive(d: MotorDriverResources) {
                             // We're in an opposite bias, need to counter it
                             if is_turning_in_place(left_speed_cmd, right_speed_cmd) {
                                 info!("stopping turn-in-place maneuver");
-                                left.coast().unwrap();
-                                right.coast().unwrap();
+                                send_drive_command(DriveCommand::Drive(DriveAction::Coast));
+                                // left.coast().unwrap();
+                                // right.coast().unwrap();
                             } else {
                                 // If turning while moving, restore original motion
                                 let original_speed = (left_speed_cmd + right_speed_cmd) / 2;

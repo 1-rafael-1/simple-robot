@@ -170,8 +170,8 @@ pub async fn display(i2c_bus: &'static I2c0BusShared) {
                 Arc::new(
                     Point::new(CENTER_X - RADIUS, CENTER_Y - RADIUS), // Bounding box top-left
                     DIAMETER,
-                    Angle::from_degrees(180.0), // Start at left
-                    Angle::from_degrees(180.0), // Sweep clockwise to right
+                    Angle::from_degrees(190.0), // Start at -10° from horizontal (left)
+                    Angle::from_degrees(160.0), // Sweep 160° clockwise
                 )
                 .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
                 .draw(&mut display)
@@ -180,7 +180,7 @@ pub async fn display(i2c_bus: &'static I2c0BusShared) {
                 // Convert servo angle to display coordinates
                 // Servo angles: 0° (left) to 180° (right)
                 // Display angles: 180° (left) to 0° (right) for standard trig
-                let rad_angle = (180.0 - angle).to_radians();
+                let rad_angle = angle.to_radians();
 
                 // Calculate sweep line endpoint using polar to cartesian conversion
                 // cos(angle) gives x component, sin(angle) gives y component
@@ -222,7 +222,7 @@ pub async fn display(i2c_bus: &'static I2c0BusShared) {
                     let scaled_distance = (distance as f32 / MAX_DISTANCE_CM) * RADIUS as f32;
 
                     // Convert polar coordinates (distance, angle) to cartesian (x, y)
-                    let rad_angle = (180.0 - angle).to_radians();
+                    let rad_angle = angle.to_radians();
                     let point = SweepPoint {
                         x: CENTER_X + (scaled_distance * rad_angle.cos()) as i32,
                         y: CENTER_Y - (scaled_distance * rad_angle.sin()) as i32,

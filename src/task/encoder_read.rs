@@ -168,7 +168,7 @@ pub fn stop_encoder_readings() {
 ///
 /// Takes periodic measurements using PWM input capture on rising edges.
 #[embassy_executor::task]
-pub async fn read_encoder(resources: MotorEncoderResources) {
+pub async fn encoder_read(resources: MotorEncoderResources) {
     // Configure PWM inputs for pulse counting on rising edges
     let config = Config::default();
     let left_encoder = Pwm::new_input(
@@ -193,6 +193,7 @@ pub async fn read_encoder(resources: MotorEncoderResources) {
         // Wait for next command, consuming it
         match ENCODER_CONTROL.wait().await {
             EncoderCommand::Start => {
+                info!("Starting encoder measurement");
                 'read: loop {
                     // Check if we should read the next command, because we possibly have a new command
                     if ENCODER_CONTROL.signaled() {
@@ -235,16 +236,18 @@ pub async fn read_encoder(resources: MotorEncoderResources) {
                         timestamp: Instant::now(),
                     };
 
-                    info!(
-                        "Encoder speeds - Left: {} RPS ({} RPM), Right: {} RPS ({} RPM)",
-                        measurement.left.rps, measurement.left.rpm, measurement.right.rps, measurement.right.rpm
-                    );
+                    // info!(
+                    //     "Encoder speeds - Left: {} RPS ({} RPM), Right: {} RPS ({} RPM)",
+                    //     measurement.left.rps, measurement.left.rpm, measurement.right.rps, measurement.right.rpm
+                    // );
 
                     // Signal measurement completion
                     send_event(Events::EncoderMeasurementTaken(measurement)).await;
                 }
             }
             EncoderCommand::Stop => {
+                info!("Stopping encoder measurement");
+
                 // reset filters
                 left_filter.reset();
                 right_filter.reset();

@@ -2,6 +2,7 @@
 //!
 //! Processes RC controller button inputs and generates events.
 
+use defmt::info;
 use embassy_futures::select::{select, Either};
 use embassy_rp::gpio::{AnyPin, Input, Level, Pull};
 use embassy_time::{Duration, Timer};
@@ -29,6 +30,8 @@ pub async fn rc_button_handle(pin: AnyPin, id: ButtonId) {
 async fn handle_button(button: &mut Input<'static>, id: ButtonId) {
     loop {
         let init_level = debounce(button).await;
+
+        info!("btn {}", id);
 
         if init_level != Level::High {
             continue;

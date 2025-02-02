@@ -25,9 +25,9 @@ use crate::{
     system::event::ButtonId,
     task::{
         autonomous_drive::autonomous_drive, battery_charge_read::battery_charge_read, display::display, drive::drive,
-        encoder_read::read_encoder, imu_read::inertial_measurement_handle, ir_obstacle_detect::ir_obstacle_detect,
-        orchestrate::orchestrate, rc_control::rc_button_handle, rgb_led_indicate::rgb_led_indicate,
-        sweep_ultrasonic::ultrasonic_sweep, track_inactivity::track_inactivity,
+        encoder_read::encoder_read, imu_read::inertial_measurement_read, ir_obstacle_detect::ir_obstacle_detect,
+        monitor_motion::motion_correction_control, orchestrate::orchestrate, rc_control::rc_button_handle,
+        rgb_led_indicate::rgb_led_indicate, sweep_ultrasonic::ultrasonic_sweep, track_inactivity::track_inactivity,
     },
 };
 
@@ -66,14 +66,15 @@ async fn main(spawner: Spawner) {
     spawner.spawn(rc_button_handle(r.rc.btn_b.into(), ButtonId::B)).unwrap();
     spawner.spawn(rc_button_handle(r.rc.btn_c.into(), ButtonId::C)).unwrap();
     spawner.spawn(rc_button_handle(r.rc.btn_d.into(), ButtonId::D)).unwrap();
-    spawner.spawn(read_encoder(r.motor_encoders)).unwrap();
     spawner.spawn(drive(r.motor_driver)).unwrap();
     spawner.spawn(autonomous_drive()).unwrap();
-    spawner.spawn(track_inactivity()).unwrap();
+    spawner.spawn(ir_obstacle_detect(r.ir_sensor)).unwrap();
     spawner
         .spawn(ultrasonic_sweep(r.sweep_servo, r.us_distance_sensor))
         .unwrap();
     spawner.spawn(display(i2c_bus)).unwrap();
-    spawner.spawn(inertial_measurement_handle(i2c_bus)).unwrap();
-    spawner.spawn(ir_obstacle_detect(r.ir_sensor)).unwrap();
+    spawner.spawn(encoder_read(r.motor_encoders)).unwrap();
+    spawner.spawn(inertial_measurement_read(i2c_bus)).unwrap();
+    spawner.spawn(motion_correction_control()).unwrap();
+    spawner.spawn(track_inactivity()).unwrap();
 }
