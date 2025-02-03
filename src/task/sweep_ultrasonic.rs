@@ -46,9 +46,6 @@ const ULTRASONIC_MEDIAN_WINDOW_SIZE: usize = 3;
 /// Slight inaccuracy acceptable as we care more about consistent readings
 const ULTRASONIC_TEMPERATURE: f64 = 21.5;
 
-// /// Distance at which obstacles are detected (22cm gives good reaction time)
-// const ULTRASONIC_MINIMUM_DISTANCE: f64 = 22.0;
-
 /// Builder for configuring and creating a servo instance
 ///
 /// Provides a fluent interface for setting servo parameters like pulse widths
@@ -175,7 +172,7 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
     servo.start();
 
     let mut angle: f32 = 0.0;
-    let mut angle_increment: f32 = 1.0;
+    let mut angle_increment: f32 = 2.5;
     let mut filtered_distance: f64;
 
     // 80 degrees is middle, 0 is right, 160 is left
@@ -183,22 +180,26 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
     Timer::after_millis(500).await;
 
     loop {
-        // servo.rotate_float(90.0);
-
         // Update servo position
         servo.rotate_float(angle);
 
         // Give servo time to reach position (servos typically need 10-20ms to move 60 degrees)
-        Timer::after_millis(10).await;
+        Timer::after_millis(25).await;
 
         // Take multiple measurements based on ULTRASONIC_MEDIAN_WINDOW_SIZE
         for _ in 0..ULTRASONIC_MEDIAN_WINDOW_SIZE {
-            Timer::after_millis(50).await;
+            Timer::after_millis(90).await;
             median_filter.add_value(match sensor.measure(ULTRASONIC_TEMPERATURE).await {
-                Ok(distance_cm) => distance_cm,
-                Err(_) => {
-                    error!("Failed to measure ultrasonic distance");
-                    200.0 // Return safe distance on error to prevent false positives
+                Ok(distance_cm) => {
+                    if distance_cm > 400.0 {
+                        400.0
+                    } else {
+                        distance_cm
+                    }
+                }
+                Err(e) => {
+                    error!("{}", e);
+                    400.0 // Return safe distance on error to prevent false positives
                 }
             });
         }

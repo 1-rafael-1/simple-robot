@@ -13,12 +13,12 @@
 /// - Radar: Center at (64,64), 0° left through 180° right
 ///
 /// Sweep Visualization:
-/// - Half-circle arc at bottom (180° span)
+/// - Half-circle arc at bottom (160° span)
 /// - Moving line showing current servo angle
-/// - Length represents maximum range (200cm)
+/// - Length represents maximum range (400cm)
 ///
 /// Distance Points:
-/// - Created when object detected (distance < 200cm)
+/// - Created when object detected (distance < 400cm)
 /// - Position: polar to cartesian conversion from sweep angle
 /// - Cleared when sweep line approaches (10° zone)
 /// - Maximum 1500 points stored
@@ -81,7 +81,7 @@ const RADIUS: i32 = 45;
 /// Diameter of the sweep display in pixels
 const DIAMETER: u32 = (RADIUS * 2) as u32;
 /// Maximum distance to display (maps to RADIUS pixels)
-const MAX_DISTANCE_CM: f32 = 200.0;
+const MAX_DISTANCE_CM: f32 = 400.0;
 /// Maximum number of stored points for display, limited to define heapless Vec
 const MAX_POINTS: usize = 1500;
 
@@ -177,20 +177,30 @@ pub async fn display(i2c_bus: &'static I2c0BusShared) {
                 .draw(&mut display)
                 .unwrap();
 
-                // Convert servo angle to display coordinates
-                // Servo angles: 0° (left) to 180° (right)
-                // Display angles: 180° (left) to 0° (right) for standard trig
-                let rad_angle = angle.to_radians();
+                // Convert servo angle (0-160°) to display coordinates
+                // Servo: 0° = left, 160° = right
+                // Offset angle by 10° to align with arc's starting position
+                let display_angle = angle + 10.0; // Add 10° to align with arc start
+                let rad_angle = display_angle.to_radians();
 
-                // Calculate sweep line endpoint using polar to cartesian conversion
-                // cos(angle) gives x component, sin(angle) gives y component
-                // Subtract Y since display coordinates increase downward
+                // Calculate sweep line endpoint
                 let line_end_x = CENTER_X + (RADIUS as f32 * rad_angle.cos()) as i32;
                 let line_end_y = CENTER_Y - (RADIUS as f32 * rad_angle.sin()) as i32;
                 Line::new(Point::new(CENTER_X, CENTER_Y), Point::new(line_end_x, line_end_y))
                     .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
                     .draw(&mut display)
                     .unwrap();
+
+                // Use same angle offset for point plotting to maintain consistency
+                if distance <= MAX_DISTANCE_CM as f64 {
+                    let scaled_distance = (distance as f32 / MAX_DISTANCE_CM) * RADIUS as f32;
+                    let point = SweepPoint {
+                        x: CENTER_X + (scaled_distance * rad_angle.cos()) as i32,
+                        y: CENTER_Y - (scaled_distance * rad_angle.sin()) as i32,
+                        angle: display_angle, // Store offset angle for point clearing
+                    };
+                    let _ = points.push(point);
+                }
 
                 // Track sweep direction for point clearing
                 // Large angle changes (>90°) indicate direction reversal
