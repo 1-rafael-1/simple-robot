@@ -18,7 +18,6 @@
 use core::fmt::Write;
 
 use defmt::{info, Debug2Format};
-use embassy_time::Duration;
 use heapless::String;
 use micromath::F32Ext;
 

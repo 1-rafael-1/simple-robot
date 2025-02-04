@@ -3,16 +3,12 @@
 use defmt::info;
 use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal};
-use embassy_time::{Delay, Duration, Instant, Timer};
+use embassy_time::{Duration, Instant};
 use heapless::Vec;
 
 use crate::{
     system::event::{send_event, Events},
-    task::{
-        drive::{self, DriveAction},
-        encoder_read::EncoderMeasurement,
-        imu_read::ImuMeasurement,
-    },
+    task::{drive::DriveAction, encoder_read::EncoderMeasurement, imu_read::ImuMeasurement},
 };
 
 // Constants for thresholds
@@ -252,18 +248,6 @@ impl MotionFusion {
                         emergency_stop: false,
                     });
                 }
-
-                // Second check is, if we are rolling and tilting. Meaning we are climbing or descending a slope at an angle.
-                // -> We need to check if this has introduced a yaw angle or an encoder difference, and correct it.
-                // -> If the roll is > 45°, we must emergency stop
-
-                // Third check is, if we are rolling but not tilting. Meaning we are driving along a slope.
-                // -> If the roll is > 45°, we must emergency stop
-
-                // Fourth check is, if we are moving straight. Meaning we are driving on a flat surface.
-                // We are moving straight, when these conditions are met:
-                // - the yaw angle is within a certain threshold, meaning we should not be turning
-                // - the encoder measurements of both motors are within a certain threshold, meaning we should be moving straight
             }
             DriveAction::RotateExact {
                 degrees,
@@ -274,6 +258,7 @@ impl MotionFusion {
                 let imu = self.imu.last()?;
                 let encoder = self.encoder.last()?;
 
+                // TODO
                 // check if we are rotating correctly
                 // if not, correct
             }
@@ -285,13 +270,11 @@ impl MotionFusion {
                 let imu = self.imu.last()?;
                 let encoder = self.encoder.last()?;
 
+                // TODO
                 // check if we are moving straight
                 // if not, correct
             }
         }
-
-        // are we turning?
-        // are we stopped
 
         // if nothing else, we need no correction
         None

@@ -29,10 +29,7 @@ use crate::{
         event::{self, Events},
         resources::MotorDriverResources,
     },
-    task::{
-        encoder_read::EncoderMeasurement,
-        imu_read::{start_imu_readings, stop_imu_readings, ImuMeasurement},
-    },
+    task::{encoder_read::EncoderMeasurement, imu_read::ImuMeasurement},
 };
 
 /// Dispatches drive commands to the motor control task
@@ -475,7 +472,7 @@ pub async fn drive(d: MotorDriverResources) {
     let mut standby_enabled = true;
 
     // Rotation state tracking
-    let mut rotation_state: Option<RotationState> = None;
+    let mut rotation_state: Option<RotationState>;
 
     // Lock motors for the entire system runtime
     let mut left = LEFT_MOTOR.lock().await;
@@ -484,7 +481,7 @@ pub async fn drive(d: MotorDriverResources) {
     let right = right.as_mut().unwrap();
 
     // Add straight-line tracking state
-    let mut straight_line_state: Option<StraightLineState> = None;
+    // let straight_line_state: Option<StraightLineState> = None;
 
     loop {
         // Process any pending commands
@@ -522,8 +519,6 @@ pub async fn drive(d: MotorDriverResources) {
                         if left_speed_cmd < 0 || right_speed_cmd < 0 {
                             info!("in conflicting motion, stopping");
                             send_drive_command(DriveCommand::Drive(DriveAction::Coast));
-                            // left.coast().unwrap();
-                            // right.coast().unwrap();
                         } else {
                             let new_speed = (left_speed_cmd + speed as i8).clamp(0, 100);
                             left.set_speed(new_speed).unwrap();
@@ -535,8 +530,6 @@ pub async fn drive(d: MotorDriverResources) {
                         if left_speed_cmd > 0 || right_speed_cmd > 0 {
                             info!("in conflicting motion, stopping");
                             send_drive_command(DriveCommand::Drive(DriveAction::Coast));
-                            // left.coast().unwrap();
-                            // right.coast().unwrap();
                         } else {
                             let new_speed = (-left_speed_cmd + speed as i8).clamp(0, 100);
                             let neg_speed = -new_speed;
@@ -553,8 +546,6 @@ pub async fn drive(d: MotorDriverResources) {
                             if is_turning_in_place(left_speed_cmd, right_speed_cmd) {
                                 info!("stopping turn-in-place maneuver");
                                 send_drive_command(DriveCommand::Drive(DriveAction::Coast));
-                                // left.coast().unwrap();
-                                // right.coast().unwrap();
                             } else {
                                 // If turning while moving, restore original motion
                                 let original_speed = (left_speed_cmd + right_speed_cmd) / 2;

@@ -14,12 +14,12 @@ Check out the v1-robot navigating autonomously, download the demo video here: [A
     - [x] Add a second IR sensor because the chassis & tracks is too wide to be covered by one sensor.
   - [x] Add servo-mounted HC-SR04 as a poor man's LIDAR system for better spatial awareness
   - [ ] Do something with the data... right now it only shows on the display
-  - [ ] Integrate MPU6500 IMU for improved position control and orientation sensing.
+  - [X] Integrate MPU6500 IMU for improved position control and orientation sensing.
 - [x] Remote control improvements:
   - [x] Re-wire everything to decouple the RC receiver as much as possible from the motor driver and other noisy components -> for better reception when motors are running
-- [ ] General circuit improvements:
+- [X] General circuit improvements:
   - [x] Get rid of the voltage dividers for the RC receiver and the sensors, replace with level shifters instead
-- [ ] Mobility improvements:
+- [X] Mobility improvements:
   - [x] Replace the simple DC motors with better ones that have higher torque and encoders
   - [x] Wire up the encoders
   - [x] Alter code to use encoders for better control and feedback, i.e. drive straight lines
@@ -34,11 +34,19 @@ Check out the v1-robot navigating autonomously, download the demo video here: [A
 - [ ] Circuit & Wiring Improvements
   - [x] Get to grips with KiCad and make an initial Schematic
   - [x] Make a PCB and get it manufactured
-  - [ ] Solder the components on the PCB and test it
+  - [X] Solder the components on the PCB and test it
 - [ ] Documentation Improvements
+  - [ ] Update the readme with the new features
   - [ ] Add more detailed instructions on how to assemble the robot
   - [ ] Add more detailed instructions on how to power the robot
-
+- [ ] Complete implementation
+  - [ ] Implement monitor_motion : Correction for torque bias turning
+  - [ ] Implement monitor_motion : Correction for angled exact turning
+  - [ ] Implement drive : Remove old compensation code, throw out IMU and Encoder data received in favor of the new correction data
+  - [ ] Implement drive : Implement the compensation as revćeived from monitor_motion
+  - [ ] Implement state and rc control :
+    - [ ] Autonomous simple mode (drive, ir sensors avoid collision, random turns)
+    - [ ] Autonomous advanced mode (drive, ir sensors avoid collision, us sweep data used to plot a course)
 
 I am not yet sure how many of these improvements I can implement in a reasonable time frame. Maybe I will archive a v2 at some point along the way.
 
@@ -48,16 +56,16 @@ I will update the readme with these improvements once they are implemented. Let'
 
 This is a hobby project for my 9-year-old son, who wanted me to build a robot for him. The thing started as a rather simple machine. I was aiming at the following:
 
-+ Use a chassis that is easily printed. For now, I have settled on <https://www.thingiverse.com/thing:972768>. The author of that design has moved on to more sophisticated designs, I will surely come back to those. But right now this was just as simple and versatile as I wanted it to be, really cool what people have made.
-  + It became necessary to adapt the base frame to fit well with motors that have encoders -> I imported the base frame from the Thingiverse design into FreeCAD, made a body out of the mesh and changed it to ba a solid body with cut-outs for the encoders. You can find the modified base frame here: [misc/chassis](misc/chassis)
-+ Use a Raspberry Pi Pico 2 for controller. Why on earth use such a powerful controller? -> Because I needed an excuse to tinker with that.
-+ Use many of the electronics components some overly eager guy in my household bought a while ago in too large quantities. That is especially:
-  + Li-Ion 18650 batteries and holders
-  + step-up converters to 5V
-  + HC-SR04 distance sensor
-  + ...but of course this is ample opportunity to buy even more stuff... so a motor driver module, motors, and a simple RC unit and receiver... not to mention one absolutely has to buy two Pi Picos to make one device.
+- Use a chassis that is easily printed. For now, I have settled on <https://www.thingiverse.com/thing:972768>. The author of that design has moved on to more sophisticated designs, I will surely come back to those. But right now this was just as simple and versatile as I wanted it to be, really cool what people have made.
+  - It became necessary to adapt the base frame to fit well with motors that have encoders -> I imported the base frame from the Thingiverse design into FreeCAD, made a body out of the mesh and changed it to ba a solid body with cut-outs for the encoders. You can find the modified base frame here: [misc/chassis](misc/chassis)
+- Use a Raspberry Pi Pico 2 for controller. Why on earth use such a powerful controller? -> Because I needed an excuse to tinker with that.
+- Use many of the electronics components some overly eager guy in my household bought a while ago in too large quantities. That is especially:
+  - Li-Ion 18650 batteries and holders
+  - step-up converters to 5V
+  - HC-SR04 distance sensor
+  - ...but of course this is ample opportunity to buy even more stuff... so a motor driver module, motors, and a simple RC unit and receiver... not to mention one absolutely has to buy two Pi Picos to make one device.
 
-At this point I got a little carried away, see the list of ToDos above. 
+At this point I got a little carried away, see the list of ToDos above.
 
 ## Schematic
 
@@ -65,7 +73,7 @@ While adding more and more things to this project I realized that I needed a sch
 
 While at it I became aware that it might not be too hard to design a PCB for this project. In fact, with all the components involved a breadboard becomes less and less useful. So I ended up designing a PCB and ordered it made overseas. The thing has yet to arrive, so no pictures yet.
 
-You can find the KiCad project here: [misc/KiCad/simple-robot](misc/KiCad/simple-robot). Some of the boards I used had no symbols & footprints and so I created them as i went. You can find them here: [misc/KiCad/symbols](misc/KiCad/symbols). The Pi Pico symbol I found online here: [/ncarandini/KiCad-RP-Pico]/(https://github.com/ncarandini/KiCad-RP-Pico).
+You can find the KiCad project here: [misc/KiCad/simple-robot](misc/KiCad/simple-robot). Some of the boards I used had no symbols & footprints and so I created them as i went. You can find them here: [misc/KiCad/symbols](misc/KiCad/symbols). The Pi Pico symbol I found online here: [/ncarandini/KiCad-RP-Pico]/(<https://github.com/ncarandini/KiCad-RP-Pico>).
 
 An excellent resource I found perfect to learn KiCad is a series of Youtube videos: [KiCad Tutorial: Beginning to End](https://www.youtube.com/watch?v=vLnu21fS22s&list=PLUOaI24LpvQPls1Ru_qECJrENwzD7XImd). This is crisp and to the point but easy to follow for a beginner like me.
 
@@ -83,15 +91,15 @@ The robot offers two main modes of operation: manual (RC control) and autonomous
 
 The robot can be controlled like a remote-controlled car using four buttons (A, B, C, D):
 
-+ Button A:
-  + Quick press: Forward movement. Every press increases speed.
-  + Hold & Release: Switch to autonomous mode.
-+ Button B:
-  + Quick press: Turn right. Every press increases turn speed.
-+ Button C:
-  + Quick press: Turn left. Every press increases turn speed.
-+ Button D:
-  + Quick press: Backward movement. Every press increases speed.
+- Button A:
+  - Quick press: Forward movement. Every press increases speed.
+  - Hold & Release: Switch to autonomous mode.
+- Button B:
+  - Quick press: Turn right. Every press increases turn speed.
+- Button C:
+  - Quick press: Turn left. Every press increases turn speed.
+- Button D:
+  - Quick press: Backward movement. Every press increases speed.
 
 The manual mode is pure RC control without any safety features - it's up to you to drive responsibly! Also, the ultra-cheap RC sender and receiver I used are awkward to use and reception range is poor, so this is more for having done it and testing stuff.
 
@@ -99,11 +107,11 @@ The manual mode is pure RC control without any safety features - it's up to you 
 
 In this mode, the robot becomes self-driving with the following behaviors:
 
-+ Continuously moves forward while monitoring its environment
-+ Uses two IR sensors to detect obstacles. For lack of GPIO pins, I used two IR sensors connected through a Schottky diode each to one Pin on the controller.
-+ When detecting an obstacle:
-  + Stops at a safe distance (currently set to avoid close encounters)
-  + Executes an avoidance maneuver:
+- Continuously moves forward while monitoring its environment
+- Uses two IR sensors to detect obstacles. For lack of GPIO pins, I used two IR sensors connected through a Schottky diode each to one Pin on the controller.
+- When detecting an obstacle:
+  - Stops at a safe distance (currently set to avoid close encounters)
+  - Executes an avoidance maneuver:
     1. Stops completely
     2. Backs up a bit
     3. Makes a random turn
@@ -115,21 +123,21 @@ Any quick button press will end autonomous mode.
 
 Battery Management:
 
-+ Continuous monitoring of battery voltage through a voltage divider
-+ Battery level indicated via RGB LED: The color of the LED changes from green to red as the measured voltage decreases. Right now there is no deep discharge protection, so red is 2.5V and at that point better switch it off to protect the Li-Ion.
+- Continuous monitoring of battery voltage through a voltage divider
+- Battery level indicated via RGB LED: The color of the LED changes from green to red as the measured voltage decreases. Right now there is no deep discharge protection, so red is 2.5V and at that point better switch it off to protect the Li-Ion.
 
 Auto Standby:
 
-+ Automatic standby mode after 3 minutes of inactivity 
-+ Monitors all user interactions (button presses) to reset the inactivity timer
-+ In standby, motors are disabled to conserve power
-+ Any button press will wake the robot's motors from standby
+- Automatic standby mode after 3 minutes of inactivity
+- Monitors all user interactions (button presses) to reset the inactivity timer
+- In standby, motors are disabled to conserve power
+- Any button press will wake the robot's motors from standby
 
 Sensor System:
 
-+ HC-SR04 ultrasonic distance sensor
-+ Measurements taken continuously at regular intervals
-+ Uses moving median filtering for more reliable distance readings (I found that on a moving and vibrating platform the measurements vary wildly sometimes)
+- HC-SR04 ultrasonic distance sensor
+- Measurements taken continuously at regular intervals
+- Uses moving median filtering for more reliable distance readings (I found that on a moving and vibrating platform the measurements vary wildly sometimes)
 
 ## Stuff used
 
@@ -154,20 +162,19 @@ Here is an overview of things used to make the robot. This is not supposed to be
 
 Besides that, the printed model must be assembled. I printed in PLA and that went quite well. For assembly, you will need a couple of things from the hardware store, see the robot's Thingiverse link from above, the pictures there have an assembly instruction referring to what is needed.
 
-
 ## Side quests that became necessary
 
 Building the thing I found no async driver for the HC-SR04, so I had to make one myself:
 
-+ <https://github.com/1-rafael-1/hcsr04_async>
-+ Also on <https://crates.io/crates/hcsr04_async>. 
+- <https://github.com/1-rafael-1/hcsr04_async>
+- Also on <https://crates.io/crates/hcsr04_async>.
 
 This was fun :-)
 
 Testing the ultrasonic sensor I found it gets even more unreliable when moving. So I searched for some moving median filtering solution, found none and made one myself:
 
-+ <https://github.com/1-rafael-1/moving_median>
-+ Also on <https://crates.io/crates/moving_median>
+- <https://github.com/1-rafael-1/moving_median>
+- Also on <https://crates.io/crates/moving_median>
 
 A little less fun.
 
