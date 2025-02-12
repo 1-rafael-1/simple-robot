@@ -92,11 +92,6 @@ impl<'d, T: Instance, const SM: usize> ServoBuilder<'d, T, SM> {
         }
     }
 
-    // pub fn set_period(mut self, duration: Duration) -> Self {
-    //     self.period = duration;
-    //     self
-    // }
-
     pub fn set_min_pulse_width(mut self, duration: Duration) -> Self {
         self.min_pulse_width = duration;
         self
