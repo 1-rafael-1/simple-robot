@@ -7,7 +7,35 @@ A no-longer-too-simple robot with different sensors and autonomous as well as re
 
 Check out the v1-robot navigating autonomously, download the demo video here: [Autonomous Operation](misc/media/autonomous-mode.mp4).
 
-> Note: The initial version of this robot is preserved in the [`v1` tag](../../tree/v1). That version represents a simple but functional autonomous robot using basic components. The main branch now tracks the development of an improved version with the following planned enhancements:
+> Note: The initial version of this robot is preserved in the [`v1` tag](../../tree/v1). That version represents a simple but functional autonomous robot using basic components. The main branch now tracks the development of an improved version.
+
+## What is it?
+
+This is a hobby project for my 9-year-old son, who wanted me to build a robot for him. The thing started as a rather simple machine (v1) and then I got a little carried away.
+
+In v1 the robot could move autonomously and avoid obstacles in a very simple way. That meant driving straight until an obstacle is detected, back up a little and then make a random turn. It was fun to watch and my son was happy with it.
+
+Enter v2: I was unhappy with the ultrasonic sensor, I was unhappy with the straight driving, which was more a banana curve, I was unhappy with the turning, which was in reality just done by spending a random time on the turning motion. So one thing led to another and I ended up with a massive project that is still not finished. It has become that sort of project, where finishing one thing leads to the discovery of two more things that need to be done. Sounds awful? It is not. It is fun. And I am learning a lot!
+
+Here is a list of the features of the robot, that may some day be implemented:
+
+- Remote-controlled movement
+  - Forward 4 speeds, backward 4 speeds, left/right biased turns. Emergency stop on obstacle detection.
+- Autonomous movement with obstacle avoidance
+  - Forward movement, obstacle detection, stop, back up, random turn, resume forward movement.
+- Autonomous movement with obstacle avoidance and spatial awareness
+  - Forward movement, drive until obstacle, back up, use servo-mounted HC-SR04 to scan the forward area, plot a course around the obstacle, resume forward movement.
+- General motion features
+  - use encoders and IMU to drive straight lines and exact turns
+  - use IMU to compensate for pitch and roll and also emergency stop on too steep incline
+- System Display
+  - On sensor sweep show a plot on the display
+  - On IMU data show pitch and roll on the display
+  - Show general drive information on the display
+- Battery Management
+  - Show battery level on RGB LED
+
+It became so crowded on a breadboard, that I decided to make a PCB for it. This turned out to be a fun experience and after a few ... detours... I ended up with a working PCB. Was a very good learning experience, regarding KiCad, PCB design, soldering and personal resilience after inevitable failures. Here is my current list of improvements, that grows longer every day:
 
 - [ ] Sensor improvements:
   - [x] Replace HC-SR04 ultrasonic sensor with IR sensor for more reliable obstacle detection
@@ -36,14 +64,14 @@ Check out the v1-robot navigating autonomously, download the demo video here: [A
   - [x] Make a PCB and get it manufactured
   - [X] Solder the components on the PCB and test it
 - [ ] Documentation Improvements
-  - [ ] Update the readme with the new features
+  - [x] Update the readme with the new features
   - [ ] Add more detailed instructions on how to assemble the robot
   - [ ] Add more detailed instructions on how to power the robot
 - [ ] Complete implementation
   - [ ] Implement monitor_motion : Correction for torque bias turning
   - [ ] Implement monitor_motion : Correction for angled exact turning
   - [ ] Implement drive : Remove old compensation code, throw out IMU and Encoder data received in favor of the new correction data
-  - [ ] Implement drive : Implement the compensation as revćeived from monitor_motion
+  - [ ] Implement drive : Implement the compensation as received from monitor_motion
   - [ ] Implement state and rc control :
     - [ ] Autonomous simple mode (drive, ir sensors avoid collision, random turns)
     - [ ] Autonomous advanced mode (drive, ir sensors avoid collision, us sweep data used to plot a course)
@@ -52,26 +80,11 @@ I am not yet sure how many of these improvements I can implement in a reasonable
 
 I will update the readme with these improvements once they are implemented. Let's get started!
 
-## What is it?
-
-This is a hobby project for my 9-year-old son, who wanted me to build a robot for him. The thing started as a rather simple machine. I was aiming at the following:
-
-- Use a chassis that is easily printed. For now, I have settled on <https://www.thingiverse.com/thing:972768>. The author of that design has moved on to more sophisticated designs, I will surely come back to those. But right now this was just as simple and versatile as I wanted it to be, really cool what people have made.
-  - It became necessary to adapt the base frame to fit well with motors that have encoders -> I imported the base frame from the Thingiverse design into FreeCAD, made a body out of the mesh and changed it to ba a solid body with cut-outs for the encoders. You can find the modified base frame here: [misc/chassis](misc/chassis)
-- Use a Raspberry Pi Pico 2 for controller. Why on earth use such a powerful controller? -> Because I needed an excuse to tinker with that.
-- Use many of the electronics components some overly eager guy in my household bought a while ago in too large quantities. That is especially:
-  - Li-Ion 18650 batteries and holders
-  - step-up converters to 5V
-  - HC-SR04 distance sensor
-  - ...but of course this is ample opportunity to buy even more stuff... so a motor driver module, motors, and a simple RC unit and receiver... not to mention one absolutely has to buy two Pi Picos to make one device.
-
-At this point I got a little carried away, see the list of ToDos above.
-
 ## Schematic
 
-While adding more and more things to this project I realized that I needed a schematic to keep track of all the connections and components. So I spent some time learning KiCad 8 and made one, which was a fun experience.
+While adding more and more things to this project I realized that I needed a schematic to keep track of all the connections and components. So I spent some time learning KiCad 8 and made one.
 
-While at it I became aware that it might not be too hard to design a PCB for this project. In fact, with all the components involved a breadboard becomes less and less useful. So I ended up designing a PCB and ordered it made overseas. The thing has yet to arrive, so no pictures yet.
+While at it I became aware that it might not be too hard to design a PCB for this project. In fact, with all the components involved a breadboard becomes less and less useful. So I ended up designing a PCB and ordered it made overseas and then made another version and then another... and then I had a working PCB. Regarding soldering let me say this: I now know for a fact what I am not good at. The avove picture is attempt number 2 and it is a good thing that nobody can see the underside. But it works! :-)
 
 You can find the KiCad project here: [misc/KiCad/simple-robot](misc/KiCad/simple-robot). Some of the boards I used had no symbols & footprints and so I created them as i went. You can find them here: [misc/KiCad/symbols](misc/KiCad/symbols). The Pi Pico symbol I found online here: [/ncarandini/KiCad-RP-Pico]/(<https://github.com/ncarandini/KiCad-RP-Pico>).
 
@@ -83,62 +96,6 @@ An excellent resource I found perfect to learn KiCad is a series of Youtube vide
 ![robot-pcb](misc/media/pcb_picture.png)
 *The PCB*
 
-## What does it do?
-
-The robot offers two main modes of operation: manual (RC control) and autonomous. Here's what each mode can do:
-
-### Manual Mode (RC Control)
-
-The robot can be controlled like a remote-controlled car using four buttons (A, B, C, D):
-
-- Button A:
-  - Quick press: Forward movement. Every press increases speed.
-  - Hold & Release: Switch to autonomous mode.
-- Button B:
-  - Quick press: Turn right. Every press increases turn speed.
-- Button C:
-  - Quick press: Turn left. Every press increases turn speed.
-- Button D:
-  - Quick press: Backward movement. Every press increases speed.
-
-The manual mode is pure RC control without any safety features - it's up to you to drive responsibly! Also, the ultra-cheap RC sender and receiver I used are awkward to use and reception range is poor, so this is more for having done it and testing stuff.
-
-### Autonomous Mode
-
-In this mode, the robot becomes self-driving with the following behaviors:
-
-- Continuously moves forward while monitoring its environment
-- Uses two IR sensors to detect obstacles. For lack of GPIO pins, I used two IR sensors connected through a Schottky diode each to one Pin on the controller.
-- When detecting an obstacle:
-  - Stops at a safe distance (currently set to avoid close encounters)
-  - Executes an avoidance maneuver:
-    1. Stops completely
-    2. Backs up a bit
-    3. Makes a random turn
-    4. Decides if there is still an obstacle; if yes, executes avoidance maneuver again, and if no, resumes forward motion.
-
-Any quick button press will end autonomous mode.
-
-### System Features
-
-Battery Management:
-
-- Continuous monitoring of battery voltage through a voltage divider
-- Battery level indicated via RGB LED: The color of the LED changes from green to red as the measured voltage decreases. Right now there is no deep discharge protection, so red is 2.5V and at that point better switch it off to protect the Li-Ion.
-
-Auto Standby:
-
-- Automatic standby mode after 3 minutes of inactivity
-- Monitors all user interactions (button presses) to reset the inactivity timer
-- In standby, motors are disabled to conserve power
-- Any button press will wake the robot's motors from standby
-
-Sensor System:
-
-- HC-SR04 ultrasonic distance sensor
-- Measurements taken continuously at regular intervals
-- Uses moving median filtering for more reliable distance readings (I found that on a moving and vibrating platform the measurements vary wildly sometimes)
-
 ## Stuff used
 
 Here is an overview of things used to make the robot. This is not supposed to be an exact BOM, but should give a good idea what to get. For an idea of what to connect to what, you can look at [resources.rs](src/system/resources.rs).
@@ -147,18 +104,27 @@ Here is an overview of things used to make the robot. This is not supposed to be
 |:--|:--|
 |Raspberry Pi Pico 2|Yeah, vastly overpowered for this project, could be many other alternatives, I am sure.|
 |IC2262/2272 RC Module|RC transmitter and receiver unit bundle. Search for "IC2262/2272 rc ebay" and like a thousand of these pop up. I used a 433MHz variant including sender and receiver. Uses 5V power and output, so either use voltage dividers or logic level shifter to connect to the Pico.|
-|HC-SR04|Ultrasonic distance sensor. Can be triggered with 3.3V, but needs 5V power and puts out 5V on the echo line, so either use a voltage divider or logic level shifter to connect to the Pico.|
-|TB6612FNG|Motor driver module. Control driven with 3.3V, 5V power and 5V on the motor power lines.|
+|4-channel Logic level shifter|To route the RC receivers output to the GPIO. I used a cheap bi-directional one that stops working reliably >100Khz, but since we only need the occasional press on the remote put through, cheap and slow is fine.|
+|HC-SR04|Ultrasonic distance sensor. Can be triggered with 3.3V, but works better when powered by 5V. That way it puts out 5V on the echo line, so using a voltage divider to connect that back to the Pico.|
+|TB6612FNG|Motor driver module. Control driven with 3.3V, 6V power and 6V on the motor power lines.|
 |6V DC geared motor with gearbox and encoder|One for left and right each. DFRobot FIT0450.|
-|U3V16F5|Step-up converter that can convert 3.3V to 5V. Plenty of other options besides this very device.|
-|18650 Li-Ion battery|Battery and holder, in my case here 3350mAh and 4.2V max, 2.5V min. Powering one rail and feeding the Pico as well as the step-up converter from it, so both must be happy with what the battery delivers. Note: no over-discharge protection in my setup, so either add a charge board for protection or make sure to disconnect the battery early enough!|
-|RGB LED|Whatever thing that can be driven by PWM on red and green pin each. Make sure to use appropriate resistors.|
-|104 ceramic (100nF) capacitor|Across power supply lines of RC receiver, distance sensor and motor driver.|
-|47uF electrolytic capacitor|Across power output of step-up converter. The RC receiver will not be happy with the power ripple otherwise.|
+|U3V16F5|Step-up converter that can convert 2.5-5V to steady 5V. Plenty of other options besides this very device.|
+|U3V16F6|Step-up converter that can convert 2.5-5V to steady 6V.|
+|2 18650 Li-Ion batteries|In my case here 3350mAh and 4.2V max, 2.5V min.|
+|2 battery holders|Wired parallel. One 18650 drains pretty quickly but two give decent life.|
+|slide switch|Wired and glued to the battery holders so that I can cut power.|
+|RGB LED|Whatever thing that can be driven by PWM on red and green pin each.|
+|6 104 ceramic (100nF) capacitors|Across power supply lines of RC receiver, across power supply of servo, display, rc receiver, IMU, both sides of level shifter|
+|2 47uF electrolytic capacitors|Across power output of 5V step-up converter. The RC receiver will not be happy with the power ripple otherwise.|
 |470uF electrolytic capacitor|Across the motor power input of the motor driver. Motor switching will send power spikes down the supply so much as to kick out the debugger and what else it hurt I could not observe.|
-|Resistors|At least 2 220Ω or 330Ω for the RGB LED.|
-|More Resistors|When not using logic level shifters between the 5V signals and the Pico's GPIO, plenty to build voltage dividers. In that case 5 with 2-times the resistance of another 5 to get down from 5V to 3.3V|
-|Wires|Plenty.|
+|2 330Ω Resistors|For the RGB LED.|
+|10KΩ resistor, 20KΩ resistor|For the voltage divider for the HC-SR04 echo line.|
+|9g micro servo|For the sweeping sensor|
+|2 IR sensors|For obstacle detection. I used VMA330, but other options will also work.|
+|2 1N5817 Schottky diodes|To combine the IR sensors onto one GPIO|
+|CD4049 hex converter|Used to repair my bad design for the IR sensors. These are sending high when no obstacle, while i exppected them to send low then. That way the circuit would not work and the output needs to be inverted.|
+|MPU9250|Inertial Measuremenmt Unit|
+|Header pins|They go everywhere, under most of the boards, onto the PCB for more connections.... get plenty.|
 
 Besides that, the printed model must be assembled. I printed in PLA and that went quite well. For assembly, you will need a couple of things from the hardware store, see the robot's Thingiverse link from above, the pictures there have an assembly instruction referring to what is needed.
 
@@ -178,8 +144,32 @@ Testing the ultrasonic sensor I found it gets even more unreliable when moving. 
 
 A little less fun.
 
+I found no driver for the MPU9250, but i found a driver for the MPU6050, which is very similar. While exploring I had too much fun and added heavily to the driver:
+
+- <https://github.com/barafael/mpu6050-dmp-rs>
+
+This was fun again :-)
+
+## The code
+
+The code is written in Rust and makes heavy use of the Embassy framework. I opted for a very modular approach, where mostly everything is an async task. These tasks all report into a central orchestration task, which then decides what to do next and is the only task that is allowed to send things to other tasks.
+
+The orchestration is based on events, which are sent from the tasks to the orchestration task. I opted to keep all tasks running all the time, even if they are not needed at the moment. Such tasks are signaled to either work or await. I found it easier to reason about the system that way. It is also easy to add/remove/refactor tasks that way.
+
+There are two modules, `system` and `task`. The `system` module contains rather general things like the resources assignmanet, the event system and state. The `task` module contains the tasks that are run by the system.
+
+The `main.rs` file is the entry point of the program but does nothing besides initializing some resources and then spawning all the tasks.
+
+## Things that went wrong so far
+
+- PCB design: Through-hole width must be 1.04mm, not the default 0.7mm. Doesn't fit, cannot be repaired. It is not expensive, but it is annoying, because delivery is the most costly and most time-consuming part of the process. So a small mistake, corrected in an hour, set me back two weeks.
+- Soldering: I had to do it all twice, because at some point solder would not flow where it should and heating stuff too high & too long made a mess out of the first board, leading to odd unwanted connectivity. And most annoyingly i put in the step-up-converters the wrong way around, unsoldering them damaged the PCB even more. Turns out wiping the board down with Isopropanol before soldering is a good idea. Also, sometimes a fiber glass pen is a good thing to have around. A clean soldering iron tip is a must, at the lowest temperature sufficient to heat solder&noard enough.
+- Overconfidence: I did not bother to check if the IR sensors output high or low when detecting an obstacle. Expected them to send normally low signals, but they send normally high signals. My original plan was to connect them both to only one GPIO, routing each through a diode. I was low on free GPIOs and this saves one. As it is with normally high signals, detection does not work, of course. So I had to get a CD4049 hex inverter and wire the sensors through that. That works, but it is annoying - I now have some additional external circuitry that could have easily fitted on the PCB. Looks ugly and clumsy. Want to know the best part? I actually do have one GPIO left... :-) The next version of the PCB (if there ever is one) will have the IR sensors connected directly to the GPIOs each.
+
+Besides that I have had quite a few more minor moments of if-i-only-had-known-that-before. But that is the fun part of the hobby, isn't it?
+
 ## Disclaimer
 
-I am a hobbyist, I have no formal electronics education and am quite new to the hobby. So expect imperfections. I am also still new to Rust and Embedded. By now I have a basic understanding of how things work and what are higher level things in embedded.
+I am a hobbyist, I have no formal electronics education and am still quite new to the hobby. So expect imperfections. I am also still new to Rust and Embedded. By now I have a basic understanding of how things work and what are higher level things in embedded.
 
 I use AI when coding, which has proven to be an excellent teaching tool for learning a new language. It allows me to explore more advanced concepts than I could on my own, making self-teaching much easier than it was just a year or two ago. That being said: The code is my take on how to do this, actual professionals will find a thousand things one could do better. In case you find a thing that could be better: Happy to know about it! :-)
