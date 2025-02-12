@@ -10,6 +10,7 @@
 //! # Operation
 //! - IR sensor outputs low (0) when obstacle detected
 //! - High (1) when no obstacle present
+//! - But we have inverted the sensor output in hardware
 //! - Edge detection ensures immediate response to changes
 
 use embassy_rp::gpio::{Input, Pull};
@@ -29,30 +30,30 @@ const DEBOUNCE_DELAY: Duration = Duration::from_millis(100);
 /// to filter out noise. The sensor outputs low (0) when an obstacle is detected.
 #[embassy_executor::task]
 pub async fn ir_obstacle_detect(r: IRSensorResources) {
-    // Initialize IR sensor pin as digital input with pull-up
-    let mut ir_pin = Input::new(r.ir_pin, Pull::Up);
+    // Initialize IR sensor pin as digital input, with pull-down resistor. No actual floating condition is expected, as long as
+    // the sensor(s) are connected properly, since they will always be either high or low.
+    let mut ir_pin = Input::new(r.ir_pin, Pull::Down);
 
     // perform initial measure to ensure initial state is caught
     Timer::after(DEBOUNCE_DELAY).await;
-    let current_state = ir_pin.is_low();
-    let mut last_state = current_state;
+
+    // Read initial state. We have inverted the sensor output in hardware, so high is obstacle detected here.
+    let mut obstacle_detected = ir_pin.is_high();
+    let mut last_obstacle_detected = obstacle_detected;
     // and send initial event
-    send_event(Events::ObstacleDetected(current_state)).await;
+    send_event(Events::ObstacleDetected(obstacle_detected)).await;
 
     loop {
-        // Wait for any edge (rising or falling)
         ir_pin.wait_for_any_edge().await;
-
-        // Debounce delay
         Timer::after(DEBOUNCE_DELAY).await;
 
         // Read current state after debounce
-        let current_state = ir_pin.is_low();
+        obstacle_detected = ir_pin.is_high();
 
         // Only send event if state has changed
-        if current_state != last_state {
-            send_event(Events::ObstacleDetected(current_state)).await;
-            last_state = current_state;
+        if obstacle_detected != last_obstacle_detected {
+            send_event(Events::ObstacleDetected(obstacle_detected)).await;
+            last_obstacle_detected = obstacle_detected;
         }
     }
 }
