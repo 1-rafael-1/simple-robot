@@ -1,10 +1,5 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-# using a local build of the probe-rs crate
-runner = "probe-rs-wip run --chip RP235x --protocol swd --speed 16000 --probe 2e8a:000c:E6633861A3543E38"
-# runner = "probe-rs-wip download --chip RP235x --protocol swd --speed 16000 --probe 2e8a:000c:E6633861A3543E38"
-
-#runner = "elf2uf2-rs -d"
-# runner = "picotool load -u -v -x -t elf"
+runner = "probe-rs run --chip RP235x --protocol swd --speed 16000 --probe 2e8a:000c:E6633861A3543E38"
 
 [build]
 target = "thumbv8m.main-none-eabihf"
