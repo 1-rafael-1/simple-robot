@@ -3,7 +3,7 @@
 A no-longer-too-simple robot with different sensors and autonomous as well as remote controlled movement written in Rust.
 
 ![Robot Side View](misc/media/right.jpg)
-*Side view showing the robot's profile - picture of the v1 iteration. Now outdated.*
+*Side view showing the robot's profile - picture of the v2 iteration, still WIP.*
 
 Check out the v1-robot navigating autonomously, download the demo video here: [Autonomous Operation](misc/media/autonomous-mode.mp4).
 
