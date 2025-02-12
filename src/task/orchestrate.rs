@@ -184,13 +184,13 @@ async fn handle_state_changes(event: Events) {
             drive::send_drive_command(drive::DriveCommand::ImuFeedback(measurement));
             // update display with rotation rate
             let mut txt: String<20> = String::new();
-            let _ = write!(txt, "Yaw: {}°", measurement.orientation.yaw);
+            let _ = write!(txt, "Yaw: {}deg", measurement.orientation.yaw);
             display::display_update(display::DisplayAction::ShowText(txt, 1)).await;
             let mut txt: String<20> = String::new();
-            let _ = write!(txt, "Pitch: {}°", measurement.orientation.pitch);
+            let _ = write!(txt, "Pitch: {}deg", measurement.orientation.pitch);
             display::display_update(display::DisplayAction::ShowText(txt, 2)).await;
             let mut txt: String<20> = String::new();
-            let _ = write!(txt, "Roll: {}°", measurement.orientation.roll);
+            let _ = write!(txt, "Roll: {}deg", measurement.orientation.roll);
             display::display_update(display::DisplayAction::ShowText(txt, 3)).await;
         }
         Events::RotationCompleted => {
