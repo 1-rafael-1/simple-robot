@@ -24,10 +24,19 @@ use system::resources::{
 use crate::{
     system::event::ButtonId,
     task::{
-        autonomous_drive::autonomous_drive, battery_charge_read::battery_charge_read, display::display, drive::drive,
-        encoder_read::encoder_read, imu_read::inertial_measurement_read, ir_obstacle_detect::ir_obstacle_detect,
-        monitor_motion::motion_correction_control, orchestrate::orchestrate, rc_control::rc_button_handle,
-        rgb_led_indicate::rgb_led_indicate, sweep_ultrasonic::ultrasonic_sweep, track_inactivity::track_inactivity,
+        autonomous_drive::autonomous_drive,
+        battery_charge_read::battery_charge_read,
+        display::display,
+        drive::drive,
+        encoder_read::{encoder_read, start_encoder_readings},
+        imu_read::inertial_measurement_read,
+        ir_obstacle_detect::ir_obstacle_detect,
+        monitor_motion::motion_correction_control,
+        orchestrate::orchestrate,
+        rc_control::rc_button_handle,
+        rgb_led_indicate::rgb_led_indicate,
+        sweep_ultrasonic::ultrasonic_sweep,
+        track_inactivity::track_inactivity,
     },
 };
 
@@ -55,7 +64,7 @@ async fn main(spawner: Spawner) {
     // Initialize the I2C bus before spawning any tasks
     let mut i2c_config = I2cConfig::default();
     i2c_config.frequency = 400_000;
-    let i2c = I2c::new_async(p.I2C0, r.i2c.scl, r.i2c.sda, Irqs, i2c_config);
+    let i2c = I2c::new_async(r.i2c.i2c0, r.i2c.scl, r.i2c.sda, Irqs, i2c_config);
     static I2C_BUS: StaticCell<I2c0BusShared> = StaticCell::new();
     let i2c_bus = I2C_BUS.init(Mutex::new(i2c));
 

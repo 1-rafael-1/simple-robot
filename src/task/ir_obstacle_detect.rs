@@ -32,23 +32,23 @@ const DEBOUNCE_DELAY: Duration = Duration::from_millis(100);
 pub async fn ir_obstacle_detect(r: IRSensorResources) {
     // Initialize IR sensor pin as digital input, with pull-down resistor. No actual floating condition is expected, as long as
     // the sensor(s) are connected properly, since they will always be either high or low.
-    let mut ir_pin = Input::new(r.ir_pin, Pull::Down);
+    let mut ir_right = Input::new(r.ir_right_pin, Pull::Down);
 
     // perform initial measure to ensure initial state is caught
     Timer::after(DEBOUNCE_DELAY).await;
 
     // Read initial state. We have inverted the sensor output in hardware, so high is obstacle detected here.
-    let mut obstacle_detected = ir_pin.is_high();
+    let mut obstacle_detected = ir_right.is_high();
     let mut last_obstacle_detected = obstacle_detected;
     // and send initial event
     send_event(Events::ObstacleDetected(obstacle_detected)).await;
 
     loop {
-        ir_pin.wait_for_any_edge().await;
+        ir_right.wait_for_any_edge().await;
         Timer::after(DEBOUNCE_DELAY).await;
 
         // Read current state after debounce
-        obstacle_detected = ir_pin.is_high();
+        obstacle_detected = ir_right.is_high();
 
         // Only send event if state has changed
         if obstacle_detected != last_obstacle_detected {

@@ -84,7 +84,8 @@ assign_resources! {
     },
     /// IR obstacle avoidance sensor - digital output
     ir_sensor: IRSensorResources {
-        ir_pin: PIN_26,
+        ir_left_pin: PIN_6,
+        ir_right_pin: PIN_26,
     },
     /// TB6612FNG dual motor driver pins and PWM channels
     motor_driver: MotorDriverResources {
@@ -122,6 +123,7 @@ assign_resources! {
     i2c: I2c0BusResources {
         scl: PIN_13,
         sda: PIN_12,
+        i2c0: I2C0,
     },
     /// ADC
     adc: AdcResources {

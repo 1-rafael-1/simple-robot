@@ -199,14 +199,14 @@ pub async fn inertial_measurement_read(i2c_bus: &'static I2c0BusShared) {
                                 // Initialize reference on first reading
                                 if orientation_ref.initial_quaternion.is_none() {
                                     orientation_ref.initialize(quat);
-                                    info!("Initial orientation stored");
+                                    // info!("Initial orientation stored");
                                     continue;
                                 }
 
                                 // let ypr = YawPitchRoll::from(quat);
                                 let ypr = orientation_ref.get_relative_orientation(quat);
 
-                                info!("Quaternion: {}", Debug2Format(&quat));
+                                // info!("Quaternion: {}", Debug2Format(&quat));
 
                                 // Convert to degrees
                                 let yaw_deg = (ypr.yaw * 180.0 / PI * 10.0).round() / 10.0;
@@ -219,7 +219,7 @@ pub async fn inertial_measurement_read(i2c_bus: &'static I2c0BusShared) {
                                     pitch: pitch_deg,
                                     roll: roll_deg,
                                 };
-                                info!("{}", Debug2Format(&orientation));
+                                // info!("{}", Debug2Format(&orientation));
                                 let imu_measurement = ImuMeasurement {
                                     orientation,
                                     timestamp_ms,

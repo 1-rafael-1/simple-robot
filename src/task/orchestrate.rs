@@ -170,8 +170,8 @@ async fn handle_state_changes(event: Events) {
             }
         }
         Events::EncoderMeasurementTaken(measurement) => {
-            // Send encoder feedback to drive task for speed adjustment
-            // drive::send_drive_command(drive::DriveCommand::EncoderFeedback(measurement));
+            // ToDo: Send encoder measurement to motion control
+            info!("Encoder measurement taken: {}", measurement);
         }
         Events::UltrasonicSweepReadingTaken(distance, angle) => {
             // Ultrasonic sensor reading received, send distance and servo angle to display and obstacle detection

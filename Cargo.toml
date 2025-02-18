@@ -25,7 +25,7 @@ lto = 'fat'
 opt-level = 's'
 
 [dependencies]
-embassy-rp = { version = "0.3", features = [
+embassy-rp = { version = "0.3.1", features = [
     "defmt",
     "unstable-pac",
     "time-driver",
@@ -33,7 +33,7 @@ embassy-rp = { version = "0.3", features = [
     "rp235xa",
 ] }
 embassy-embedded-hal = { version = "0.3", features = ["defmt"] }
-embassy-sync = { version = "0.6.1", features = ["defmt"] }
+embassy-sync = { version = "0.6.2", features = ["defmt"] }
 embassy-executor = { version = "0.7", features = [
     "task-arena-size-98304",
     "arch-cortex-m",

@@ -20,7 +20,7 @@
 //! - 5-sample median filter window
 //! - 0.1 RPS (6 RPM) deadband threshold
 
-use defmt::info;
+use defmt::{info, Format};
 use embassy_rp::{
     gpio::Pull,
     pwm::{Config, InputMode, Pwm},
@@ -54,7 +54,7 @@ const GEAR_RATIO: u16 = 120;
 const PULSES_PER_OUTPUT_REV: u16 = PULSES_PER_MOTOR_REV * GEAR_RATIO; // 960
 
 /// Combined encoder measurement data
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Format)]
 pub struct EncoderMeasurement {
     pub left: WheelSpeed,
     pub right: WheelSpeed,
@@ -62,7 +62,7 @@ pub struct EncoderMeasurement {
 }
 
 /// Wheel speed measurement
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Format)]
 pub struct WheelSpeed {
     /// Speed in revolutions per second at the output shaft
     pub rps: f32,
@@ -73,7 +73,7 @@ pub struct WheelSpeed {
 }
 
 /// Raw encoder data
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Format)]
 pub struct EncoderDataRaw {
     /// Raw pulse count in measurement window
     pub pulse_count: u16,
@@ -169,8 +169,43 @@ pub fn stop_encoder_readings() {
 /// Takes periodic measurements using PWM input capture on rising edges.
 #[embassy_executor::task]
 pub async fn encoder_read(resources: MotorEncoderResources) {
+    /*
+    {
+        // testing, if we can detect edges on the left encoder
+        info!("Testing encoder with direct GPIO reading");
+
+        // Convert the encoder pin to a regular input pin
+        use embassy_rp::gpio::Input;
+        let mut left_encoder_gpio = Input::new(resources.left_encoder_pin, Pull::None);
+
+        // Simple state machine to count edges
+        let mut last_level = left_encoder_gpio.get_level();
+        let mut manual_count = 0;
+
+        for i in 0..50 {
+            left_encoder_gpio.wait_for_any_edge().await;
+            let current_level = left_encoder_gpio.get_level();
+
+            if current_level != last_level {
+                manual_count += 1;
+                use embassy_rp::gpio::Level;
+                info!(
+                    "Edge detected! Count: {}, Level: {}",
+                    manual_count,
+                    match current_level {
+                        Level::High => "High",
+                        Level::Low => "Low",
+                    }
+                );
+            }
+            last_level = current_level;
+        }
+    }
+    */
     // Configure PWM inputs for pulse counting on rising edges
-    let config = Config::default();
+    let mut config = Config::default();
+    config.divider = 1.into();
+    config.phase_correct = false;
     let left_encoder = Pwm::new_input(
         resources.left_encoder_slice,
         resources.left_encoder_pin,
@@ -205,6 +240,13 @@ pub async fn encoder_read(resources: MotorEncoderResources) {
                     left_encoder.set_counter(0);
                     right_encoder.set_counter(0);
 
+                    // Read more frequently to debug
+                    for i in 0..6 {
+                        Timer::after(Duration::from_millis(10)).await;
+                        let interim_count = left_encoder.counter();
+                        info!("Interim count {}: {}", i, interim_count);
+                    }
+
                     // Read encoder measurements, starting with a delay for motor stabilization
                     Timer::after(SAMPLE_INTERVAL).await;
 
@@ -214,6 +256,7 @@ pub async fn encoder_read(resources: MotorEncoderResources) {
                     let right_pulses = right_encoder.counter();
                     let elapsed = end - start;
                     let elapsed_ms = elapsed.as_millis() as u32;
+                    info!("Encoder: L={} R={} in {}ms", left_pulses, right_pulses, elapsed_ms);
 
                     // Package measurement data
                     let measurement = EncoderMeasurement {
@@ -235,11 +278,6 @@ pub async fn encoder_read(resources: MotorEncoderResources) {
                         .with_deadband(),
                         timestamp: Instant::now(),
                     };
-
-                    // info!(
-                    //     "Encoder speeds - Left: {} RPS ({} RPM), Right: {} RPS ({} RPM)",
-                    //     measurement.left.rps, measurement.left.rpm, measurement.right.rps, measurement.right.rpm
-                    // );
 
                     // Signal measurement completion
                     send_event(Events::EncoderMeasurementTaken(measurement)).await;
