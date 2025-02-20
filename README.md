@@ -35,7 +35,7 @@ Here is a list of the features of the robot, that may some day be implemented:
 - Battery Management
   - Show battery level on RGB LED
 
-It became so crowded on a breadboard, that I decided to make a PCB for it. This turned out to be a fun experience and after a few ... detours... I ended up with a working PCB. Was a very good learning experience, regarding KiCad, PCB design, soldering and personal resilience after inevitable failures. Here is my current list of improvements, that grows longer every day:
+It became so crowded on a breadboard, that I decided to make a PCB for it. This turned out to be a fun experience and after a few ... detours... I ended up with a working PCB. Here is my current list of improvements, that grows longer every day:
 
 - [ ] Sensor improvements:
   - [x] Replace HC-SR04 ultrasonic sensor with IR sensor for more reliable obstacle detection
@@ -82,9 +82,7 @@ I will update the readme with these improvements once they are implemented. Let'
 
 ## Schematic
 
-While adding more and more things to this project I realized that I needed a schematic to keep track of all the connections and components. So I spent some time learning KiCad 8 and made one.
-
-While at it I became aware that it might not be too hard to design a PCB for this project. In fact, with all the components involved a breadboard becomes less and less useful. So I ended up designing a PCB and ordered it made overseas and then made another version and then another... and then I had a working PCB. Regarding soldering let me say this: I now know for a fact what I am not good at. The avove picture is attempt number 2 and it is a good thing that nobody can see the underside. But it works! :-)
+While adding more and more things to this project I realized that I needed a schematic to keep track of all the connections and components. So I spent some time learning KiCad 8 and made one, which eventually led to designing a custom PCB for the project.
 
 You can find the KiCad project here: [misc/KiCad/simple-robot](misc/KiCad/simple-robot). Some of the boards I used had no symbols & footprints and so I created them as i went. You can find them here: [misc/KiCad/symbols](misc/KiCad/symbols). The Pi Pico symbol I found online here: [/ncarandini/KiCad-RP-Pico]/(<https://github.com/ncarandini/KiCad-RP-Pico>).
 
