@@ -17,7 +17,7 @@ use embassy_rp::gpio::{Input, Pull};
 use embassy_time::{Duration, Timer};
 
 use crate::system::{
-    event::{send_event, Events},
+    event::{Events, send_event},
     resources::IRSensorResources,
 };
 

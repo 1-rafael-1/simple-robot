@@ -8,7 +8,7 @@ use core::time::Duration;
 
 use defmt::{error, info};
 use defmt_rtt as _;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_rp::{
     gpio::{Input, Level, Output, Pull},
     pio::{Instance, Pio},
@@ -21,7 +21,7 @@ use moving_median::MovingMedian;
 use panic_probe as _;
 
 use crate::system::{
-    event::{send_event, Events},
+    event::{Events, send_event},
     resources::{Irqs, SweepServoResources, UltrasonicDistanceSensorResources},
 };
 

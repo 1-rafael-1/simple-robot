@@ -17,14 +17,14 @@
 
 use core::fmt::Write;
 
-use defmt::{info, Debug2Format};
+use defmt::{Debug2Format, info};
 use heapless::String;
 use micromath::F32Ext;
 
 use crate::{
     system::{
         button_actions,
-        event::{send_event, wait, Events},
+        event::{Events, send_event, wait},
         state,
         state::{OperationMode, SYSTEM_STATE},
     },

@@ -34,7 +34,7 @@ use moving_median::MovingMedian;
 
 use crate::system::{
     event,
-    resources::{get_adc, BatteryChargeResources},
+    resources::{BatteryChargeResources, get_adc},
 };
 
 /// Time between voltage measurements (20s provides good balance of

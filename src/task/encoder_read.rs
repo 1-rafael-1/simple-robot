@@ -20,7 +20,7 @@
 //! - 5-sample median filter window
 //! - 0.1 RPS (6 RPM) deadband threshold
 
-use defmt::{info, Format};
+use defmt::{Format, info};
 use embassy_rp::{
     gpio::Pull,
     pwm::{Config, InputMode, Pwm},
@@ -30,7 +30,7 @@ use embassy_time::{Duration, Instant, Timer};
 use moving_median::MovingMedian;
 
 use crate::system::{
-    event::{send_event, Events},
+    event::{Events, send_event},
     resources::MotorEncoderResources,
 };
 

@@ -26,7 +26,7 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embedded_graphics::{
     geometry::Size,
-    mono_font::{ascii::FONT_9X15_BOLD as Font, MonoTextStyleBuilder},
+    mono_font::{MonoTextStyleBuilder, ascii::FONT_9X15_BOLD as Font},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::{Arc, Line, PrimitiveStyle, Rectangle},
@@ -34,7 +34,7 @@ use embedded_graphics::{
 };
 use heapless::{String, Vec};
 use micromath::F32Ext;
-use ssd1306_async::{prelude::*, I2CDisplayInterface, Ssd1306};
+use ssd1306_async::{I2CDisplayInterface, Ssd1306, prelude::*};
 
 use crate::system::resources::I2c0BusShared;
 

@@ -368,11 +368,7 @@ impl Motor {
     fn calculate_rpm(&self, pulses: u16, elapsed_ms: u32) -> f32 {
         let hz = (pulses as f32 * 1000.0) / elapsed_ms as f32;
         let motor_rpm = (hz / PULSES_PER_REV as f32) * 60.0;
-        if self.forward {
-            motor_rpm
-        } else {
-            -motor_rpm
-        }
+        if self.forward { motor_rpm } else { -motor_rpm }
     }
 
     /// Sets motor speed and direction (-100 to +100)

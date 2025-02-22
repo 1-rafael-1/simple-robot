@@ -21,11 +21,11 @@
 
 use core::f32::consts::PI;
 
-use defmt::{info, Debug2Format};
+use defmt::info;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
-use embassy_time::{with_timeout, Delay, Duration, Instant, Timer};
+use embassy_time::{Delay, Duration, Instant, Timer};
 use micromath::F32Ext;
 use mpu6050_dmp::{
     accel::{Accel, AccelFullScale},
@@ -33,13 +33,12 @@ use mpu6050_dmp::{
     config::DigitalLowPassFilter,
     gyro::{Gyro, GyroFullScale},
     quaternion::Quaternion,
-    sensor,
     sensor_async::Mpu6050,
     yaw_pitch_roll::YawPitchRoll,
 };
 
 use crate::system::{
-    event::{send_event, Events},
+    event::{Events, send_event},
     resources::I2c0BusShared,
 };
 

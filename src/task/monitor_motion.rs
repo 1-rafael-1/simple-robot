@@ -1,13 +1,13 @@
 //!
 
 use defmt::info;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal};
 use embassy_time::{Duration, Instant};
 use heapless::Vec;
 
 use crate::{
-    system::event::{send_event, Events},
+    system::event::{Events, send_event},
     task::{drive::DriveAction, encoder_read::EncoderMeasurement, imu_read::ImuMeasurement},
 };
 

@@ -8,8 +8,8 @@ use embassy_time::{Duration, Instant, Timer};
 use nanorand::{Rng, WyRand};
 
 use crate::{
-    system::event::{send_event, Events},
-    task::drive::{send_drive_command, DriveAction, DriveCommand, RotationDirection, RotationMotion},
+    system::event::{Events, send_event},
+    task::drive::{DriveAction, DriveCommand, RotationDirection, RotationMotion, send_drive_command},
 };
 
 /// Control signal for autonomous operations
