@@ -1,0 +1,24 @@
+{
+  "lsp": {
+    "rust-analyzer": {
+      "initialization_options": {
+        "cargo": {
+          "allTargets": false,
+          "target": "thumbv8m.main-none-eabihf",
+        },
+        "check": {
+          "command": "clippy",
+        },
+      },
+    },
+  },
+  "languages": {
+    "Rust": {
+      "format_on_save": "on",
+      "formatter": "auto",
+      "inlay_hints": {
+        "enabled": true,
+      },
+    },
+  },
+}
