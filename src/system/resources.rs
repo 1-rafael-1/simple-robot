@@ -20,6 +20,7 @@
 
 use assign_resources::assign_resources;
 use embassy_rp::{
+    Peri,
     adc::{Adc, Async as AdcAsync, InterruptHandler as AdcInterruptHandler},
     bind_interrupts,
     i2c::{Async as I2cAsync, I2c, InterruptHandler as I2cInterruptHandler},
@@ -39,7 +40,7 @@ static ADC: Mutex<CriticalSectionRawMutex, Option<Adc<'static, AdcAsync>>> = Mut
 ///
 /// This should only be called once during system initialization in main.rs,
 /// before any tasks are spawned.
-pub fn init_adc(adc: ADC) {
+pub fn init_adc(adc: Peri<'static, ADC>) {
     let adc = Adc::new(adc, Irqs, embassy_rp::adc::Config::default());
     critical_section::with(|_| {
         *ADC.try_lock().unwrap() = Some(adc);

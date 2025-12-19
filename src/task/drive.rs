@@ -505,7 +505,7 @@ pub async fn drive(d: MotorDriverResources) {
 
                 // Clear rotation state unless this is a rotation command
                 if !matches!(action, DriveAction::RotateExact { .. }) {
-                    rotation_state = None;
+                    // rotation_state = None;
                 }
 
                 // Execute drive action
@@ -608,7 +608,7 @@ pub async fn drive(d: MotorDriverResources) {
                 event::send_event(Events::DriveCommandExecuted(action)).await;
             }
 
-            DriveCommand::EncoderFeedback(measurement) => {
+            DriveCommand::EncoderFeedback(_measurement) => {
                 // // Skip encoder feedback during precise rotation
                 // if rotation_state.is_some() {
                 //     continue;
@@ -649,7 +649,7 @@ pub async fn drive(d: MotorDriverResources) {
                 // }
             }
 
-            DriveCommand::ImuFeedback(measurement) => {
+            DriveCommand::ImuFeedback(_measurement) => {
                 // // Part 1: Tilt Compensation for Forward/Backward Motion
                 // // --------------------------------------------------
                 // // Only apply tilt compensation when:
