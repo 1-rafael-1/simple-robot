@@ -90,7 +90,7 @@ pub async fn autonomous_drive() {
 
                 // Random turn
                 // Use current time since boot as seed
-                let seed = Instant::now().as_micros() as u64;
+                let seed = Instant::now().as_micros();
                 let mut rng = WyRand::new_seed(seed);
 
                 info!("turning");

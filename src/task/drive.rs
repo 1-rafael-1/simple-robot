@@ -17,7 +17,9 @@ use core::convert::Infallible;
 
 use defmt::info;
 use embassy_rp::{
-    gpio::{self},
+    Peri,
+    gpio::{self, Output},
+    peripherals::{PIN_27, PIN_28, PWM_SLICE5, PWM_SLICE6},
     pwm::{self, Config, Pwm, PwmError},
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
@@ -25,10 +27,7 @@ use embassy_time::{Duration, Timer};
 use tb6612fng::{DriveCommand as DriverCommand, MotorError};
 
 use crate::{
-    system::{
-        event::{self, Events},
-        resources::MotorDriverResources,
-    },
+    system::event::{self, Events},
     task::{encoder_read::EncoderMeasurement, imu_read::ImuMeasurement},
 };
 
@@ -416,8 +415,15 @@ impl Motor {
 
 /// Initializes both motors with configured PWM (10kHz) and GPIO pins
 fn setup_motors(
-    d: MotorDriverResources,
-) -> Result<(Motor, Motor, gpio::Output<'static>), MotorError<Infallible, Infallible, PwmError>> {
+    left_slice: Peri<'static, PWM_SLICE6>,
+    left_pwm_pin: Peri<'static, PIN_28>,
+    left_forward: Output<'static>,
+    left_backward: Output<'static>,
+    right_slice: Peri<'static, PWM_SLICE5>,
+    right_pwm_pin: Peri<'static, PIN_27>,
+    right_forward: Output<'static>,
+    right_backward: Output<'static>,
+) -> Result<(Motor, Motor), MotorError<Infallible, Infallible, PwmError>> {
     // Configure PWM for 10kHz operation
     let desired_freq_hz = 10_000;
     let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
@@ -429,21 +435,14 @@ fn setup_motors(
     pwm_config.top = period;
 
     // Initialize left motor with its pins
-    let left_fwd = gpio::Output::new(d.left_forward_pin, gpio::Level::Low);
-    let left_bckw = gpio::Output::new(d.left_backward_pin, gpio::Level::Low);
-    let left_pwm = pwm::Pwm::new_output_a(d.left_slice, d.left_pwm_pin, pwm_config.clone());
-    let left_motor = Motor::new(left_fwd, left_bckw, left_pwm)?;
+    let left_pwm = pwm::Pwm::new_output_a(left_slice, left_pwm_pin, pwm_config.clone());
+    let left_motor = Motor::new(left_forward, left_backward, left_pwm)?;
 
     // Initialize right motor with its pins
-    let right_fwd = gpio::Output::new(d.right_forward_pin, gpio::Level::Low);
-    let right_bckw = gpio::Output::new(d.right_backward_pin, gpio::Level::Low);
-    let right_pwm = pwm::Pwm::new_output_b(d.right_slice, d.right_pwm_pin, pwm_config);
-    let right_motor = Motor::new(right_fwd, right_bckw, right_pwm)?;
+    let right_pwm = pwm::Pwm::new_output_b(right_slice, right_pwm_pin, pwm_config);
+    let right_motor = Motor::new(right_forward, right_backward, right_pwm)?;
 
-    // Initialize standby control pin
-    let standby = gpio::Output::new(d.standby_pin, gpio::Level::Low);
-
-    Ok((left_motor, right_motor, standby))
+    Ok((left_motor, right_motor))
 }
 
 /// Detects if robot is performing a stationary rotation
@@ -453,9 +452,29 @@ fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
 
 /// Primary motor control task that processes movement commands and sensor feedback
 #[embassy_executor::task]
-pub async fn drive(d: MotorDriverResources) {
+pub async fn drive(
+    mut standby: Output<'static>,
+    left_slice: Peri<'static, PWM_SLICE6>,
+    left_pwm_pin: Peri<'static, PIN_28>,
+    left_forward: Output<'static>,
+    left_backward: Output<'static>,
+    right_slice: Peri<'static, PWM_SLICE5>,
+    right_pwm_pin: Peri<'static, PIN_27>,
+    right_forward: Output<'static>,
+    right_backward: Output<'static>,
+) {
     // Initialize motors
-    let (left_motor, right_motor, stby) = setup_motors(d).unwrap();
+    let (left_motor, right_motor) = setup_motors(
+        left_slice,
+        left_pwm_pin,
+        left_forward,
+        left_backward,
+        right_slice,
+        right_pwm_pin,
+        right_forward,
+        right_backward,
+    )
+    .unwrap();
 
     // Initialize mutexes
     critical_section::with(|_| {
@@ -464,7 +483,6 @@ pub async fn drive(d: MotorDriverResources) {
     });
 
     // Motor driver standby control
-    let mut standby = stby;
     let mut standby_enabled = true;
 
     // Rotation state tracking

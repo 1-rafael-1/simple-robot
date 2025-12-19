@@ -53,7 +53,6 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 nanorand = { version = "0.8.0", features = [
     "wyrand",
 ], default-features = false }
-assign-resources = "0.5.0"
 hcsr04_async = { version = "^0.4.0", features = ["blocking_trigger"] }
 moving_median = "0.3.0"
 tb6612fng = "1.0.0"
