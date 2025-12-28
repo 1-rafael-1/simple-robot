@@ -95,7 +95,7 @@ pub async fn rgb_led_indicate(mut pwm_red: Pwm<'static>, mut pwm_green: Pwm<'sta
         let (green_pwm, red_pwm) = if battery_level >= 50 {
             // Upper half: Green fades to yellow
             let blend_factor = (battery_level - 50) * 2; // Scale 50-100 to 0-100
-            let green = ((100 as f32) * 0.4) as u8; // Reduce green intensity
+            let green = (100_f32 * 0.4) as u8; // Reduce green intensity
             let red = ((100 - blend_factor) as f32) as u8; // Keep red at full
             (green, red)
         } else {

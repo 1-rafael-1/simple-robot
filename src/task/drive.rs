@@ -13,6 +13,8 @@
 //! Motion commands are processed asynchronously while maintaining smooth
 //! transitions between different movement states.
 
+#![allow(clippy::too_many_arguments)]
+
 use core::convert::Infallible;
 
 use defmt::info;
@@ -414,6 +416,7 @@ impl Motor {
 }
 
 /// Initializes both motors with configured PWM (10kHz) and GPIO pins
+#[allow(clippy::too_many_arguments)]
 fn setup_motors(
     left_slice: Peri<'static, PWM_SLICE6>,
     left_pwm_pin: Peri<'static, PIN_28>,

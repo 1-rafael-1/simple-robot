@@ -268,10 +268,10 @@ pub async fn ultrasonic_sweep(
             angle += angle_increment;
             if angle >= servo.max_degree_rotation as f32 {
                 angle = servo.max_degree_rotation as f32;
-                angle_increment = angle_increment * -1.0; // Start moving back
+                angle_increment = -angle_increment; // Start moving back
             } else if angle <= 0.0 {
                 angle = 0.0;
-                angle_increment = angle_increment * -1.0; // Start moving forward
+                angle_increment = -angle_increment; // Start moving forward
             }
         }
     }

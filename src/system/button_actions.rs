@@ -60,16 +60,13 @@ pub enum ButtonActionType {
 /// button identity and action type. Provides visual feedback through
 /// LED indicators for all actions.
 pub async fn handle_button_action(button_id: event::ButtonId, action_type: ButtonActionType) {
-    match action_type {
-        ButtonActionType::Press => {
-            // Any button press in autonomous mode switches to manual
-            let state = state::SYSTEM_STATE.lock().await;
-            if state.operation_mode == state::OperationMode::Autonomous {
-                event::send_event(event::Events::OperationModeSet(state::OperationMode::Manual)).await;
-                return;
-            }
+    if let ButtonActionType::Press = action_type {
+        // Any button press in autonomous mode switches to manual
+        let state = state::SYSTEM_STATE.lock().await;
+        if state.operation_mode == state::OperationMode::Autonomous {
+            event::send_event(event::Events::OperationModeSet(state::OperationMode::Manual)).await;
+            return;
         }
-        _ => (), // Other action types handled in specific button logic
     }
 
     match (button_id, action_type) {

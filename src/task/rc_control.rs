@@ -4,8 +4,10 @@
 
 use defmt::info;
 use embassy_futures::select::{Either, select};
-use embassy_rp::Peri;
-use embassy_rp::gpio::{AnyPin, Input, Level, Pull};
+use embassy_rp::{
+    Peri,
+    gpio::{AnyPin, Input, Level, Pull},
+};
 use embassy_time::{Duration, Timer};
 
 use crate::system::event::{ButtonId, Events, send_event};

@@ -156,7 +156,7 @@ pub async fn inertial_measurement_read(
     sensor.enable_fifo().await.unwrap();
 
     info!("Calibrating IMU...");
-    let calibration_params = mpu6050_dmp::calibration::CalibrationParameters::new(
+    let _calibration_params = mpu6050_dmp::calibration::CalibrationParameters::new(
         mpu6050_dmp::accel::AccelFullScale::G2,
         mpu6050_dmp::gyro::GyroFullScale::Deg2000,
         mpu6050_dmp::calibration::ReferenceGravity::YP,

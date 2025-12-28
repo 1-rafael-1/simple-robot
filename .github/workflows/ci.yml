@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,24 +14,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        target: thumbv8m.main-none-eabihf
-        override: true
-        profile: minimal
+      - uses: actions/checkout@v4
 
-    - name: Install cargo-binutils
-      run: cargo install cargo-binutils
-    
-    - name: Install llvm tools
-      run: rustup component add llvm-tools-preview
-    
-    - name: Build
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --release --verbose --target thumbv8m.main-none-eabihf
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: thumbv8m.main-none-eabihf
+          override: true
+          profile: minimal
+          components: clippy
+
+      - name: Install nightly for rustfmt
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          profile: minimal
+          components: rustfmt
+
+      - name: Install cargo-binutils
+        run: cargo install cargo-binutils
+
+      - name: Install llvm tools
+        run: rustup component add llvm-tools-preview
+
+      - name: Check formatting
+        run: cargo +nightly fmt --all -- --check
+
+      - name: Run clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --target thumbv8m.main-none-eabihf -- -D warnings -A dead_code
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --verbose --target thumbv8m.main-none-eabihf

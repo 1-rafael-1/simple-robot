@@ -1,4 +1,7 @@
+//! Motion monitoring and correction system
 //!
+//! This module monitors the robot's motion using IMU and encoder data,
+//! and calculates corrections to maintain stable driving behavior.
 
 use defmt::info;
 use embassy_futures::select::{Either, select};
@@ -31,7 +34,7 @@ const ROLL_FLAT_THRESHOLD: f32 = 5.0;
 const MOTION_DATA_HISTORY: usize = 10;
 
 /// What have we been sent?
-enum MotionData {
+pub(crate) enum MotionData {
     Imu(ImuMeasurement),
     Encoder(EncoderMeasurement),
     DriveAction(DriveAction),
@@ -128,11 +131,12 @@ impl MotionFusion {
 
     /// If all data sources have a new measurement, but there is not yet a latest timestamp, then add the timestamp
     fn update_timestamp(&mut self) {
-        if self.imu.len() == self.encoder.len() && self.encoder.len() == self.drive_action.len() {
-            if self.match_timestamp.len() < self.imu.len() {
-                let timestamp = Instant::now();
-                self.add_match_timestamp(timestamp);
-            }
+        if self.imu.len() == self.encoder.len()
+            && self.encoder.len() == self.drive_action.len()
+            && self.match_timestamp.len() < self.imu.len()
+        {
+            let timestamp = Instant::now();
+            self.add_match_timestamp(timestamp);
         }
     }
 
@@ -157,7 +161,7 @@ impl MotionFusion {
 impl MotionFusion {
     /// Check if we have enough data to correct motion
     fn is_ready(&self) -> bool {
-        self.imu.len() > 0 && self.encoder.len() > 0 && self.drive_action.len() > 0
+        !self.imu.is_empty() && !self.encoder.is_empty() && !self.drive_action.is_empty()
     }
 
     /// Correct motion based on sensor data
@@ -250,25 +254,25 @@ impl MotionFusion {
                 }
             }
             DriveAction::RotateExact {
-                degrees,
-                direction,
-                motion,
+                degrees: _,
+                direction: _,
+                motion: _,
             } => {
                 // we are rotating, check if we are rotating correctly
-                let imu = self.imu.last()?;
-                let encoder = self.encoder.last()?;
+                let _imu = self.imu.last()?;
+                let _encoder = self.encoder.last()?;
 
                 // TODO
                 // check if we are rotating correctly
                 // if not, correct
             }
             DriveAction::TorqueBias {
-                reduce_side,
-                bias_amount,
+                reduce_side: _,
+                bias_amount: _,
             } => {
                 // we are correcting torque bias, check if we are moving straight
-                let imu = self.imu.last()?;
-                let encoder = self.encoder.last()?;
+                let _imu = self.imu.last()?;
+                let _encoder = self.encoder.last()?;
 
                 // TODO
                 // check if we are moving straight
