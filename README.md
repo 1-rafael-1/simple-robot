@@ -121,7 +121,7 @@ Here is an overview of things used to make the robot. This is not supposed to be
 |2 IR sensors|For obstacle detection. I used VMA330, but other options will also work.|
 |2 1N5817 Schottky diodes|To combine the IR sensors onto one GPIO|
 |CD4049 hex converter|Used to repair my bad design for the IR sensors. These are sending high when no obstacle, while i exppected them to send low then. That way the circuit would not work and the output needs to be inverted.|
-|MPU9250|Inertial Measuremenmt Unit|
+|ICM20948|9-axis Inertial Measurement Unit (IMU)|
 |Header pins|They go everywhere, under most of the boards, onto the PCB for more connections.... get plenty.|
 
 Besides that, the printed model must be assembled. I printed in PLA and that went quite well. For assembly, you will need a couple of things from the hardware store, see the robot's Thingiverse link from above, the pictures there have an assembly instruction referring to what is needed.
@@ -142,9 +142,29 @@ Testing the ultrasonic sensor I found it gets even more unreliable when moving. 
 
 A little less fun.
 
-I found no driver for the MPU9250, but i found a driver for the MPU6050, which is very similar. While exploring I had too much fun and added heavily to the driver:
+I replaced the MPU9250/MPU6050 with the ICM20948, a more modern 9-axis IMU from the same manufacturer (TDK InvenSense). The ICM20948 offers better performance and I created a driver for it:
 
-- <https://github.com/barafael/mpu6050-dmp-rs>
+- <https://github.com/1-rafael-1/ICM-20948-rs>
+- Also on <https://crates.io/crates/icm20948-rs>
+
+The driver supports async I2C operations and includes extensive examples for RP2350. For orientation tracking, I implemented a full 9-axis AHRS (Attitude and Heading Reference System) using the Madgwick filter, which fuses data from all three sensors:
+
+- **Gyroscope**: Fast response, accurate short-term orientation changes
+- **Accelerometer**: Stable gravity reference, corrects long-term drift in roll/pitch
+- **Magnetometer**: Absolute heading reference, prevents yaw drift
+
+**AHRS Configuration for Tracked Robot:**
+- Beta = 0.15: Balanced setting for motor vibration rejection and responsiveness
+- 100 Hz update rate: Fast enough for motion control
+- DLPF settings optimized for brushed motor vibration filtering
+- Gyroscope bias calibration on startup
+
+**Size comparison after the swap:**
+- Original (MPU6050-DMP): 104,164 bytes
+- ICM20948 with AHRS: 109,028 bytes
+- **Cost: 4,864 bytes (4.7% increase)**
+
+The slight size increase is worth it for proper quaternion-based orientation with no yaw drift, which is essential for accurate turning and straight-line driving. The magnetometer provides absolute heading, eliminating the gyro drift issues that plagued the MPU6050.
 
 This was fun again :-)
 

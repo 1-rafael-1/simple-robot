@@ -61,7 +61,10 @@ embedded-graphics = "0.8.1"
 static_cell = { version = "2.1.1", features = [] }
 heapless = "0.9.2"
 micromath = "2.1.0"
-mpu6050-dmp = { version = "0.6.1", features = ["async"] }
+libm = "0.2"
+icm20948-rs = { version = "0.1.1", features = ["async", "defmt"] }
+ahrs = { version = "0.8", default-features = false }
+nalgebra = { version = "0.34", default-features = false, features = ["libm"] }
 
 # [patch.crates-io]
 # embassy-rp = { git = "https://github.com/embassy-rs/embassy" }
