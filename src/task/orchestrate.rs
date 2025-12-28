@@ -202,7 +202,7 @@ async fn handle_state_changes(event: Events) {
             let _ = write!(txt, "Rotation Done");
             display::display_update(display::DisplayAction::ShowText(txt, 3)).await;
         }
-        Events::MotionCorrectionRequired(correction_instruction) => {
+        Events::MotionCorrectionRequired(_correction_instruction) => {
             // Correct motion based on sensor data
             // send to drive task for correction
         }
@@ -215,6 +215,6 @@ async fn handle_state_changes(event: Events) {
                 stop_encoder_readings();
             }
         }
-        Events::StartStopUltrasonicSweep(start) => {}
+        Events::StartStopUltrasonicSweep(_start) => {}
     }
 }

@@ -10,7 +10,9 @@ use defmt::{error, info};
 use defmt_rtt as _;
 use embassy_futures::select::{Either, select};
 use embassy_rp::{
+    Peri,
     gpio::{Input, Level, Output, Pull},
+    peripherals::{PIN_5, PIN_14, PIN_15, PIO0},
     pio::{Instance, Pio},
     pio_programs::pwm::{PioPwm, PioPwmProgram},
 };
@@ -20,9 +22,9 @@ use hcsr04_async::{Config, DistanceUnit, Hcsr04, Now, TemperatureUnit};
 use moving_median::MovingMedian;
 use panic_probe as _;
 
-use crate::system::{
-    event::{Events, send_event},
-    resources::{Irqs, SweepServoResources, UltrasonicDistanceSensorResources},
+use crate::{
+    Irqs,
+    system::event::{Events, send_event},
 };
 
 /// Commands for ultrasonic sweep control
@@ -171,7 +173,12 @@ impl Now for Clock {
 /// to create a scanning range finder effect. Measurements are filtered through
 /// a moving median filter to reduce noise.
 #[embassy_executor::task]
-pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSensorResources) {
+pub async fn ultrasonic_sweep(
+    pio: Peri<'static, PIO0>,
+    servo_pin: Peri<'static, PIN_5>,
+    trigger_pin: Peri<'static, PIN_15>,
+    echo_pin: Peri<'static, PIN_14>,
+) {
     // Configure ultrasonic sensor with metric units
     let hcsr04_config: Config = Config {
         distance_unit: DistanceUnit::Centimeters,
@@ -179,18 +186,18 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
     };
 
     // Initialize GPIO pins for the HCSR04 sensor
-    let trigger = Output::new(u.trigger_pin, Level::Low);
-    let echo = Input::new(u.echo_pin, Pull::None);
+    let trigger = Output::new(trigger_pin, Level::Low);
+    let echo = Input::new(echo_pin, Pull::None);
     let mut sensor = Hcsr04::new(trigger, echo, hcsr04_config, Clock, Delay);
 
     // Create median filter to smooth out distance measurements
     let mut median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
 
     // Initialize PIO state machine for servo PWM control
-    let Pio { mut common, sm0, .. } = Pio::new(s.pio, Irqs);
+    let Pio { mut common, sm0, .. } = Pio::new(pio, Irqs);
 
     let prg = PioPwmProgram::new(&mut common);
-    let pwm_pio = PioPwm::new(&mut common, sm0, s.pin, &prg);
+    let pwm_pio = PioPwm::new(&mut common, sm0, servo_pin, &prg);
     let mut servo = ServoBuilder::new(pwm_pio)
         .set_max_degree_rotation(160) // SG90 servo has 160° range of motion
         .set_min_pulse_width(Duration::from_micros(500)) // SG90 minimum pulse width
@@ -261,10 +268,10 @@ pub async fn ultrasonic_sweep(s: SweepServoResources, u: UltrasonicDistanceSenso
             angle += angle_increment;
             if angle >= servo.max_degree_rotation as f32 {
                 angle = servo.max_degree_rotation as f32;
-                angle_increment = angle_increment * -1.0; // Start moving back
+                angle_increment = -angle_increment; // Start moving back
             } else if angle <= 0.0 {
                 angle = 0.0;
-                angle_increment = angle_increment * -1.0; // Start moving forward
+                angle_increment = -angle_increment; // Start moving forward
             }
         }
     }

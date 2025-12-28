@@ -22,17 +22,16 @@
 
 use defmt::{Format, info};
 use embassy_rp::{
+    Peri,
     gpio::Pull,
+    peripherals::{PIN_7, PIN_9, PWM_SLICE3, PWM_SLICE4},
     pwm::{Config, InputMode, Pwm},
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
 use moving_median::MovingMedian;
 
-use crate::system::{
-    event::{Events, send_event},
-    resources::MotorEncoderResources,
-};
+use crate::system::event::{Events, send_event};
 
 /// Sampling configuration
 /// /// Measurement timing is calculated for reliable readings at low speeds:
@@ -168,7 +167,12 @@ pub fn stop_encoder_readings() {
 ///
 /// Takes periodic measurements using PWM input capture on rising edges.
 #[embassy_executor::task]
-pub async fn encoder_read(resources: MotorEncoderResources) {
+pub async fn encoder_read(
+    left_encoder_slice: Peri<'static, PWM_SLICE3>,
+    left_encoder_pin: Peri<'static, PIN_7>,
+    right_encoder_slice: Peri<'static, PWM_SLICE4>,
+    right_encoder_pin: Peri<'static, PIN_9>,
+) {
     /*
     {
         // testing, if we can detect edges on the left encoder
@@ -207,15 +211,15 @@ pub async fn encoder_read(resources: MotorEncoderResources) {
     config.divider = 1.into();
     config.phase_correct = false;
     let left_encoder = Pwm::new_input(
-        resources.left_encoder_slice,
-        resources.left_encoder_pin,
+        left_encoder_slice,
+        left_encoder_pin,
         Pull::None,
         InputMode::RisingEdge,
         config.clone(),
     );
     let right_encoder = Pwm::new_input(
-        resources.right_encoder_slice,
-        resources.right_encoder_pin,
+        right_encoder_slice,
+        right_encoder_pin,
         Pull::None,
         InputMode::RisingEdge,
         config,

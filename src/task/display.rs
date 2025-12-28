@@ -36,7 +36,7 @@ use heapless::{String, Vec};
 use micromath::F32Ext;
 use ssd1306_async::{I2CDisplayInterface, Ssd1306, prelude::*};
 
-use crate::system::resources::I2c0BusShared;
+use crate::I2cBusShared;
 
 /// Display actions that can be requested by other tasks
 pub enum DisplayAction {
@@ -128,7 +128,7 @@ type PointsBuffer = heapless::Vec<SweepPoint, MAX_POINTS>;
 /// - Remove points within ±0.1 radians of sweep line
 /// - Keep fixed maximum number of points (MAX_POINTS)
 #[embassy_executor::task]
-pub async fn display(i2c_bus: &'static I2c0BusShared) {
+pub async fn display(i2c_bus: &'static I2cBusShared) {
     let i2c = I2cDevice::new(i2c_bus);
     let interface = I2CDisplayInterface::new(i2c);
     let mut display =

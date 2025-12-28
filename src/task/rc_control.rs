@@ -4,7 +4,10 @@
 
 use defmt::info;
 use embassy_futures::select::{Either, select};
-use embassy_rp::gpio::{AnyPin, Input, Level, Pull};
+use embassy_rp::{
+    Peri,
+    gpio::{AnyPin, Input, Level, Pull},
+};
 use embassy_time::{Duration, Timer};
 
 use crate::system::event::{ButtonId, Events, send_event};
@@ -17,7 +20,7 @@ const DEBOUNCE_DURATION: Duration = Duration::from_millis(30);
 
 /// Button handler task
 #[embassy_executor::task(pool_size = 4)]
-pub async fn rc_button_handle(pin: AnyPin, id: ButtonId) {
+pub async fn rc_button_handle(pin: Peri<'static, AnyPin>, id: ButtonId) {
     let mut btn = Input::new(pin, Pull::Down);
     handle_button(&mut btn, id).await;
 }

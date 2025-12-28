@@ -13,13 +13,14 @@
 //! - But we have inverted the sensor output in hardware
 //! - Edge detection ensures immediate response to changes
 
-use embassy_rp::gpio::{Input, Pull};
+use embassy_rp::{
+    Peri,
+    gpio::{Input, Pull},
+    peripherals::{PIN_6, PIN_26},
+};
 use embassy_time::{Duration, Timer};
 
-use crate::system::{
-    event::{Events, send_event},
-    resources::IRSensorResources,
-};
+use crate::system::event::{Events, send_event};
 
 /// Debounce delay to filter out noise
 const DEBOUNCE_DELAY: Duration = Duration::from_millis(100);
@@ -29,10 +30,10 @@ const DEBOUNCE_DELAY: Duration = Duration::from_millis(100);
 /// Uses edge detection to respond to changes in sensor state, with debouncing
 /// to filter out noise. The sensor outputs low (0) when an obstacle is detected.
 #[embassy_executor::task]
-pub async fn ir_obstacle_detect(r: IRSensorResources) {
+pub async fn ir_obstacle_detect(_ir_left_pin: Peri<'static, PIN_6>, ir_right_pin: Peri<'static, PIN_26>) {
     // Initialize IR sensor pin as digital input, with pull-down resistor. No actual floating condition is expected, as long as
     // the sensor(s) are connected properly, since they will always be either high or low.
-    let mut ir_right = Input::new(r.ir_right_pin, Pull::Down);
+    let mut ir_right = Input::new(ir_right_pin, Pull::Down);
 
     // perform initial measure to ensure initial state is caught
     Timer::after(DEBOUNCE_DELAY).await;

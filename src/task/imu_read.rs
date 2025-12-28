@@ -24,6 +24,10 @@ use core::f32::consts::PI;
 use defmt::info;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_futures::select::{Either, select};
+use embassy_rp::{
+    Peri,
+    peripherals::{PIN_3, PIN_8},
+};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Delay, Duration, Instant, Timer};
 use micromath::F32Ext;
@@ -37,9 +41,9 @@ use mpu6050_dmp::{
     yaw_pitch_roll::YawPitchRoll,
 };
 
-use crate::system::{
-    event::{Events, send_event},
-    resources::I2c0BusShared,
+use crate::{
+    I2cBusShared,
+    system::event::{Events, send_event},
 };
 
 // Sampling configuration
@@ -125,7 +129,11 @@ impl OrientationReference {
 
 /// Embassy task that handles IMU measurements
 #[embassy_executor::task]
-pub async fn inertial_measurement_read(i2c_bus: &'static I2c0BusShared) {
+pub async fn inertial_measurement_read(
+    i2c_bus: &'static I2cBusShared,
+    _imu_int: Peri<'static, PIN_8>,
+    _imu_add: Peri<'static, PIN_3>,
+) {
     let i2c = I2cDevice::new(i2c_bus);
 
     // Initialize MPU9250
@@ -148,7 +156,7 @@ pub async fn inertial_measurement_read(i2c_bus: &'static I2c0BusShared) {
     sensor.enable_fifo().await.unwrap();
 
     info!("Calibrating IMU...");
-    let calibration_params = mpu6050_dmp::calibration::CalibrationParameters::new(
+    let _calibration_params = mpu6050_dmp::calibration::CalibrationParameters::new(
         mpu6050_dmp::accel::AccelFullScale::G2,
         mpu6050_dmp::gyro::GyroFullScale::Deg2000,
         mpu6050_dmp::calibration::ReferenceGravity::YP,

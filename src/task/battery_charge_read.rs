@@ -28,14 +28,11 @@
 //! - Lock acquired only during reading
 //! - Quick release ensures other tasks can access ADC
 
-use embassy_rp::{adc::Channel, gpio::Pull};
+use embassy_rp::adc::{Adc, Async as AdcAsync, Channel};
 use embassy_time::{Duration, Timer};
 use moving_median::MovingMedian;
 
-use crate::system::{
-    event,
-    resources::{BatteryChargeResources, get_adc},
-};
+use crate::system::event;
 
 /// Time between voltage measurements (20s provides good balance of
 /// responsiveness and power efficiency)
@@ -63,10 +60,7 @@ const MEDIAN_WINDOW_SIZE: usize = 9;
 /// Battery monitoring task that continuously measures voltage and
 /// reports charge level as a percentage
 #[embassy_executor::task]
-pub async fn battery_charge_read(r: BatteryChargeResources) {
-    let vsys_in = r.vsys_pin;
-    let mut channel = Channel::new_pin(vsys_in, Pull::None);
-
+pub async fn battery_charge_read(mut adc: Adc<'static, AdcAsync>, mut channel: Channel<'static>) {
     // Setup median filter for smoothing voltage readings
     let mut median_filter = MovingMedian::<f32, MEDIAN_WINDOW_SIZE>::new();
 
@@ -74,21 +68,9 @@ pub async fn battery_charge_read(r: BatteryChargeResources) {
     Timer::after(Duration::from_millis(500)).await;
 
     loop {
-        // Read voltage with ADC lock management:
-        // 1. Acquire ADC lock (automatically released when scope ends)
-        // 2. Perform ADC reading
-        // 3. Convert raw ADC value to actual voltage
-        let voltage = {
-            // SAFETY: ADC lock is automatically released when this scope ends,
-            // ensuring other tasks can access the ADC when needed
-            let mut adc_guard = get_adc().lock().await;
-            let adc = adc_guard.as_mut().unwrap();
-
-            // Read ADC value and convert to voltage
-            // Formula: (adc_value * reference_voltage * voltage_divider_ratio) / adc_resolution
-            f32::from(adc.read(&mut channel).await.unwrap_or(0)) * REF_VOLTAGE * V_DIVIDER_RATIO / ADC_RANGE
-            // Lock is automatically dropped here when scope ends
-        };
+        // Read ADC value and convert to voltage
+        // Formula: (adc_value * reference_voltage * voltage_divider_ratio) / adc_resolution
+        let voltage = f32::from(adc.read(&mut channel).await.unwrap_or(0)) * REF_VOLTAGE * V_DIVIDER_RATIO / ADC_RANGE;
 
         // Apply median filtering to reduce noise in readings
         median_filter.add_value(voltage);
