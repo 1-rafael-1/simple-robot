@@ -9,6 +9,19 @@
 //! 1. Standby - not reading
 //! 2. Active - continuous IMU readings at 100Hz with AHRS fusion
 //!
+//! # Orientation Reference Frame
+//!
+//! **Important:** This implementation provides **absolute orientation** values, not relative to startup:
+//! - **Yaw**: Absolute compass heading (0-360° or -180 to +180°) based on magnetometer
+//! - **Pitch**: Absolute forward/backward tilt relative to gravity
+//! - **Roll**: Absolute left/right tilt relative to gravity
+//!
+//! The magnetometer provides an absolute heading reference, preventing yaw drift over time.
+//! This is different from relative orientation systems that zero at startup and drift over time.
+//!
+//! For navigation tasks that need relative orientation (e.g., "turn 90° from current heading"),
+//! compute deltas between current and target yaw values in your control logic.
+//!
 //! # AHRS Filter Configuration
 //!
 //! The Madgwick filter is configured for an indoor tracked robot with:
@@ -68,15 +81,23 @@ pub struct ImuMeasurement {
 }
 
 /// 3D orientation using Euler angles (derived from quaternion via AHRS)
+///
+/// **Important:** These are **absolute** orientation values:
+/// - Yaw is absolute compass heading from magnetometer (not relative to startup)
+/// - Pitch and roll are absolute tilts relative to gravity
+///
+/// For relative motion control (e.g., "turn 90° left"), compute the difference
+/// between current and target yaw values in your control logic.
 #[derive(Debug, Clone, Copy)]
 pub struct Orientation {
-    /// Rotation around vertical axis (turning left/right) in degrees
+    /// Absolute rotation around vertical axis (compass heading) in degrees
     /// Range: -180 to +180, or normalized to 0-360
+    /// **Note**: This is absolute heading from magnetometer, NOT relative to startup position
     pub yaw: f32,
-    /// Forward/backward tilt in degrees
+    /// Absolute forward/backward tilt relative to gravity in degrees
     /// Positive = nose up, Negative = nose down
     pub pitch: f32,
-    /// Left/right tilt in degrees
+    /// Absolute left/right tilt relative to gravity in degrees
     /// Positive = right side down, Negative = left side down
     pub roll: f32,
 }
@@ -109,30 +130,9 @@ pub fn stop_imu_readings() {
 /// - Pitch (Y-axis): nose up/down
 /// - Roll (X-axis): banking left/right
 fn quaternion_to_euler(q: &UnitQuaternion<f32>) -> Orientation {
-    // Extract quaternion components (w, x, y, z)
-    let quat = q.quaternion();
-    let w = quat.w;
-    let x = quat.i;
-    let y = quat.j;
-    let z = quat.k;
-
-    // Roll (x-axis rotation) - banking left/right
-    let sinr_cosp = 2.0 * (w * x + y * z);
-    let cosr_cosp = 1.0 - 2.0 * (x * x + y * y);
-    let roll = libm::atan2f(sinr_cosp, cosr_cosp);
-
-    // Pitch (y-axis rotation) - nose up/down
-    let sinp = 2.0 * (w * y - z * x);
-    let pitch = if libm::fabsf(sinp) >= 1.0 {
-        libm::copysignf(PI / 2.0, sinp) // Use 90 degrees if out of range
-    } else {
-        libm::asinf(sinp)
-    };
-
-    // Yaw (z-axis rotation) - heading/compass direction
-    let siny_cosp = 2.0 * (w * z + x * y);
-    let cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
-    let yaw = libm::atan2f(siny_cosp, cosy_cosp);
+    // Use nalgebra's built-in euler_angles() method
+    // Returns (roll, pitch, yaw) in radians
+    let (roll, pitch, yaw) = q.euler_angles();
 
     // Convert to degrees and round to 0.1 degree precision
     Orientation {
@@ -191,9 +191,10 @@ pub async fn inertial_measurement_read(
 
     if let Err(e) = sensor.configure_accelerometer(accel_config).await {
         info!("Failed to configure accelerometer: {:?}", e);
-    } else {
-        info!("Accelerometer: ±4g, 111Hz DLPF, ~102Hz sample rate");
+        info!("Sensor configuration failed - IMU task terminating");
+        return;
     }
+    info!("Accelerometer: ±4g, 111Hz DLPF, ~102Hz sample rate");
 
     // Configure gyroscope for tracked robot:
     // ±500°/s range: Captures fast rotations (tracks can spin quickly)
@@ -208,9 +209,10 @@ pub async fn inertial_measurement_read(
 
     if let Err(e) = sensor.configure_gyroscope(gyro_config).await {
         info!("Failed to configure gyroscope: {:?}", e);
-    } else {
-        info!("Gyroscope: ±500°/s, 51Hz DLPF, ~102Hz sample rate");
+        info!("Sensor configuration failed - IMU task terminating");
+        return;
     }
+    info!("Gyroscope: ±500°/s, 51Hz DLPF, ~102Hz sample rate");
 
     // Configure magnetometer for absolute heading:
     // Continuous 100Hz mode for smooth compass data
@@ -221,9 +223,10 @@ pub async fn inertial_measurement_read(
 
     if let Err(e) = sensor.init_magnetometer(mag_config, &mut delay).await {
         info!("Failed to initialize magnetometer: {:?}", e);
-    } else {
-        info!("Magnetometer: Continuous 100Hz mode");
+        info!("Sensor configuration failed - IMU task terminating");
+        return;
     }
+    info!("Magnetometer: Continuous 100Hz mode");
 
     Timer::after(Duration::from_millis(100)).await;
     info!("All sensors configured!");
@@ -250,33 +253,12 @@ pub async fn inertial_measurement_read(
     info!("  Beta: {} (balanced for tracked robot)", BETA);
     info!("  Mode: 9-axis fusion (gyro + accel + mag)");
 
-    // Gyro bias calibration
-    info!("Calibrating gyroscope... Keep device stationary for 3 seconds!");
-    Timer::after(Duration::from_secs(3)).await;
+    // TODO: Load gyroscope bias calibration values from flash memory
+    // For now, assume zero bias (will be implemented as dedicated calibration feature)
+    let gyro_bias_x = 0.0f32;
+    let gyro_bias_y = 0.0f32;
+    let gyro_bias_z = 0.0f32;
 
-    let mut gyro_bias_x = 0.0f32;
-    let mut gyro_bias_y = 0.0f32;
-    let mut gyro_bias_z = 0.0f32;
-    const CALIBRATION_SAMPLES: u32 = 100;
-
-    for _ in 0..CALIBRATION_SAMPLES {
-        if let Ok(gyro_data) = sensor.read_gyroscope().await {
-            gyro_bias_x += gyro_data.x;
-            gyro_bias_y += gyro_data.y;
-            gyro_bias_z += gyro_data.z;
-        }
-        Timer::after(Duration::from_millis(10)).await;
-    }
-
-    gyro_bias_x /= CALIBRATION_SAMPLES as f32;
-    gyro_bias_y /= CALIBRATION_SAMPLES as f32;
-    gyro_bias_z /= CALIBRATION_SAMPLES as f32;
-
-    info!("Gyro bias calibration complete:");
-    info!("  X: {} °/s", gyro_bias_x);
-    info!("  Y: {} °/s", gyro_bias_y);
-    info!("  Z: {} °/s", gyro_bias_z);
-    info!("");
     info!("Starting AHRS processing at {} Hz", SAMPLE_RATE_HZ);
 
     'command: loop {
@@ -285,6 +267,12 @@ pub async fn inertial_measurement_read(
             ImuCommand::Start => {
                 // Enter reading loop
                 info!("Starting IMU reading");
+
+                // Track consecutive sensor read failures per sensor
+                let mut accel_consecutive_failures = 0u32;
+                let mut gyro_consecutive_failures = 0u32;
+                let mut mag_consecutive_failures = 0u32;
+                const MAX_CONSECUTIVE_FAILURES: u32 = 10;
 
                 loop {
                     match select(IMU_CONTROL.wait(), Timer::after(SAMPLE_INTERVAL)).await {
@@ -296,14 +284,42 @@ pub async fn inertial_measurement_read(
                         Either::Second(_) => {
                             // Read accelerometer (in g-force)
                             let accel_data = match sensor.read_accelerometer().await {
-                                Ok(data) => Vector3::new(data.x, data.y, data.z),
-                                Err(_) => continue,
+                                Ok(data) => {
+                                    accel_consecutive_failures = 0;
+                                    Vector3::new(data.x, data.y, data.z)
+                                }
+                                Err(e) => {
+                                    accel_consecutive_failures += 1;
+                                    info!(
+                                        "Failed to read accelerometer: {:?} (failure {} of {})",
+                                        e, accel_consecutive_failures, MAX_CONSECUTIVE_FAILURES
+                                    );
+                                    if accel_consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                                        info!("Max consecutive accelerometer failures reached - IMU task terminating");
+                                        return;
+                                    }
+                                    continue;
+                                }
                             };
 
                             // Read gyroscope (in degrees/second) and apply bias correction
                             let gyro_data = match sensor.read_gyroscope().await {
-                                Ok(data) => data,
-                                Err(_) => continue,
+                                Ok(data) => {
+                                    gyro_consecutive_failures = 0;
+                                    data
+                                }
+                                Err(e) => {
+                                    gyro_consecutive_failures += 1;
+                                    info!(
+                                        "Failed to read gyroscope: {:?} (failure {} of {})",
+                                        e, gyro_consecutive_failures, MAX_CONSECUTIVE_FAILURES
+                                    );
+                                    if gyro_consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                                        info!("Max consecutive gyroscope failures reached - IMU task terminating");
+                                        return;
+                                    }
+                                    continue;
+                                }
                             };
 
                             let gyro_x = gyro_data.x - gyro_bias_x;
@@ -315,15 +331,30 @@ pub async fn inertial_measurement_read(
 
                             // Read magnetometer (in μT)
                             let mag_data = match sensor.read_magnetometer().await {
-                                Ok(data) => Vector3::new(data.x, data.y, data.z),
-                                Err(_) => continue,
+                                Ok(data) => {
+                                    mag_consecutive_failures = 0;
+                                    Vector3::new(data.x, data.y, data.z)
+                                }
+                                Err(e) => {
+                                    mag_consecutive_failures += 1;
+                                    info!(
+                                        "Failed to read magnetometer: {:?} (failure {} of {})",
+                                        e, mag_consecutive_failures, MAX_CONSECUTIVE_FAILURES
+                                    );
+                                    if mag_consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                                        info!("Max consecutive magnetometer failures reached - IMU task terminating");
+                                        return;
+                                    }
+                                    continue;
+                                }
                             };
 
                             // Check if magnetometer reading is reasonable
                             // Typical Earth's magnetic field: 25-65 μT
-                            // Allow wider range for poor calibration or magnetic interference
+                            // Lower bound: 20.0 μT rejects clearly invalid readings (below Earth's minimum)
+                            // Upper bound: 200.0 μT allows for magnetic interference while rejecting sensor errors
                             let mag_magnitude = mag_data.norm();
-                            let use_magnetometer = mag_magnitude > 10.0 && mag_magnitude < 200.0;
+                            let use_magnetometer = mag_magnitude > 20.0 && mag_magnitude < 200.0;
 
                             // Update Madgwick filter
                             let result = if use_magnetometer {
