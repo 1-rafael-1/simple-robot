@@ -19,10 +19,8 @@ use core::convert::Infallible;
 
 use defmt::info;
 use embassy_rp::{
-    Peri,
     gpio::{self, Output},
-    peripherals::{PIN_27, PIN_28, PWM_SLICE5, PWM_SLICE6},
-    pwm::{self, Config, Pwm, PwmError},
+    pwm::{Pwm, PwmError},
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
 use embassy_time::{Duration, Timer};
@@ -415,39 +413,6 @@ impl Motor {
     }
 }
 
-/// Initializes both motors with configured PWM (10kHz) and GPIO pins
-#[allow(clippy::too_many_arguments)]
-fn setup_motors(
-    left_slice: Peri<'static, PWM_SLICE6>,
-    left_pwm_pin: Peri<'static, PIN_28>,
-    left_forward: Output<'static>,
-    left_backward: Output<'static>,
-    right_slice: Peri<'static, PWM_SLICE5>,
-    right_pwm_pin: Peri<'static, PIN_27>,
-    right_forward: Output<'static>,
-    right_backward: Output<'static>,
-) -> Result<(Motor, Motor), MotorError<Infallible, Infallible, PwmError>> {
-    // Configure PWM for 10kHz operation
-    let desired_freq_hz = 10_000;
-    let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
-    let divider = ((clock_freq_hz / desired_freq_hz) / 65535 + 1) as u8;
-    let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
-
-    let mut pwm_config = Config::default();
-    pwm_config.divider = divider.into();
-    pwm_config.top = period;
-
-    // Initialize left motor with its pins
-    let left_pwm = pwm::Pwm::new_output_a(left_slice, left_pwm_pin, pwm_config.clone());
-    let left_motor = Motor::new(left_forward, left_backward, left_pwm)?;
-
-    // Initialize right motor with its pins
-    let right_pwm = pwm::Pwm::new_output_b(right_slice, right_pwm_pin, pwm_config);
-    let right_motor = Motor::new(right_forward, right_backward, right_pwm)?;
-
-    Ok((left_motor, right_motor))
-}
-
 /// Detects if robot is performing a stationary rotation
 fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
     left_speed == -right_speed && left_speed != 0
@@ -457,27 +422,18 @@ fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
 #[embassy_executor::task]
 pub async fn drive(
     mut standby: Output<'static>,
-    left_slice: Peri<'static, PWM_SLICE6>,
-    left_pwm_pin: Peri<'static, PIN_28>,
+    left_pwm: Pwm<'static>,
     left_forward: Output<'static>,
     left_backward: Output<'static>,
-    right_slice: Peri<'static, PWM_SLICE5>,
-    right_pwm_pin: Peri<'static, PIN_27>,
+    right_pwm: Pwm<'static>,
     right_forward: Output<'static>,
     right_backward: Output<'static>,
 ) {
     // Initialize motors
-    let (left_motor, right_motor) = setup_motors(
-        left_slice,
-        left_pwm_pin,
-        left_forward,
-        left_backward,
-        right_slice,
-        right_pwm_pin,
-        right_forward,
-        right_backward,
-    )
-    .unwrap();
+    let (left_motor, right_motor) = (
+        Motor::new(left_forward, left_backward, left_pwm).unwrap(),
+        Motor::new(right_forward, right_backward, right_pwm).unwrap(),
+    );
 
     // Initialize mutexes
     critical_section::with(|_| {

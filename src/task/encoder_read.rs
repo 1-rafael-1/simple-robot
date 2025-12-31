@@ -21,12 +21,7 @@
 //! - 0.1 RPS (6 RPM) deadband threshold
 
 use defmt::{Format, info};
-use embassy_rp::{
-    Peri,
-    gpio::Pull,
-    peripherals::{PIN_7, PIN_9, PWM_SLICE3, PWM_SLICE4},
-    pwm::{Config, InputMode, Pwm},
-};
+use embassy_rp::pwm::{Config, Pwm};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
 use moving_median::MovingMedian;
@@ -163,68 +158,22 @@ pub fn stop_encoder_readings() {
     ENCODER_CONTROL.signal(EncoderCommand::Stop);
 }
 
+/// Configures PWM inputs for encoder pulse counting
+///
+/// This function should be called from main.rs to set up PWM input configuration.
+/// Returns a PWM Config object for encoder pulse counting on rising edges.
+pub fn configure_encoder_pwm() -> Config {
+    let mut config = Config::default();
+    config.divider = 1.into();
+    config.phase_correct = false;
+    config
+}
+
 /// Primary encoder measurement task
 ///
 /// Takes periodic measurements using PWM input capture on rising edges.
 #[embassy_executor::task]
-pub async fn encoder_read(
-    left_encoder_slice: Peri<'static, PWM_SLICE3>,
-    left_encoder_pin: Peri<'static, PIN_7>,
-    right_encoder_slice: Peri<'static, PWM_SLICE4>,
-    right_encoder_pin: Peri<'static, PIN_9>,
-) {
-    /*
-    {
-        // testing, if we can detect edges on the left encoder
-        info!("Testing encoder with direct GPIO reading");
-
-        // Convert the encoder pin to a regular input pin
-        use embassy_rp::gpio::Input;
-        let mut left_encoder_gpio = Input::new(resources.left_encoder_pin, Pull::None);
-
-        // Simple state machine to count edges
-        let mut last_level = left_encoder_gpio.get_level();
-        let mut manual_count = 0;
-
-        for i in 0..50 {
-            left_encoder_gpio.wait_for_any_edge().await;
-            let current_level = left_encoder_gpio.get_level();
-
-            if current_level != last_level {
-                manual_count += 1;
-                use embassy_rp::gpio::Level;
-                info!(
-                    "Edge detected! Count: {}, Level: {}",
-                    manual_count,
-                    match current_level {
-                        Level::High => "High",
-                        Level::Low => "Low",
-                    }
-                );
-            }
-            last_level = current_level;
-        }
-    }
-    */
-    // Configure PWM inputs for pulse counting on rising edges
-    let mut config = Config::default();
-    config.divider = 1.into();
-    config.phase_correct = false;
-    let left_encoder = Pwm::new_input(
-        left_encoder_slice,
-        left_encoder_pin,
-        Pull::None,
-        InputMode::RisingEdge,
-        config.clone(),
-    );
-    let right_encoder = Pwm::new_input(
-        right_encoder_slice,
-        right_encoder_pin,
-        Pull::None,
-        InputMode::RisingEdge,
-        config,
-    );
-
+pub async fn encoder_read(left_encoder: Pwm<'static>, right_encoder: Pwm<'static>) {
     let mut left_filter = SpeedFilter::new();
     let mut right_filter = SpeedFilter::new();
 
