@@ -59,6 +59,19 @@ bind_interrupts!(pub struct Irqs {
     I2C0_IRQ => I2cInterruptHandler<I2C0>;
 });
 
+/// Motor driver peripheral pins
+struct MotorDriverPins {
+    pwm_slice6: Peri<'static, embassy_rp::peripherals::PWM_SLICE6>,
+    pin_28: Peri<'static, embassy_rp::peripherals::PIN_28>,
+    pwm_slice5: Peri<'static, embassy_rp::peripherals::PWM_SLICE5>,
+    pin_27: Peri<'static, embassy_rp::peripherals::PIN_27>,
+    standby: Peri<'static, embassy_rp::peripherals::PIN_22>,
+    left_forward: Peri<'static, embassy_rp::peripherals::PIN_21>,
+    left_backward: Peri<'static, embassy_rp::peripherals::PIN_20>,
+    right_forward: Peri<'static, embassy_rp::peripherals::PIN_19>,
+    right_backward: Peri<'static, embassy_rp::peripherals::PIN_18>,
+}
+
 /// Public type for shared I2C bus
 pub type I2cBusShared = Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, embassy_rp::i2c::Async>>;
 
@@ -77,22 +90,26 @@ async fn main(spawner: Spawner) {
     init_rc_buttons(&spawner, p.PIN_10, p.PIN_16, p.PIN_11, p.PIN_17);
     init_motor_driver(
         &spawner,
-        p.PWM_SLICE6,
-        p.PIN_28,
-        p.PWM_SLICE5,
-        p.PIN_27,
-        p.PIN_22,
-        p.PIN_21,
-        p.PIN_20,
-        p.PIN_19,
-        p.PIN_18,
+        MotorDriverPins {
+            pwm_slice6: p.PWM_SLICE6,
+            pin_28: p.PIN_28,
+            pwm_slice5: p.PWM_SLICE5,
+            pin_27: p.PIN_27,
+            standby: p.PIN_22,
+            left_forward: p.PIN_21,
+            left_backward: p.PIN_20,
+            right_forward: p.PIN_19,
+            right_backward: p.PIN_18,
+        },
     );
     init_autonomous_drive(&spawner);
     init_ir_obstacle_detect(&spawner, p.PIN_26);
     init_ultrasonic_sweep(&spawner, p.PIO0, p.PIN_5, p.PIN_15, p.PIN_14);
+
     let i2c_bus = init_i2c_bus(p.I2C0, p.PIN_13, p.PIN_12);
     init_display(&spawner, i2c_bus);
     init_imu_read(&spawner, i2c_bus, p.PIN_8, p.PIN_3);
+
     init_encoder_read(&spawner, p.PWM_SLICE3, p.PIN_7, p.PWM_SLICE4, p.PIN_9);
     init_motion_correction(&spawner);
     init_inactivity_tracker(&spawner);
@@ -152,19 +169,8 @@ fn init_rc_buttons(
 }
 
 /// Initialize motor driver with PWM and direction control
-fn init_motor_driver(
-    spawner: &Spawner,
-    pwm_slice6: Peri<'static, embassy_rp::peripherals::PWM_SLICE6>,
-    pin_28: Peri<'static, embassy_rp::peripherals::PIN_28>,
-    pwm_slice5: Peri<'static, embassy_rp::peripherals::PWM_SLICE5>,
-    pin_27: Peri<'static, embassy_rp::peripherals::PIN_27>,
-    pin_22: Peri<'static, embassy_rp::peripherals::PIN_22>,
-    pin_21: Peri<'static, embassy_rp::peripherals::PIN_21>,
-    pin_20: Peri<'static, embassy_rp::peripherals::PIN_20>,
-    pin_19: Peri<'static, embassy_rp::peripherals::PIN_19>,
-    pin_18: Peri<'static, embassy_rp::peripherals::PIN_18>,
-) {
-    let motor_standby = Output::new(pin_22, Level::Low);
+fn init_motor_driver(spawner: &Spawner, pins: MotorDriverPins) {
+    let motor_standby = Output::new(pins.standby, Level::Low);
 
     let desired_freq_hz = 10_000u32;
     let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
@@ -174,13 +180,13 @@ fn init_motor_driver(
     motor_pwm_config.divider = divider.into();
     motor_pwm_config.top = period;
 
-    let left_pwm = Pwm::new_output_a(pwm_slice6, pin_28, motor_pwm_config.clone());
-    let right_pwm = Pwm::new_output_b(pwm_slice5, pin_27, motor_pwm_config);
+    let left_pwm = Pwm::new_output_a(pins.pwm_slice6, pins.pin_28, motor_pwm_config.clone());
+    let right_pwm = Pwm::new_output_b(pins.pwm_slice5, pins.pin_27, motor_pwm_config);
 
-    let left_forward = Output::new(pin_21, Level::Low);
-    let left_backward = Output::new(pin_20, Level::Low);
-    let right_forward = Output::new(pin_19, Level::Low);
-    let right_backward = Output::new(pin_18, Level::Low);
+    let left_forward = Output::new(pins.left_forward, Level::Low);
+    let left_backward = Output::new(pins.left_backward, Level::Low);
+    let right_forward = Output::new(pins.right_forward, Level::Low);
+    let right_backward = Output::new(pins.right_backward, Level::Low);
 
     spawner.must_spawn(drive(
         motor_standby,
