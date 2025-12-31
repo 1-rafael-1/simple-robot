@@ -12,11 +12,11 @@ use embassy_rp::{
     bind_interrupts,
     block::ImageDef,
     config::Config,
-    gpio::{Level, Output, Pull},
+    gpio::{Input, Level, Output, Pull},
     i2c::{Config as I2cConfig, I2c, InterruptHandler as I2cInterruptHandler},
     peripherals::{I2C0, PIO0},
     pio::InterruptHandler as PioInterruptHandler,
-    pwm::Pwm,
+    pwm::{InputMode, Pwm},
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use panic_probe as _;
@@ -25,10 +25,19 @@ use static_cell::StaticCell;
 use crate::{
     system::event::ButtonId,
     task::{
-        autonomous_drive::autonomous_drive, battery_charge_read::battery_charge_read, display::display, drive::drive,
-        encoder_read::encoder_read, imu_read::inertial_measurement_read, ir_obstacle_detect::ir_obstacle_detect,
-        monitor_motion::motion_correction_control, orchestrate::orchestrate, rc_control::rc_button_handle,
-        rgb_led_indicate::rgb_led_indicate, sweep_ultrasonic::ultrasonic_sweep, track_inactivity::track_inactivity,
+        autonomous_drive::autonomous_drive,
+        battery_charge_read::battery_charge_read,
+        display::display,
+        drive::drive,
+        encoder_read::{self, encoder_read},
+        imu_read::inertial_measurement_read,
+        ir_obstacle_detect::ir_obstacle_detect,
+        monitor_motion::motion_correction_control,
+        orchestrate::orchestrate,
+        rc_control::rc_button_handle,
+        rgb_led_indicate::rgb_led_indicate,
+        sweep_ultrasonic::{self, ultrasonic_sweep},
+        track_inactivity::track_inactivity,
     },
 };
 
@@ -72,39 +81,49 @@ async fn main(spawner: Spawner) {
     spawner.must_spawn(rgb_led_indicate(pwm_red, pwm_green));
 
     // RC button A
-    let btn_a = p.PIN_10;
-    spawner.must_spawn(rc_button_handle(btn_a.into(), ButtonId::A));
+    let btn_a = Input::new(p.PIN_10, Pull::Down);
+    spawner.must_spawn(rc_button_handle(btn_a, ButtonId::A));
 
     // RC button B
-    let btn_b = p.PIN_16;
-    spawner.must_spawn(rc_button_handle(btn_b.into(), ButtonId::B));
+    let btn_b = Input::new(p.PIN_16, Pull::Down);
+    spawner.must_spawn(rc_button_handle(btn_b, ButtonId::B));
 
     // RC button C
-    let btn_c = p.PIN_11;
-    spawner.must_spawn(rc_button_handle(btn_c.into(), ButtonId::C));
+    let btn_c = Input::new(p.PIN_11, Pull::Down);
+    spawner.must_spawn(rc_button_handle(btn_c, ButtonId::C));
 
     // RC button D
-    let btn_d = p.PIN_17;
-    spawner.must_spawn(rc_button_handle(btn_d.into(), ButtonId::D));
+    let btn_d = Input::new(p.PIN_17, Pull::Down);
+    spawner.must_spawn(rc_button_handle(btn_d, ButtonId::D));
 
     // Motor driver
     let motor_standby = Output::new(p.PIN_22, Level::Low);
-    let left_pwm_slice = p.PWM_SLICE6;
-    let left_pwm_pin = p.PIN_28;
+
+    // Configure PWM for motor control at 10kHz
+    let desired_freq_hz = 10_000u32;
+    let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
+    let divider = ((clock_freq_hz / desired_freq_hz) / 65535 + 1) as u8;
+    let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
+    let mut motor_pwm_config = embassy_rp::pwm::Config::default();
+    motor_pwm_config.divider = divider.into();
+    motor_pwm_config.top = period;
+
+    // Create configured PWM outputs for motors
+    let left_pwm = embassy_rp::pwm::Pwm::new_output_a(p.PWM_SLICE6, p.PIN_28, motor_pwm_config.clone());
+    let right_pwm = embassy_rp::pwm::Pwm::new_output_b(p.PWM_SLICE5, p.PIN_27, motor_pwm_config);
+
+    // Create direction control GPIO pins
     let left_forward = Output::new(p.PIN_21, Level::Low);
     let left_backward = Output::new(p.PIN_20, Level::Low);
-    let right_pwm_slice = p.PWM_SLICE5;
-    let right_pwm_pin = p.PIN_27;
     let right_forward = Output::new(p.PIN_19, Level::Low);
     let right_backward = Output::new(p.PIN_18, Level::Low);
+
     spawner.must_spawn(drive(
         motor_standby,
-        left_pwm_slice,
-        left_pwm_pin,
+        left_pwm,
         left_forward,
         left_backward,
-        right_pwm_slice,
-        right_pwm_pin,
+        right_pwm,
         right_forward,
         right_backward,
     ));
@@ -113,16 +132,15 @@ async fn main(spawner: Spawner) {
     spawner.must_spawn(autonomous_drive());
 
     // IR obstacle detection
-    let ir_left = p.PIN_6;
-    let ir_right = p.PIN_26;
-    spawner.must_spawn(ir_obstacle_detect(ir_left, ir_right));
+    let ir_right = Input::new(p.PIN_26, Pull::Down);
+    spawner.must_spawn(ir_obstacle_detect(ir_right));
 
     // Ultrasonic sensor sweep
-    let servo_pio = p.PIO0;
-    let servo_pin = p.PIN_5;
-    let us_trigger = p.PIN_15;
-    let us_echo = p.PIN_14;
-    spawner.must_spawn(ultrasonic_sweep(servo_pio, servo_pin, us_trigger, us_echo));
+    let us_trigger = Output::new(p.PIN_15, Level::Low);
+    let us_echo = Input::new(p.PIN_14, Pull::None);
+    let sensor = sweep_ultrasonic::setup_ultrasonic_sensor(us_trigger, us_echo);
+    let servo = sweep_ultrasonic::setup_servo(p.PIO0, p.PIN_5);
+    spawner.must_spawn(ultrasonic_sweep(sensor, servo));
 
     // I2C bus (shared between display and IMU)
     let mut i2c_config = I2cConfig::default();
@@ -135,16 +153,22 @@ async fn main(spawner: Spawner) {
     spawner.must_spawn(display(i2c_bus));
 
     // Motor encoders
-    let left_encoder_slice = p.PWM_SLICE3;
-    let left_encoder_pin = p.PIN_7;
-    let right_encoder_slice = p.PWM_SLICE4;
-    let right_encoder_pin = p.PIN_9;
-    spawner.must_spawn(encoder_read(
-        left_encoder_slice,
-        left_encoder_pin,
-        right_encoder_slice,
-        right_encoder_pin,
-    ));
+    let encoder_pwm_config = encoder_read::configure_encoder_pwm();
+    let left_encoder = Pwm::new_input(
+        p.PWM_SLICE3,
+        p.PIN_7,
+        Pull::None,
+        InputMode::RisingEdge,
+        encoder_pwm_config.clone(),
+    );
+    let right_encoder = Pwm::new_input(
+        p.PWM_SLICE4,
+        p.PIN_9,
+        Pull::None,
+        InputMode::RisingEdge,
+        encoder_pwm_config,
+    );
+    spawner.must_spawn(encoder_read(left_encoder, right_encoder));
 
     // IMU (Inertial Measurement Unit)
     let imu_int = p.PIN_8;

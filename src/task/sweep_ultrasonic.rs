@@ -11,8 +11,8 @@ use defmt_rtt as _;
 use embassy_futures::select::{Either, select};
 use embassy_rp::{
     Peri,
-    gpio::{Input, Level, Output, Pull},
-    peripherals::{PIN_5, PIN_14, PIN_15, PIO0},
+    gpio::{Input, Output},
+    peripherals::{PIN_5, PIO0},
     pio::{Instance, Pio},
     pio_programs::pwm::{PioPwm, PioPwmProgram},
 };
@@ -158,7 +158,7 @@ impl<'d, T: Instance, const SM: usize> Servo<'d, T, SM> {
 
 /// Provides system clock implementation for the HCSR04 ultrasonic sensor driver
 /// by wrapping std::time::Instant
-struct Clock;
+pub struct Clock;
 
 impl Now for Clock {
     /// Returns current time in microseconds since system start
@@ -167,33 +167,29 @@ impl Now for Clock {
     }
 }
 
-/// Embassy task that handles ultrasonic distance measurements while sweeping a servo
+/// Initializes the ultrasonic sensor with trigger and echo pins
 ///
-/// This task combines a servo motor sweep with ultrasonic distance measurements
-/// to create a scanning range finder effect. Measurements are filtered through
-/// a moving median filter to reduce noise.
-#[embassy_executor::task]
-pub async fn ultrasonic_sweep(
-    pio: Peri<'static, PIO0>,
-    servo_pin: Peri<'static, PIN_5>,
-    trigger_pin: Peri<'static, PIN_15>,
-    echo_pin: Peri<'static, PIN_14>,
-) {
-    // Configure ultrasonic sensor with metric units
+/// This function should be called from main.rs to set up the HCSR04 sensor.
+/// Returns a configured Hcsr04 instance ready for measurements.
+pub fn setup_ultrasonic_sensor(
+    trigger_pin: Output<'static>,
+    echo_pin: Input<'static>,
+) -> Hcsr04<Output<'static>, Input<'static>, Clock, Delay> {
     let hcsr04_config: Config = Config {
         distance_unit: DistanceUnit::Centimeters,
         temperature_unit: TemperatureUnit::Celsius,
     };
+    Hcsr04::new(trigger_pin, echo_pin, hcsr04_config, Clock, Delay)
+}
 
-    // Initialize GPIO pins for the HCSR04 sensor
-    let trigger = Output::new(trigger_pin, Level::Low);
-    let echo = Input::new(echo_pin, Pull::None);
-    let mut sensor = Hcsr04::new(trigger, echo, hcsr04_config, Clock, Delay);
-
-    // Create median filter to smooth out distance measurements
-    let mut median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
-
-    // Initialize PIO state machine for servo PWM control
+/// Initializes the servo for ultrasonic sweep control
+///
+/// This function should be called from main.rs to set up the servo.
+/// Returns a configured Servo instance ready for angle control.
+pub fn setup_servo(
+    pio: Peri<'static, PIO0>,
+    servo_pin: Peri<'static, PIN_5>,
+) -> Servo<'static, embassy_rp::peripherals::PIO0, 0> {
     let Pio { mut common, sm0, .. } = Pio::new(pio, Irqs);
 
     let prg = PioPwmProgram::new(&mut common);
@@ -205,6 +201,21 @@ pub async fn ultrasonic_sweep(
         .build();
 
     servo.start();
+    servo
+}
+
+/// Embassy task that handles ultrasonic distance measurements while sweeping a servo
+///
+/// This task combines a servo motor sweep with ultrasonic distance measurements
+/// to create a scanning range finder effect. Measurements are filtered through
+/// a moving median filter to reduce noise.
+#[embassy_executor::task]
+pub async fn ultrasonic_sweep(
+    mut sensor: Hcsr04<Output<'static>, Input<'static>, Clock, Delay>,
+    mut servo: Servo<'static, embassy_rp::peripherals::PIO0, 0>,
+) {
+    // Create median filter to smooth out distance measurements
+    let mut median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
 
     let mut angle: f32 = 0.0;
     let mut angle_increment: f32 = 2.5;
