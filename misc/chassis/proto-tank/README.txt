@@ -1,0 +1,4 @@
+ProtoTank by timmiclark on Thingiverse: https://www.thingiverse.com/thing:972768
+
+Summary:
+This thing has been replaced by this https://www.thingiverse.com/thing:2753227A bolt together modular tank style robotics platform!  I use this with my students. They get the base kit, then they customise.  I have run these with Arduino, Raspberry Pi and Intel Galileo, both in autonomous and controlled drone mode.  These tanks are very versatile and it is easy to create bolt on accessory holders as you need. I will post the accessories I have created here from time to time.  https://youtu.be/RU1G50hiegI  
