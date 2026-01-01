@@ -141,7 +141,7 @@ The individual component files are also available if you prefer to customize you
 - PCB mounting base.3mf (circuit board support)
 - track pin.3mf (individual track pin component)
 
-For assembly, you will need a couple of things from the hardware store. See the robot's Thingiverse link for detailed assembly instructions and hardware requirements.
+For more details on the chassis components, file formats, and assembly, see [misc/chassis/README.md](misc/chassis/README.md).
 
 
 ## Side quests that became necessary
@@ -212,7 +212,7 @@ The robot's tracked chassis is based on the [Proto-Tank](https://www.thingiverse
 
 The Proto-Tank design has been modified and adapted for the simple-robot project to integrate custom motor mounts, PCB solutions, and sensor integration.
 
-See [misc/chassis/proto-tank/ATTRIBUTION.md](misc/chassis/proto-tank/ATTRIBUTION.md) for full attribution details and license information.
+See [misc/chassis/ATTRIBUTION.md](misc/chassis/ATTRIBUTION.md) for full attribution details and license information.
 
 ## Disclaimer
 
