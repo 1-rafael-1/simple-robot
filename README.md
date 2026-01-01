@@ -9,6 +9,17 @@ Check out the v1-robot navigating autonomously, download the demo video here: [A
 
 > Note: The initial version of this robot is preserved in the [`v1` tag](../../tree/v1). That version represents a simple but functional autonomous robot using basic components. The main branch now tracks the development of an improved version.
 
+## Licensing Overview
+
+This project is licensed under the MIT License with one exception:
+
+- **MIT License** - Applies to all content: Rust code, custom 3D models, PCB designs, and documentation (see [LICENSE](LICENSE))
+- **Exception: Original Proto-Tank Design Files** - Located in `misc/chassis/proto-tank/`, licensed under CC BY 4.0. See [misc/chassis/ATTRIBUTION.md](misc/chassis/ATTRIBUTION.md) for details
+
+For complete licensing information, refer to:
+- [LICENSE](LICENSE) file (MIT - applies to everything except original Proto-Tank files)
+- [misc/chassis/ATTRIBUTION.md](misc/chassis/ATTRIBUTION.md) (CC BY 4.0 for original Proto-Tank)
+
 ## What is it?
 
 This is a hobby project for my 9-year-old son, who wanted me to build a robot for him. The thing started as a rather simple machine (v1) and then I got a little carried away.

@@ -2,6 +2,18 @@ MIT License
 
 Copyright (c) 2024 rafael
 
+## Scope
+
+This MIT License applies to all content in this repository, with the exception noted below.
+
+**Excluded from this license:**
+- Original Proto-Tank design files (located in `misc/chassis/proto-tank/`) - Licensed under CC BY 4.0. See `misc/chassis/ATTRIBUTION.md` for licensing information
+
+For complete licensing information, refer to:
+- Most content (code, custom 3D models, designs): This LICENSE file (MIT)
+- Original Proto-Tank Files: `misc/chassis/ATTRIBUTION.md` and `misc/chassis/README.md` (CC BY 4.0)
+
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -19,3 +31,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+For a complete overview of all licenses in this project, see the main README.md file.
