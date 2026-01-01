@@ -11,7 +11,7 @@ Proto-Tank is a tracked chassis design that serves as the foundation for the sim
 
 ## Modifications
 
-The Files of the original Proto-Tank design have been included in this repository unmodified for ease of access. Based on the original design, modified and addtitional files have been created to better integrate with the simple-robot project. These modifications include:
+The Files of the original Proto-Tank design have been included in this repository unmodified for ease of access. Based on the original design, modified and additional files have been created to better integrate with the simple-robot project. These modifications include:
 
 + Added a modified base frame, with filled out bottom and cutouts to accomodate the motor encoders.
 + Added a 9g servo mount
