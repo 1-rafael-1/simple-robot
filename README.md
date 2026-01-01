@@ -9,6 +9,17 @@ Check out the v1-robot navigating autonomously, download the demo video here: [A
 
 > Note: The initial version of this robot is preserved in the [`v1` tag](../../tree/v1). That version represents a simple but functional autonomous robot using basic components. The main branch now tracks the development of an improved version.
 
+## Licensing Overview
+
+This project is licensed under the MIT License with one exception:
+
+- **MIT License** - Applies to all content: Rust code, custom 3D models, PCB designs, and documentation (see [LICENSE](LICENSE))
+- **Exception: Original Proto-Tank Design Files** - Located in `misc/chassis/proto-tank/`, licensed under CC BY 4.0. See [misc/chassis/ATTRIBUTION.md](misc/chassis/ATTRIBUTION.md) for details
+
+For complete licensing information, refer to:
+- [LICENSE](LICENSE) file (MIT - applies to everything except original Proto-Tank files)
+- [misc/chassis/ATTRIBUTION.md](misc/chassis/ATTRIBUTION.md) (CC BY 4.0 for original Proto-Tank)
+
 ## What is it?
 
 This is a hobby project for my 9-year-old son, who wanted me to build a robot for him. The thing started as a rather simple machine (v1) and then I got a little carried away.
@@ -124,7 +135,25 @@ Here is an overview of things used to make the robot. This is not supposed to be
 |ICM20948|9-axis Inertial Measurement Unit (IMU)|
 |Header pins|They go everywhere, under most of the boards, onto the PCB for more connections.... get plenty.|
 
-Besides that, the printed model must be assembled. I printed in PLA and that went quite well. For assembly, you will need a couple of things from the hardware store, see the robot's Thingiverse link from above, the pictures there have an assembly instruction referring to what is needed.
+## 3D Printing
+
+The robot chassis and various mounting components are designed to be 3D printed. I printed all parts in PLA and they worked quite well. The 3D models are stored in the `misc/chassis` directory with both FreeCAD source files (.FCStd) and print-ready formats (.3mf, .stl).
+
+For convenient printing with a Bambu Lab 3D printer, two Bambu Studio print projects are included:
+
+- **print project.3mf** - Complete robot chassis assembly including the base frame, servo mount, HC-SR04 ultrasonic sensor mount, and IR sensor mounts
+- **track pin print project.3mf** - Track pin components for securing and tensioning the robot's tracks (recently added)
+
+The individual component files are also available if you prefer to customize your print settings:
+- BaseFrame - edit.3mf/stl (main chassis frame)
+- 9g servo mount.3mf (servo mounting bracket)
+- hc-sr04 mount.3mf (ultrasonic sensor mount)
+- IR Sensor mount.3mf (infrared sensor mounting)
+- PCB mounting base.3mf (circuit board support)
+- track pin.3mf (individual track pin component)
+
+For more details on the chassis components, file formats, and assembly, see [misc/chassis/README.md](misc/chassis/README.md).
+
 
 ## Side quests that became necessary
 
@@ -185,6 +214,16 @@ The `main.rs` file is the entry point of the program but does nothing besides in
 - Overconfidence: I did not bother to check if the IR sensors output high or low when detecting an obstacle. Expected them to send normally low signals, but they send normally high signals. My original plan was to connect them both to only one GPIO, routing each through a diode. I was low on free GPIOs and this saves one. As it is with normally high signals, detection does not work, of course. So I had to get a CD4049 hex inverter and wire the sensors through that. That works, but it is annoying - I now have some additional external circuitry that could have easily fitted on the PCB. Looks ugly and clumsy. Want to know the best part? I actually do have one GPIO left... :-) The next version of the PCB (if there ever is one) will have the IR sensors connected directly to the GPIOs each.
 
 Besides that I have had quite a few more minor moments of if-i-only-had-known-that-before. But that is the fun part of the hobby, isn't it?
+
+## Acknowledgments & Attribution
+
+### Proto-Tank Chassis Design
+
+The robot's tracked chassis is based on the [Proto-Tank](https://www.thingiverse.com/thing:972768) project, which is licensed under [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/).
+
+The Proto-Tank design has been modified and adapted for the simple-robot project to integrate custom motor mounts, PCB solutions, and sensor integration.
+
+See [misc/chassis/ATTRIBUTION.md](misc/chassis/ATTRIBUTION.md) for full attribution details and license information.
 
 ## Disclaimer
 
