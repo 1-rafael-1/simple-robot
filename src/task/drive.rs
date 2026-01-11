@@ -15,20 +15,18 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use core::convert::Infallible;
-
 use defmt::info;
-use embassy_rp::{
-    gpio::{self, Output},
-    pwm::{Pwm, PwmError},
-};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
+
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
-use tb6612fng::{DriveCommand as DriverCommand, MotorError};
 
 use crate::{
     system::event::{self, Events},
-    task::{encoder_read::EncoderMeasurement, imu_read::ImuMeasurement},
+    task::{
+        encoder_read::EncoderMeasurement,
+        imu_read::ImuMeasurement,
+        motor_driver::{self, MotorCommand, MotorDriver, MotorSelection},
+    },
 };
 
 /// Dispatches drive commands to the motor control task
@@ -127,11 +125,8 @@ async fn wait() -> DriveCommand {
     DRIVE_CONTROL.wait().await
 }
 
-/// Left motor controller protected by mutex.
-pub static LEFT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
-
-/// Right motor controller protected by mutex
-pub static RIGHT_MOTOR: Mutex<CriticalSectionRawMutex, Option<Motor>> = Mutex::new(None);
+// Motor control now handled by motor_driver task
+// Left/right motor state tracking removed - motor_driver task handles this
 
 /// Tracks state during precise rotation maneuvers
 struct RotationState {
@@ -341,25 +336,18 @@ impl StraightLineState {
     }
 }
 
-/// Single motor control interface
-pub struct Motor {
-    motor: tb6612fng::Motor<gpio::Output<'static>, gpio::Output<'static>, Pwm<'static>>,
-    forward: bool,
+/// Motor state tracking (simplified - actual control via motor_driver task)
+struct MotorState {
     current_speed: i8,
+    forward: bool,
 }
 
-impl Motor {
-    /// Creates a new motor instance with the given GPIO and PWM resources
-    fn new(
-        fwd: gpio::Output<'static>,
-        bckw: gpio::Output<'static>,
-        pwm: Pwm<'static>,
-    ) -> Result<Self, MotorError<Infallible, Infallible, PwmError>> {
-        Ok(Self {
-            motor: tb6612fng::Motor::new(fwd, bckw, pwm)?,
-            forward: true,
+impl MotorState {
+    fn new() -> Self {
+        Self {
             current_speed: 0,
-        })
+            forward: true,
+        }
     }
 
     /// Converts encoder pulses to motor shaft RPM
@@ -371,40 +359,37 @@ impl Motor {
     }
 
     /// Sets motor speed and direction (-100 to +100)
-    fn set_speed(&mut self, speed: i8) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
+    async fn set_speed(&mut self, driver: MotorDriver, motor: MotorSelection, speed: i8) {
         self.current_speed = speed;
         self.forward = speed >= 0;
 
-        match speed {
-            s if s > 0 => self.motor.drive(DriverCommand::Forward(s as u8))?,
-            s if s < 0 => self.motor.drive(DriverCommand::Backward(-s as u8))?,
-            _ => self.motor.drive(DriverCommand::Stop)?,
-        }
-        Ok(())
+        motor_driver::send_motor_command(MotorCommand::SetSpeed { driver, motor, speed }).await;
     }
 
     /// Sets motor speed with tilt compensation
-    fn set_speed_with_tilt(
+    async fn set_speed_with_tilt(
         &mut self,
+        driver: MotorDriver,
+        motor: MotorSelection,
         base_speed: i8,
         tilt_degrees: f32,
-    ) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
+    ) {
         let mut tilt_compensation = TiltCompensation::new(0.3, 45.0);
         let tilt_adjustment = tilt_compensation.calculate_adjustment(tilt_degrees);
         let adjusted_speed = (base_speed as f32 * (1.0 + tilt_adjustment)) as i8;
-        self.set_speed(adjusted_speed.clamp(-100, 100))
+        self.set_speed(driver, motor, adjusted_speed.clamp(-100, 100)).await;
     }
 
     /// Actively stops motor using electrical braking
-    fn brake(&mut self) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
+    async fn brake(&mut self, driver: MotorDriver, motor: MotorSelection) {
         self.current_speed = 0;
-        self.motor.drive(DriverCommand::Brake)
+        motor_driver::send_motor_command(MotorCommand::Brake { driver, motor }).await;
     }
 
     /// Stops motor by letting it spin freely
-    fn coast(&mut self) -> Result<(), MotorError<Infallible, Infallible, PwmError>> {
+    async fn coast(&mut self, driver: MotorDriver, motor: MotorSelection) {
         self.current_speed = 0;
-        self.motor.drive(DriverCommand::Stop)
+        motor_driver::send_motor_command(MotorCommand::Coast { driver, motor }).await;
     }
 
     /// Returns current motor speed setting (-100 to +100)
@@ -419,39 +404,21 @@ fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
 }
 
 /// Primary motor control task that processes movement commands and sensor feedback
+///
+/// NOTE: This task has been simplified to work with the new motor_driver task.
+/// Motor control is now delegated to the motor_driver task which handles
+/// PWM and direction control via the port expander.
 #[embassy_executor::task]
-pub async fn drive(
-    mut standby: Output<'static>,
-    left_pwm: Pwm<'static>,
-    left_forward: Output<'static>,
-    left_backward: Output<'static>,
-    right_pwm: Pwm<'static>,
-    right_forward: Output<'static>,
-    right_backward: Output<'static>,
-) {
-    // Initialize motors
-    let (left_motor, right_motor) = (
-        Motor::new(left_forward, left_backward, left_pwm).unwrap(),
-        Motor::new(right_forward, right_backward, right_pwm).unwrap(),
-    );
+pub async fn drive() {
+    // Initialize motor state tracking (for 2 motors on Driver1)
+    let mut left_state = MotorState::new();
+    let mut right_state = MotorState::new();
 
-    // Initialize mutexes
-    critical_section::with(|_| {
-        *LEFT_MOTOR.try_lock().unwrap() = Some(left_motor);
-        *RIGHT_MOTOR.try_lock().unwrap() = Some(right_motor);
-    });
-
-    // Motor driver standby control
+    // Motor driver standby control - now handled by port_expander task via motor_driver
     let mut standby_enabled = true;
 
     // Rotation state tracking
     let mut rotation_state: Option<RotationState>;
-
-    // Lock motors for the entire system runtime
-    let mut left = LEFT_MOTOR.lock().await;
-    let mut right = RIGHT_MOTOR.lock().await;
-    let left = left.as_mut().unwrap();
-    let right = right.as_mut().unwrap();
 
     // Add straight-line tracking state
     // let straight_line_state: Option<StraightLineState> = None;
@@ -462,8 +429,8 @@ pub async fn drive(
 
         match command {
             DriveCommand::Drive(action) => {
-                let left_speed_cmd = left.current_speed();
-                let right_speed_cmd = right.current_speed();
+                let left_speed_cmd = left_state.current_speed();
+                let right_speed_cmd = right_state.current_speed();
 
                 // Wake from standby if movement requested
                 if standby_enabled {
@@ -472,7 +439,7 @@ pub async fn drive(
                         | DriveAction::Backward(_)
                         | DriveAction::TorqueBias { .. }
                         | DriveAction::RotateExact { .. } => {
-                            standby.set_high();
+                            motor_driver::send_motor_command(MotorCommand::SetAllDriversEnable { enabled: true }).await;
                             standby_enabled = false;
                             Timer::after(Duration::from_millis(100)).await;
                         }
@@ -494,8 +461,12 @@ pub async fn drive(
                             send_drive_command(DriveCommand::Drive(DriveAction::Coast));
                         } else {
                             let new_speed = (left_speed_cmd + speed as i8).clamp(0, 100);
-                            left.set_speed(new_speed).unwrap();
-                            right.set_speed(new_speed).unwrap();
+                            left_state
+                                .set_speed(MotorDriver::Left, MotorSelection::Front, new_speed)
+                                .await;
+                            right_state
+                                .set_speed(MotorDriver::Left, MotorSelection::Rear, new_speed)
+                                .await;
                         }
                     }
                     DriveAction::Backward(speed) => {
@@ -506,8 +477,12 @@ pub async fn drive(
                         } else {
                             let new_speed = (-left_speed_cmd + speed as i8).clamp(0, 100);
                             let neg_speed = -new_speed;
-                            left.set_speed(neg_speed).unwrap();
-                            right.set_speed(neg_speed).unwrap();
+                            left_state
+                                .set_speed(MotorDriver::Left, MotorSelection::Front, neg_speed)
+                                .await;
+                            right_state
+                                .set_speed(MotorDriver::Left, MotorSelection::Rear, neg_speed)
+                                .await;
                         }
                     }
                     DriveAction::TorqueBias {
@@ -522,8 +497,12 @@ pub async fn drive(
                             } else {
                                 // If turning while moving, restore original motion
                                 let original_speed = (left_speed_cmd + right_speed_cmd) / 2;
-                                left.set_speed(original_speed).unwrap();
-                                right.set_speed(original_speed).unwrap();
+                                left_state
+                                    .set_speed(MotorDriver::Left, MotorSelection::Front, original_speed)
+                                    .await;
+                                right_state
+                                    .set_speed(MotorDriver::Left, MotorSelection::Rear, original_speed)
+                                    .await;
                             }
                         } else {
                             // Apply new torque bias
@@ -531,14 +510,22 @@ pub async fn drive(
                                 MotorSide::Left => {
                                     let new_left_speed = (left_speed_cmd - bias_amount as i8).clamp(-100, 100);
                                     let target_right_speed = (right_speed_cmd + bias_amount as i8).clamp(-100, 100);
-                                    left.set_speed(new_left_speed).unwrap();
-                                    right.set_speed(target_right_speed).unwrap();
+                                    left_state
+                                        .set_speed(MotorDriver::Left, MotorSelection::Front, new_left_speed)
+                                        .await;
+                                    right_state
+                                        .set_speed(MotorDriver::Left, MotorSelection::Rear, target_right_speed)
+                                        .await;
                                 }
                                 MotorSide::Right => {
                                     let new_left_speed = (left_speed_cmd + bias_amount as i8).clamp(-100, 100);
                                     let target_right_speed = (right_speed_cmd - bias_amount as i8).clamp(-100, 100);
-                                    left.set_speed(new_left_speed).unwrap();
-                                    right.set_speed(target_right_speed).unwrap();
+                                    left_state
+                                        .set_speed(MotorDriver::Left, MotorSelection::Front, new_left_speed)
+                                        .await;
+                                    right_state
+                                        .set_speed(MotorDriver::Left, MotorSelection::Rear, target_right_speed)
+                                        .await;
                                 }
                             }
                         }
@@ -554,28 +541,33 @@ pub async fn drive(
                         // Apply initial motor speeds for rotation
                         let (left_speed, right_speed) = rotation_state.as_ref().unwrap().calculate_motor_speeds();
 
-                        left.set_speed(left_speed).unwrap();
-                        right.set_speed(right_speed).unwrap();
+                        left_state
+                            .set_speed(MotorDriver::Left, MotorSelection::Front, left_speed)
+                            .await;
+                        right_state
+                            .set_speed(MotorDriver::Left, MotorSelection::Rear, right_speed)
+                            .await;
                     }
                     DriveAction::Coast => {
                         info!("coast");
-                        left.coast().unwrap();
-                        right.coast().unwrap();
+                        left_state.coast(MotorDriver::Left, MotorSelection::Front).await;
+                        right_state.coast(MotorDriver::Left, MotorSelection::Rear).await;
                     }
                     DriveAction::Brake => {
                         info!("brake");
-                        left.brake().unwrap();
-                        right.brake().unwrap();
+                        left_state.brake(MotorDriver::Left, MotorSelection::Front).await;
+                        right_state.brake(MotorDriver::Left, MotorSelection::Rear).await;
                     }
                     DriveAction::Standby => {
                         if !standby_enabled {
-                            left.brake().unwrap();
-                            right.brake().unwrap();
+                            left_state.brake(MotorDriver::Left, MotorSelection::Front).await;
+                            right_state.brake(MotorDriver::Left, MotorSelection::Rear).await;
                             Timer::after(Duration::from_millis(100)).await;
-                            left.coast().unwrap();
-                            right.coast().unwrap();
+                            left_state.coast(MotorDriver::Left, MotorSelection::Front).await;
+                            right_state.coast(MotorDriver::Left, MotorSelection::Rear).await;
                             Timer::after(Duration::from_millis(100)).await;
-                            standby.set_low();
+                            motor_driver::send_motor_command(MotorCommand::SetAllDriversEnable { enabled: false })
+                                .await;
                             standby_enabled = true;
                         }
                     }
