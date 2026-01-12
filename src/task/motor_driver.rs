@@ -870,16 +870,26 @@ async fn run_motor_calibration(
     info!("Step 2: Matching left track motors");
     let left_weaker_count = if left_front_count < left_rear_count {
         info!("  Left front is weaker (reference)");
-        let factor = left_front_count as f32 / left_rear_count as f32;
-        calibration.left_rear *= factor;
-        info!("  Adjustment factor: {}", factor);
-        left_front_count
+        if left_rear_count == 0 {
+            warn!("  Left rear encoder count is zero; skipping left track matching to avoid division by zero");
+            left_front_count
+        } else {
+            let factor = left_front_count as f32 / left_rear_count as f32;
+            calibration.left_rear *= factor;
+            info!("  Adjustment factor: {}", factor);
+            left_front_count
+        }
     } else {
         info!("  Left rear is weaker (reference)");
-        let factor = left_rear_count as f32 / left_front_count as f32;
-        calibration.left_front *= factor;
-        info!("  Adjustment factor: {}", factor);
-        left_rear_count
+        if left_front_count == 0 {
+            warn!("  Left front encoder count is zero; skipping left track matching to avoid division by zero");
+            left_rear_count
+        } else {
+            let factor = left_rear_count as f32 / left_front_count as f32;
+            calibration.left_front *= factor;
+            info!("  Adjustment factor: {}", factor);
+            left_rear_count
+        }
     };
 
     // Step 3: Verify left track match by running both motors together
@@ -965,16 +975,26 @@ async fn run_motor_calibration(
     info!("Step 5: Matching right track motors");
     let right_weaker_count = if right_front_count < right_rear_count {
         info!("  Right front is weaker (reference)");
-        let factor = right_front_count as f32 / right_rear_count as f32;
-        calibration.right_rear *= factor;
-        info!("  Adjustment factor: {}", factor);
-        right_front_count
+        if right_rear_count == 0 {
+            warn!("  Right rear encoder count is zero; skipping right track matching to avoid division by zero");
+            right_front_count
+        } else {
+            let factor = right_front_count as f32 / right_rear_count as f32;
+            calibration.right_rear *= factor;
+            info!("  Adjustment factor: {}", factor);
+            right_front_count
+        }
     } else {
         info!("  Right rear is weaker (reference)");
-        let factor = right_rear_count as f32 / right_front_count as f32;
-        calibration.right_front *= factor;
-        info!("  Adjustment factor: {}", factor);
-        right_rear_count
+        if right_front_count == 0 {
+            warn!("  Right front encoder count is zero; skipping right track matching to avoid division by zero");
+            right_rear_count
+        } else {
+            let factor = right_rear_count as f32 / right_front_count as f32;
+            calibration.right_front *= factor;
+            info!("  Adjustment factor: {}", factor);
+            right_rear_count
+        }
     };
 
     // Step 6: Verify right track match by running both motors together
@@ -1020,16 +1040,26 @@ async fn run_motor_calibration(
     info!("Step 7: Matching tracks to weakest overall motor");
     let track_adjustment = if left_weaker_count < right_weaker_count {
         info!("  Left track is weaker (reference)");
-        let factor = left_weaker_count as f32 / right_weaker_count as f32;
-        calibration.right_front *= factor;
-        calibration.right_rear *= factor;
-        factor
+        if right_weaker_count == 0 {
+            warn!("  Right track encoder count is zero; skipping track matching to avoid division by zero");
+            1.0
+        } else {
+            let factor = left_weaker_count as f32 / right_weaker_count as f32;
+            calibration.right_front *= factor;
+            calibration.right_rear *= factor;
+            factor
+        }
     } else {
         info!("  Right track is weaker (reference)");
-        let factor = right_weaker_count as f32 / left_weaker_count as f32;
-        calibration.left_front *= factor;
-        calibration.left_rear *= factor;
-        factor
+        if left_weaker_count == 0 {
+            warn!("  Left track encoder count is zero; skipping track matching to avoid division by zero");
+            1.0
+        } else {
+            let factor = right_weaker_count as f32 / left_weaker_count as f32;
+            calibration.left_front *= factor;
+            calibration.left_rear *= factor;
+            factor
+        }
     };
     info!("  Track adjustment factor: {}", track_adjustment);
 

@@ -3,7 +3,7 @@ MEMORY {
      * The RP2350 has either external or internal flash.
      *
      * 2 MiB is a safe default here, although a Pico 2 has 4 MiB.
-     * Reserve the last 4KB sector for calibration data storage.
+     * Reserve the last 8KB (two 4KB sectors) for calibration data storage.
      */
     FLASH : ORIGIN = 0x10000000, LENGTH = 2048K - 8K
     FLASH_STORAGE : ORIGIN = 0x10000000 + 2048K - 8K, LENGTH = 8K
