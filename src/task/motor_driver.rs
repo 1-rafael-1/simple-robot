@@ -103,8 +103,10 @@ use embassy_rp::pwm::{Pwm, SetDutyCycle};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
 
-use crate::task::flash_storage;
-use crate::task::port_expander::{self, PortExpanderCommand, PortNumber};
+use crate::task::{
+    flash_storage,
+    port_expander::{self, PortExpanderCommand, PortNumber},
+};
 
 /// Track selection (left or right side of robot)
 #[derive(Debug, Clone, Copy, PartialEq, Format)]

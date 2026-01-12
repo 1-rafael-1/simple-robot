@@ -6,7 +6,6 @@
 //!
 //! The data is stored in a reserved section of flash memory defined in memory.x
 
-use crate::task::motor_driver::{MotorCalibration, MotorCommand, send_motor_command};
 use defmt::*;
 use embassy_rp::flash::{Async, ERASE_SIZE, Flash};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
@@ -16,6 +15,8 @@ use sequential_storage::{
     cache::NoCache,
     map::{Key, SerializationError, Value, fetch_item, store_item},
 };
+
+use crate::task::motor_driver::{MotorCalibration, MotorCommand, send_motor_command};
 
 /// Size of one flash sector (4KB on RP2350)
 const FLASH_SECTOR_SIZE: usize = ERASE_SIZE;
