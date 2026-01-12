@@ -66,6 +66,8 @@ ahrs = { version = "0.8", default-features = false }
 nalgebra = { version = "0.34", default-features = false, features = ["libm"] }
 port-expander = "0.6.5"
 embedded-hal-async = "1.0.0"
+sequential-storage = "3.0.0"
+embedded-storage-async = "0.4.1"
 
 # [patch.crates-io]
 # embassy-rp = { git = "https://github.com/embassy-rs/embassy" }

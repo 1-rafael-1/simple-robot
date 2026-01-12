@@ -11,9 +11,11 @@ use embassy_rp::{
     Peri, bind_interrupts,
     block::ImageDef,
     config::Config,
+    flash::{Async, Flash},
+    gpio::Pull,
     i2c::{Config as I2cConfig, I2c, InterruptHandler as I2cInterruptHandler},
     peripherals::I2C0,
-    pwm::Pwm,
+    pwm::{InputMode, Pwm},
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use panic_probe as _;
@@ -43,6 +45,14 @@ struct MotorDriverPins {
     rmot_pwm_slice: Peri<'static, embassy_rp::peripherals::PWM_SLICE1>,
     rmot_pwm_a: Peri<'static, embassy_rp::peripherals::PIN_2>,
     rmot_pwm_b: Peri<'static, embassy_rp::peripherals::PIN_3>,
+    encoder_left_front_slice: Peri<'static, embassy_rp::peripherals::PWM_SLICE3>,
+    encoder_left_front_pin: Peri<'static, embassy_rp::peripherals::PIN_7>,
+    encoder_left_rear_slice: Peri<'static, embassy_rp::peripherals::PWM_SLICE2>,
+    encoder_left_rear_pin: Peri<'static, embassy_rp::peripherals::PIN_21>,
+    encoder_right_front_slice: Peri<'static, embassy_rp::peripherals::PWM_SLICE4>,
+    encoder_right_front_pin: Peri<'static, embassy_rp::peripherals::PIN_9>,
+    encoder_right_rear_slice: Peri<'static, embassy_rp::peripherals::PWM_SLICE5>,
+    encoder_right_rear_pin: Peri<'static, embassy_rp::peripherals::PIN_27>,
 }
 
 /// Public type for shared I2C bus
@@ -70,6 +80,14 @@ async fn main(spawner: Spawner) {
             rmot_pwm_slice: p.PWM_SLICE1,
             rmot_pwm_a: p.PIN_2,
             rmot_pwm_b: p.PIN_3,
+            encoder_left_front_slice: p.PWM_SLICE3,
+            encoder_left_front_pin: p.PIN_7,
+            encoder_left_rear_slice: p.PWM_SLICE2,
+            encoder_left_rear_pin: p.PIN_21,
+            encoder_right_front_slice: p.PWM_SLICE4,
+            encoder_right_front_pin: p.PIN_9,
+            encoder_right_rear_slice: p.PWM_SLICE5,
+            encoder_right_rear_pin: p.PIN_27,
         },
     );
     // init_autonomous_drive(&spawner);
@@ -80,8 +98,8 @@ async fn main(spawner: Spawner) {
     init_display(&spawner, i2c_bus);
     init_imu_read(&spawner, i2c_bus, p.PIN_18, p.PIN_19);
     init_port_expander(&spawner, i2c_bus, p.PIN_20);
+    init_flash_storage(&spawner, p.FLASH, p.DMA_CH0);
 
-    // init_encoder_read(&spawner, p.PWM_SLICE3, p.PIN_7, p.PWM_SLICE4, p.PIN_9);
     // init_motion_correction(&spawner);
     // init_inactivity_tracker(&spawner);
 
@@ -139,7 +157,7 @@ async fn main(spawner: Spawner) {
 //     spawner.must_spawn(rc_button_handle(btn_d, ButtonId::D));
 // }
 
-/// Initialize motor driver with PWM channels
+/// Initialize motor driver with PWM channels and encoders
 /// Direction and standby control are now handled by PCA9555 port expander task
 fn init_motor_driver(spawner: &Spawner, pins: MotorDriverPins) {
     // Configure PWM at 10kHz for motor speed control
@@ -167,8 +185,57 @@ fn init_motor_driver(spawner: &Spawner, pins: MotorDriverPins) {
     // Right Driver: GPIO 2 and GPIO 3 on PWM_SLICE1 (channels A and B)
     let pwm_driver_right = Pwm::new_output_ab(pins.rmot_pwm_slice, pins.rmot_pwm_a, pins.rmot_pwm_b, motor_pwm_config);
 
-    // Spawn motor driver task (handles PWM + coordinates with port expander)
-    spawner.must_spawn(task::motor_driver::motor_driver(pwm_driver_left, pwm_driver_right));
+    // Configure encoder PWM inputs for pulse counting
+    let mut encoder_pwm_config = embassy_rp::pwm::Config::default();
+    encoder_pwm_config.divider = 1.into();
+    encoder_pwm_config.phase_correct = false;
+
+    // Create encoder inputs (PWM input mode on B channels)
+    // Encoder 1: Left Front Motor (GPIO 7, PWM_SLICE3 Channel B)
+    let encoder_left_front = Pwm::new_input(
+        pins.encoder_left_front_slice,
+        pins.encoder_left_front_pin,
+        Pull::None,
+        InputMode::RisingEdge,
+        encoder_pwm_config.clone(),
+    );
+
+    // Encoder 2: Left Rear Motor (GPIO 21, PWM_SLICE2 Channel B)
+    let encoder_left_rear = Pwm::new_input(
+        pins.encoder_left_rear_slice,
+        pins.encoder_left_rear_pin,
+        Pull::None,
+        InputMode::RisingEdge,
+        encoder_pwm_config.clone(),
+    );
+
+    // Encoder 3: Right Front Motor (GPIO 9, PWM_SLICE4 Channel B)
+    let encoder_right_front = Pwm::new_input(
+        pins.encoder_right_front_slice,
+        pins.encoder_right_front_pin,
+        Pull::None,
+        InputMode::RisingEdge,
+        encoder_pwm_config.clone(),
+    );
+
+    // Encoder 4: Right Rear Motor (GPIO 27, PWM_SLICE5 Channel B)
+    let encoder_right_rear = Pwm::new_input(
+        pins.encoder_right_rear_slice,
+        pins.encoder_right_rear_pin,
+        Pull::None,
+        InputMode::RisingEdge,
+        encoder_pwm_config,
+    );
+
+    // Spawn motor driver task (handles PWM + encoders + coordinates with port expander)
+    spawner.must_spawn(task::motor_driver::motor_driver(
+        pwm_driver_left,
+        pwm_driver_right,
+        encoder_left_front,
+        encoder_left_rear,
+        encoder_right_front,
+        encoder_right_rear,
+    ));
 
     // Spawn drive task (high-level drive control)
     // spawner.must_spawn(task::drive::drive());
@@ -232,29 +299,19 @@ fn init_port_expander(
     spawner.must_spawn(task::port_expander::port_expander(i2c_bus, pin_20));
 }
 
+/// Initialize flash storage task for persistent calibration data
+fn init_flash_storage(
+    spawner: &Spawner,
+    flash_peripheral: Peri<'static, embassy_rp::peripherals::FLASH>,
+    dma_ch0: Peri<'static, embassy_rp::peripherals::DMA_CH0>,
+) {
+    let flash = Flash::<_, Async, { 2048 * 1024 }>::new(flash_peripheral, dma_ch0);
+    spawner.must_spawn(task::flash_storage::flash_storage(flash));
+}
+
 // /// Initialize autonomous drive task
 // fn init_autonomous_drive(spawner: &Spawner) {
 //     spawner.must_spawn(autonomous_drive());
-// }
-
-// /// Initialize motor encoder inputs
-// fn init_encoder_read(
-//     spawner: &Spawner,
-//     pwm_slice3: Peri<'static, embassy_rp::peripherals::PWM_SLICE3>,
-//     pin_7: Peri<'static, embassy_rp::peripherals::PIN_7>,
-//     pwm_slice4: Peri<'static, embassy_rp::peripherals::PWM_SLICE4>,
-//     pin_9: Peri<'static, embassy_rp::peripherals::PIN_9>,
-// ) {
-//     let encoder_pwm_config = encoder_read::configure_encoder_pwm();
-//     let left_encoder = Pwm::new_input(
-//         pwm_slice3,
-//         pin_7,
-//         Pull::None,
-//         InputMode::RisingEdge,
-//         encoder_pwm_config.clone(),
-//     );
-//     let right_encoder = Pwm::new_input(pwm_slice4, pin_9, Pull::None, InputMode::RisingEdge, encoder_pwm_config);
-//     spawner.must_spawn(encoder_read(left_encoder, right_encoder));
 // }
 
 // /// Initialize motion correction control task
