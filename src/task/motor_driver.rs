@@ -172,7 +172,7 @@ mod motor_port_mapping {
         let mask = (1 << fwd_bit) | (1 << bwd_bit);
         let value = ((fwd_state as u8) << fwd_bit) | ((bwd_state as u8) << bwd_bit);
 
-        PortExpanderCommand::SetOutputBits {
+        PortExpanderCommand::OutputBits {
             port: PortNumber::Port0,
             mask,
             value,
@@ -210,7 +210,7 @@ mod motor_port_mapping {
         set_direction(&mut port0_value, Track::Right, Motor::Front, right_front);
         set_direction(&mut port0_value, Track::Right, Motor::Rear, right_rear);
 
-        PortExpanderCommand::SetOutputByte {
+        PortExpanderCommand::OutputByte {
             port: PortNumber::Port0,
             value: port0_value,
         }
@@ -220,7 +220,7 @@ mod motor_port_mapping {
     pub fn set_driver_enable_cmd(track: Track, enabled: bool) -> PortExpanderCommand {
         let bit = get_driver_enable_bit(track);
 
-        PortExpanderCommand::SetOutputPin {
+        PortExpanderCommand::OutputPin {
             port: PortNumber::Port1,
             pin: bit,
             state: enabled,
@@ -232,7 +232,7 @@ mod motor_port_mapping {
         let mask = (1 << 4) | (1 << 5); // Bits 4 and 5 (left and right drivers)
         let value = if enabled { mask } else { 0 };
 
-        PortExpanderCommand::SetOutputBits {
+        PortExpanderCommand::OutputBits {
             port: PortNumber::Port1,
             mask,
             value,
@@ -532,7 +532,7 @@ impl PwmChannels {
     ///
     /// Each motor has independent PWM control via the split channels.
     fn set_speed(&mut self, track: Track, motor: Motor, speed: i8) {
-        let abs_speed = speed.abs() as u8;
+        let abs_speed = speed.unsigned_abs();
 
         let pwm_output = match (track, motor) {
             (Track::Left, Motor::Front) => &mut self.left_front,
@@ -1106,7 +1106,7 @@ async fn run_motor_calibration(
     // Step 9: Save calibration to flash
     info!("Step 9: Saving calibration to flash");
     info!("Final calibration factors: {:?}", calibration);
-    flash_storage::send_flash_command(flash_storage::FlashCommand::SaveMotorCalibration(*calibration)).await;
+    flash_storage::send_flash_command(flash_storage::FlashCommand::SaveMotor(*calibration)).await;
 
     info!("=== Calibration Complete ===");
 }

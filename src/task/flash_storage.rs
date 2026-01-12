@@ -60,16 +60,16 @@ async fn receive_flash_command() -> FlashCommand {
 #[derive(Debug, Clone, Format)]
 pub enum FlashCommand {
     /// Save motor calibration data to flash
-    SaveMotorCalibration(MotorCalibration),
+    SaveMotor(MotorCalibration),
 
     /// Save IMU calibration data to flash
-    SaveImuCalibration(ImuCalibration),
+    SaveImu(ImuCalibration),
 
     /// Load all calibration data from flash and apply to motor driver
-    LoadCalibration,
+    Load,
 
     /// Erase all stored calibration data
-    EraseCalibration,
+    Erase,
 }
 
 /// IMU calibration data structure
@@ -98,19 +98,10 @@ pub struct ImuCalibration {
 }
 
 /// Combined calibration data
-#[derive(Debug, Clone, Copy, Format)]
+#[derive(Debug, Clone, Copy, Format, Default)]
 pub struct CalibrationData {
     pub motor: MotorCalibration,
     pub imu: ImuCalibration,
-}
-
-impl Default for CalibrationData {
-    fn default() -> Self {
-        Self {
-            motor: MotorCalibration::default(),
-            imu: ImuCalibration::default(),
-        }
-    }
 }
 
 /// Storage keys for sequential-storage
@@ -318,7 +309,7 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
         debug!("Flash command received: {:?}", command);
 
         match command {
-            FlashCommand::SaveMotorCalibration(motor_cal) => {
+            FlashCommand::SaveMotor(motor_cal) => {
                 info!("Saving motor calibration to flash...");
 
                 // Update shared state first
@@ -352,7 +343,7 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                 }
             }
 
-            FlashCommand::SaveImuCalibration(imu_cal) => {
+            FlashCommand::SaveImu(imu_cal) => {
                 info!("Saving IMU calibration to flash...");
 
                 // Update shared state first
@@ -386,7 +377,7 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                 }
             }
 
-            FlashCommand::LoadCalibration => {
+            FlashCommand::Load => {
                 info!("Loading calibration from flash...");
 
                 match fetch_item::<StorageKey, MotorCalibration, _>(
@@ -458,7 +449,7 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                 }
             }
 
-            FlashCommand::EraseCalibration => {
+            FlashCommand::Erase => {
                 info!("Erasing all calibration data...");
 
                 // Erase the flash range

@@ -24,20 +24,20 @@
 //!
 //! ```rust
 //! // Set individual output pin
-//! port_expander::send_command(PortExpanderCommand::SetOutputPin {
+//! port_expander::send_command(PortExpanderCommand::OutputPin {
 //!     port: PortNumber::Port0,
 //!     pin: 0,
 //!     state: true,
 //! }).await;
 //!
 //! // Set multiple pins at once (more efficient)
-//! port_expander::send_command(PortExpanderCommand::SetOutputByte {
+//! port_expander::send_command(PortExpanderCommand::OutputByte {
 //!     port: PortNumber::Port0,
 //!     value: 0b10101010,
 //! }).await;
 //!
 //! // Set specific bits using mask
-//! port_expander::send_command(PortExpanderCommand::SetOutputBits {
+//! port_expander::send_command(PortExpanderCommand::OutputBits {
 //!     port: PortNumber::Port0,
 //!     mask: 0b00001111,  // Affect bits 0-3
 //!     value: 0b00001010, // Set bits 1 and 3 high
@@ -90,21 +90,21 @@ pub enum PortNumber {
 #[derive(Debug, Clone, Copy, Format)]
 pub enum PortExpanderCommand {
     /// Set a single output pin state
-    SetOutputPin {
+    OutputPin {
         port: PortNumber,
         pin: u8, // 0-7
         state: bool,
     },
 
     /// Set entire port output byte at once
-    SetOutputByte { port: PortNumber, value: u8 },
+    OutputByte { port: PortNumber, value: u8 },
 
     /// Set multiple bits using mask (efficient for updating specific bits)
     /// Only bits where mask=1 are affected
-    SetOutputBits { port: PortNumber, mask: u8, value: u8 },
+    OutputBits { port: PortNumber, mask: u8, value: u8 },
 
     /// Set both ports at once (atomic, most efficient)
-    SetBothPorts { port0: u8, port1: u8 },
+    BothPorts { port0: u8, port1: u8 },
 }
 
 /// Input state tracking for Port 1
@@ -129,25 +129,17 @@ impl InputState {
 
     /// Compare and send events for changed inputs
     async fn send_changes(&self, previous: &InputState) {
-        if self.button_a != previous.button_a {
-            if self.button_a {
-                send_event(Events::ButtonPressed(ButtonId::A)).await;
-            }
+        if self.button_a != previous.button_a && self.button_a {
+            send_event(Events::ButtonPressed(ButtonId::A)).await;
         }
-        if self.button_b != previous.button_b {
-            if self.button_b {
-                send_event(Events::ButtonPressed(ButtonId::B)).await;
-            }
+        if self.button_b != previous.button_b && self.button_b {
+            send_event(Events::ButtonPressed(ButtonId::B)).await;
         }
-        if self.button_c != previous.button_c {
-            if self.button_c {
-                send_event(Events::ButtonPressed(ButtonId::C)).await;
-            }
+        if self.button_c != previous.button_c && self.button_c {
+            send_event(Events::ButtonPressed(ButtonId::C)).await;
         }
-        if self.button_d != previous.button_d {
-            if self.button_d {
-                send_event(Events::ButtonPressed(ButtonId::D)).await;
-            }
+        if self.button_d != previous.button_d && self.button_d {
+            send_event(Events::ButtonPressed(ButtonId::D)).await;
         }
     }
 }
@@ -291,7 +283,7 @@ pub async fn port_expander(i2c_bus: &'static I2cBusShared, int_pin: Peri<'static
     let mut interrupt = Input::new(int_pin, Pull::Up);
 
     // Initialize the device
-    if let Err(_) = driver.init().await {
+    if (driver.init().await).is_err() {
         error!("Failed to initialize PCA9555, task halting");
         return;
     }
@@ -319,7 +311,7 @@ pub async fn port_expander(i2c_bus: &'static I2cBusShared, int_pin: Peri<'static
             // Command received
             Either::First(command) => {
                 debug!("Processing command: {:?}", command);
-                if let Err(_) = process_command(&mut state, &mut driver, command).await {
+                if (process_command(&mut state, &mut driver, command).await).is_err() {
                     error!("Failed to process command");
                 }
             }
@@ -358,7 +350,7 @@ async fn process_command(
     command: PortExpanderCommand,
 ) -> Result<(), ()> {
     match command {
-        PortExpanderCommand::SetOutputPin {
+        PortExpanderCommand::OutputPin {
             port,
             pin,
             state: pin_state,
@@ -366,15 +358,15 @@ async fn process_command(
             state.set_output_pin(port, pin, pin_state);
         }
 
-        PortExpanderCommand::SetOutputByte { port, value } => {
+        PortExpanderCommand::OutputByte { port, value } => {
             state.set_output_byte(port, value);
         }
 
-        PortExpanderCommand::SetOutputBits { port, mask, value } => {
+        PortExpanderCommand::OutputBits { port, mask, value } => {
             state.set_output_bits(port, mask, value);
         }
 
-        PortExpanderCommand::SetBothPorts { port0, port1 } => {
+        PortExpanderCommand::BothPorts { port0, port1 } => {
             state.set_both_ports(port0, port1);
         }
     }
