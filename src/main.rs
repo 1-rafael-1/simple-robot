@@ -66,11 +66,17 @@ async fn main(spawner: Spawner) {
     config.clocks = embassy_rp::clocks::ClockConfig::system_freq(150_000_000).unwrap();
     let p = embassy_rp::init(config);
 
-    // make peripheral handles and spawn tasks - INITIAL REFACTORING: display, imu, motor_driver, drive
+    // make peripheral handles and spawn tasks
+
+    let i2c_bus = init_i2c_bus(p.I2C0, p.PIN_13, p.PIN_12);
+
+    init_port_expander(&spawner, i2c_bus, p.PIN_20);
+
     // init_orchestrate(&spawner);
     // init_battery_monitoring(&spawner, p.ADC, p.PIN_29);
     // init_rgb_led(&spawner, p.PWM_SLICE1, p.PIN_2, p.PWM_SLICE2, p.PIN_4);
     // init_rc_buttons(&spawner, p.PIN_10, p.PIN_16, p.PIN_11, p.PIN_17);
+
     init_motor_driver(
         &spawner,
         MotorDriverPins {
@@ -94,10 +100,8 @@ async fn main(spawner: Spawner) {
     // init_ir_obstacle_detect(&spawner, p.PIN_26);
     // init_ultrasonic_sweep(&spawner, p.PIO0, p.PIN_5, p.PIN_15, p.PIN_14);
 
-    let i2c_bus = init_i2c_bus(p.I2C0, p.PIN_13, p.PIN_12);
     init_display(&spawner, i2c_bus);
     init_imu_read(&spawner, i2c_bus, p.PIN_18, p.PIN_19);
-    init_port_expander(&spawner, i2c_bus, p.PIN_20);
     init_flash_storage(&spawner, p.FLASH, p.DMA_CH0);
 
     // init_motion_correction(&spawner);
@@ -158,7 +162,7 @@ async fn main(spawner: Spawner) {
 // }
 
 /// Initialize motor driver with PWM channels and encoders
-/// Direction and standby control are now handled by PCA9555 port expander task
+/// Direction and standby control are handled via PCA9555 port expander
 fn init_motor_driver(spawner: &Spawner, pins: MotorDriverPins) {
     // Configure PWM at 10kHz for motor speed control
     let desired_freq_hz = 10_000u32;
@@ -284,19 +288,19 @@ fn init_display(spawner: &Spawner, i2c_bus: &'static I2cBusShared) {
 fn init_imu_read(
     spawner: &Spawner,
     i2c_bus: &'static I2cBusShared,
-    pin_18: Peri<'static, embassy_rp::peripherals::PIN_18>,
-    pin_19: Peri<'static, embassy_rp::peripherals::PIN_19>,
+    int: Peri<'static, embassy_rp::peripherals::PIN_18>,
+    add: Peri<'static, embassy_rp::peripherals::PIN_19>,
 ) {
-    spawner.must_spawn(task::imu_read::inertial_measurement_read(i2c_bus, pin_18, pin_19));
+    spawner.must_spawn(task::imu_read::inertial_measurement_read(i2c_bus, int, add));
 }
 
 /// Initialize port expander task with I2C bus and interrupt pin
 fn init_port_expander(
     spawner: &Spawner,
     i2c_bus: &'static I2cBusShared,
-    pin_20: Peri<'static, embassy_rp::peripherals::PIN_20>,
+    int: Peri<'static, embassy_rp::peripherals::PIN_20>,
 ) {
-    spawner.must_spawn(task::port_expander::port_expander(i2c_bus, pin_20));
+    spawner.must_spawn(task::port_expander::port_expander(i2c_bus, int));
 }
 
 /// Initialize flash storage task for persistent calibration data

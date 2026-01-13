@@ -1106,7 +1106,10 @@ async fn run_motor_calibration(
     // Step 9: Save calibration to flash
     info!("Step 9: Saving calibration to flash");
     info!("Final calibration factors: {:?}", calibration);
-    flash_storage::send_flash_command(flash_storage::FlashCommand::SaveMotor(*calibration)).await;
+    flash_storage::send_flash_command(flash_storage::FlashCommand::SaveData(
+        flash_storage::CalibrationDataKind::Motor(*calibration),
+    ))
+    .await;
 
     info!("=== Calibration Complete ===");
 }
@@ -1152,7 +1155,7 @@ pub async fn motor_driver(
     let (left_a, left_b) = pwm_driver_left.split();
     let (right_a, right_b) = pwm_driver_right.split();
 
-    // Initialize PWM channels - unwrap is safe because we created outputs for both A and B
+    // Initialize PWM channels
     let mut pwm_channels = PwmChannels {
         left_front: left_a.expect("Left driver channel A not configured"),
         left_rear: left_b.expect("Left driver channel B not configured"),
@@ -1168,8 +1171,12 @@ pub async fn motor_driver(
         right_rear: encoder_right_rear,
     };
 
-    // Initialize calibration - try to load from flash, otherwise use defaults
-    let mut calibration = flash_storage::get_calibration().await.motor;
+    // Initialize calibration - request from flash storage task
+    flash_storage::send_flash_command(flash_storage::FlashCommand::GetData(
+        flash_storage::CalibrationKind::Motor,
+    ))
+    .await;
+    let mut calibration = flash_storage::receive_motor_calibration_signal().await;
     info!("Motor calibration loaded: {:?}", calibration);
 
     // Set all motors to coast initially
