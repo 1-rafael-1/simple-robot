@@ -114,6 +114,7 @@ async fn main(spawner: Spawner) {
 fn init_orchestrate(spawner: &Spawner) {
     spawner.must_spawn(task::orchestrate::orchestrate());
     spawner.must_spawn(send_initialize_event());
+    spawner.must_spawn(auto_start_calibration());
 }
 
 /// Send initialization event to orchestrator
@@ -122,6 +123,22 @@ async fn send_initialize_event() {
     // Small delay to ensure orchestrator is ready
     embassy_time::Timer::after(embassy_time::Duration::from_millis(100)).await;
     system::event::send_event(system::event::Events::Initialize).await;
+}
+
+/// Auto-start calibration for testing (TEMPORARY HACK)
+///
+/// This automatically triggers motor calibration after a few seconds.
+/// Remove this once we have proper UI control (menu, rotary encoder, or remote).
+#[embassy_executor::task]
+async fn auto_start_calibration() {
+    // Wait for system to initialize
+    embassy_time::Timer::after(embassy_time::Duration::from_secs(3)).await;
+
+    defmt::info!("🤖 AUTO-CALIBRATION: Starting motor calibration in 2 seconds...");
+    embassy_time::Timer::after(embassy_time::Duration::from_secs(2)).await;
+
+    defmt::info!("🤖 AUTO-CALIBRATION: Triggering calibration now!");
+    task::drive::send_drive_command(task::drive::DriveCommand::RunMotorCalibration);
 }
 
 // /// Initialize battery monitoring task with ADC
