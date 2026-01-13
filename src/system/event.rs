@@ -30,8 +30,9 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 use crate::{
     system::state::OperationMode,
     task::{
-        drive::DriveAction, encoder_read::EncoderMeasurement, imu_read::ImuMeasurement,
-        monitor_motion::MotionCorrectionInstruction,
+        // drive::DriveAction, encoder_read::EncoderMeasurement,
+        imu_read::ImuMeasurement,
+        // monitor_motion::MotionCorrectionInstruction,
     },
 };
 
@@ -103,16 +104,15 @@ pub enum Events {
     /// - Triggers power saving measures
     InactivityTimeout,
 
-    /// Drive command was executed
-    /// - Signals that motor speeds have been set
-    /// - Triggers encoder measurement
-    DriveCommandExecuted(DriveAction),
+    // /// Drive command was executed
+    // /// - Signals that motor speeds have been set
+    // /// - Triggers encoder measurement
+    // DriveCommandExecuted(DriveAction),
 
-    /// Encoder measurement completed
-    /// - Contains latest pulse counts and timing
-    /// - Used for speed adjustments
-    EncoderMeasurementTaken(EncoderMeasurement),
-
+    // /// Encoder measurement completed
+    // /// - Contains latest pulse counts and timing
+    // /// - Used for speed adjustments
+    // EncoderMeasurementTaken(EncoderMeasurement),
     /// Ultrasonic sensor reading received
     /// - Contains distance measurements and servo angle
     /// - used for display and obstacle detection
@@ -129,10 +129,9 @@ pub enum Events {
     /// - Used for sequencing movements
     RotationCompleted,
 
-    /// Motion correction needed
-    /// - Signals that the robot needs to correct its current drive settings
-    MotionCorrectionRequired(MotionCorrectionInstruction),
-
+    // /// Motion correction needed
+    // /// - Signals that the robot needs to correct its current drive settings
+    // MotionCorrectionRequired(MotionCorrectionInstruction),
     /// Start or stop motion data collection
     /// - Signals that the robot must start or stop motion data collection
     StartStopMotionDataCollection(bool),

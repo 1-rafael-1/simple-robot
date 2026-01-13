@@ -52,7 +52,7 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_futures::select::{Either, select};
 use embassy_rp::{
     Peri,
-    peripherals::{PIN_3, PIN_8},
+    peripherals::{PIN_18, PIN_19},
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Delay, Duration, Instant, Timer};
@@ -146,8 +146,8 @@ fn quaternion_to_euler(q: &UnitQuaternion<f32>) -> Orientation {
 #[embassy_executor::task]
 pub async fn inertial_measurement_read(
     i2c_bus: &'static I2cBusShared,
-    _imu_int: Peri<'static, PIN_8>,
-    _imu_add: Peri<'static, PIN_3>,
+    _imu_int: Peri<'static, PIN_18>,
+    _imu_add: Peri<'static, PIN_19>,
 ) {
     let i2c = I2cDevice::new(i2c_bus);
 
