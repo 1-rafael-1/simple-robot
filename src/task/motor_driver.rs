@@ -98,7 +98,7 @@
 //! motor_driver::send_motor_command(MotorCommand::RunCalibration).await;
 //! ```
 
-use defmt::{Format, debug, info, warn};
+use defmt::{Format, debug, error, info, warn};
 use embassy_rp::pwm::{Pwm, SetDutyCycle};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
@@ -294,6 +294,13 @@ pub enum MotorCommand {
     ///
     /// The robot must be elevated (wheels off ground) during calibration.
     RunCalibration,
+
+    /// Load calibration data from provided calibration struct
+    ///
+    /// This command receives calibration data (typically from flash storage)
+    /// and applies it to the motor driver. Used during system initialization
+    /// or when calibration data is updated.
+    LoadCalibration(MotorCalibration),
 
     // === NORMAL OPERATION COMMANDS (Calibrated) ===
     /// Set speed for an entire track (left or right side)
@@ -743,9 +750,20 @@ async fn process_command(pwm_channels: &mut PwmChannels, calibration: &mut Motor
             *calibration = MotorCalibration::new(left_front, left_rear, right_front, right_rear);
         }
 
+        MotorCommand::LoadCalibration(new_calibration) => {
+            info!(
+                "Loading calibration: [{}, {}, {}, {}]",
+                new_calibration.left_front,
+                new_calibration.left_rear,
+                new_calibration.right_front,
+                new_calibration.right_rear
+            );
+            *calibration = new_calibration;
+        }
+
         MotorCommand::RunCalibration => {
-            // This command is handled in the main task loop, not here
-            warn!("RunCalibration command received in process_command - should be handled in main loop");
+            // This should never be reached - calibration is handled in the main loop
+            error!("RunCalibration should be handled in main loop");
         }
     }
 }
@@ -1171,13 +1189,9 @@ pub async fn motor_driver(
         right_rear: encoder_right_rear,
     };
 
-    // Initialize calibration - request from flash storage task
-    flash_storage::send_flash_command(flash_storage::FlashCommand::GetData(
-        flash_storage::CalibrationKind::Motor,
-    ))
-    .await;
-    let mut calibration = flash_storage::receive_motor_calibration_signal().await;
-    info!("Motor calibration loaded: {:?}", calibration);
+    // Initialize calibration with defaults - will be updated when flash sends data
+    let mut calibration = MotorCalibration::default();
+    info!("Motor driver initialized with default calibration");
 
     // Set all motors to coast initially
     pwm_channels.set_all_speeds(0, 0, 0, 0);

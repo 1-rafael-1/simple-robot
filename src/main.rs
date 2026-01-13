@@ -72,7 +72,7 @@ async fn main(spawner: Spawner) {
 
     init_port_expander(&spawner, i2c_bus, p.PIN_20);
 
-    // init_orchestrate(&spawner);
+    init_orchestrate(&spawner);
     // init_battery_monitoring(&spawner, p.ADC, p.PIN_29);
     // init_rgb_led(&spawner, p.PWM_SLICE1, p.PIN_2, p.PWM_SLICE2, p.PIN_4);
     // init_rc_buttons(&spawner, p.PIN_10, p.PIN_16, p.PIN_11, p.PIN_17);
@@ -110,10 +110,19 @@ async fn main(spawner: Spawner) {
     // main wishes you a great day
 }
 
-// /// Initialize orchestrator task
-// fn init_orchestrate(spawner: &Spawner) {
-//     spawner.must_spawn(orchestrate());
-// }
+/// Initialize orchestrator task
+fn init_orchestrate(spawner: &Spawner) {
+    spawner.must_spawn(task::orchestrate::orchestrate());
+    spawner.must_spawn(send_initialize_event());
+}
+
+/// Send initialization event to orchestrator
+#[embassy_executor::task]
+async fn send_initialize_event() {
+    // Small delay to ensure orchestrator is ready
+    embassy_time::Timer::after(embassy_time::Duration::from_millis(100)).await;
+    system::event::send_event(system::event::Events::Initialize).await;
+}
 
 // /// Initialize battery monitoring task with ADC
 // fn init_battery_monitoring(

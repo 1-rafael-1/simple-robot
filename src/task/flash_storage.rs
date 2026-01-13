@@ -16,7 +16,10 @@ use sequential_storage::{
     map::{Key, SerializationError, Value, fetch_item, store_item},
 };
 
-use crate::task::motor_driver::{MotorCalibration, MotorCommand, send_motor_command};
+use crate::{
+    system::event::{Events, send_event},
+    task::motor_driver::MotorCalibration,
+};
 
 /// Size of one flash sector (4KB on RP2350)
 const FLASH_SECTOR_SIZE: usize = ERASE_SIZE;
@@ -269,83 +272,10 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
     // Define flash range for storage
     let flash_range = STORAGE_OFFSET..(STORAGE_OFFSET + STORAGE_SIZE as u32);
 
-    // Try to load existing calibration on startup
+    // Create cache for flash operations
     let mut cache = NoCache::new();
 
-    match fetch_item::<StorageKey, MotorCalibration, _>(
-        &mut flash,
-        flash_range.clone(),
-        &mut cache,
-        &mut [],
-        &StorageKey::MotorCalibration,
-    )
-    .await
-    {
-        Ok(Some(motor_cal)) => {
-            info!("Loaded motor calibration from flash");
-            info!(
-                "  LF={}, LR={}, RF={}, RR={}",
-                motor_cal.left_front, motor_cal.left_rear, motor_cal.right_front, motor_cal.right_rear
-            );
-
-            // Update shared state
-            let mut data = CALIBRATION_DATA.lock().await;
-            if let Some(ref mut cal) = *data {
-                cal.motor = motor_cal;
-            } else {
-                *data = Some(CalibrationData {
-                    motor: motor_cal,
-                    imu: ImuCalibration::default(),
-                });
-            }
-
-            // Apply to motor driver
-            send_motor_command(MotorCommand::UpdateAllCalibration {
-                left_front: motor_cal.left_front,
-                left_rear: motor_cal.left_rear,
-                right_front: motor_cal.right_front,
-                right_rear: motor_cal.right_rear,
-            })
-            .await;
-        }
-        Ok(None) => {
-            info!("No motor calibration found, using defaults");
-        }
-        Err(e) => {
-            error!("Failed to load motor calibration: {}", defmt::Debug2Format(&e));
-        }
-    }
-
-    match fetch_item::<StorageKey, ImuCalibration, _>(
-        &mut flash,
-        flash_range.clone(),
-        &mut cache,
-        &mut [],
-        &StorageKey::ImuCalibration,
-    )
-    .await
-    {
-        Ok(Some(imu_cal)) => {
-            info!("Loaded IMU calibration from flash");
-            let mut data = CALIBRATION_DATA.lock().await;
-            if let Some(ref mut cal) = *data {
-                cal.imu = imu_cal;
-            } else {
-                *data = Some(CalibrationData {
-                    motor: MotorCalibration::default(),
-                    imu: imu_cal,
-                });
-            }
-        }
-        Ok(None) => {
-            info!("No IMU calibration found, using defaults");
-        }
-        Err(e) => {
-            error!("Failed to load IMU calibration: {}", defmt::Debug2Format(&e));
-        }
-    }
-
-    // Main command processing loop
+    // Main command processing loop - wait for orchestrator to request calibration loading
     loop {
         let command = receive_flash_command().await;
         debug!("Flash command received: {:?}", command);
@@ -353,26 +283,99 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
         match command {
             FlashCommand::GetData(kind) => match kind {
                 CalibrationKind::Motor => {
-                    debug!("Motor calibration requested");
-                    // first reset the signal to ensure fresh data
-                    MOTOR_CALIBRATION_SIGNAL.reset();
+                    info!("Loading motor calibration from flash...");
 
-                    let data = CALIBRATION_DATA.lock().await;
-                    let motor_cal = data.as_ref().map(|d| d.motor).unwrap_or_default();
-                    drop(data);
+                    match fetch_item::<StorageKey, MotorCalibration, _>(
+                        &mut flash,
+                        flash_range.clone(),
+                        &mut cache,
+                        &mut [],
+                        &StorageKey::MotorCalibration,
+                    )
+                    .await
+                    {
+                        Ok(Some(motor_cal)) => {
+                            info!(
+                                "Motor calibration loaded: LF={}, LR={}, RF={}, RR={}",
+                                motor_cal.left_front, motor_cal.left_rear, motor_cal.right_front, motor_cal.right_rear
+                            );
 
-                    MOTOR_CALIBRATION_SIGNAL.signal(motor_cal);
+                            // Update shared state
+                            let mut data = CALIBRATION_DATA.lock().await;
+                            if let Some(ref mut cal) = *data {
+                                cal.motor = motor_cal;
+                            } else {
+                                *data = Some(CalibrationData {
+                                    motor: motor_cal,
+                                    imu: ImuCalibration::default(),
+                                });
+                            }
+                            drop(data);
+
+                            // Send event with calibration data
+                            send_event(Events::CalibrationDataLoaded(
+                                CalibrationKind::Motor,
+                                Some(CalibrationDataKind::Motor(motor_cal)),
+                            ))
+                            .await;
+                        }
+                        Ok(None) => {
+                            info!("No motor calibration found in flash");
+                            // Send event with None to indicate no data
+                            send_event(Events::CalibrationDataLoaded(CalibrationKind::Motor, None)).await;
+                        }
+                        Err(e) => {
+                            error!("Failed to load motor calibration: {}", defmt::Debug2Format(&e));
+                            // Send event with None to indicate failure
+                            send_event(Events::CalibrationDataLoaded(CalibrationKind::Motor, None)).await;
+                        }
+                    }
                 }
                 CalibrationKind::Imu => {
-                    debug!("IMU calibration requested");
-                    // first reset the signal to ensure fresh data
-                    IMU_CALIBRATION_SIGNAL.reset();
+                    info!("Loading IMU calibration from flash...");
 
-                    let data = CALIBRATION_DATA.lock().await;
-                    let imu_cal = data.as_ref().map(|d| d.imu).unwrap_or_default();
-                    drop(data);
+                    match fetch_item::<StorageKey, ImuCalibration, _>(
+                        &mut flash,
+                        flash_range.clone(),
+                        &mut cache,
+                        &mut [],
+                        &StorageKey::ImuCalibration,
+                    )
+                    .await
+                    {
+                        Ok(Some(imu_cal)) => {
+                            info!("IMU calibration loaded from flash");
 
-                    IMU_CALIBRATION_SIGNAL.signal(imu_cal);
+                            // Update shared state
+                            let mut data = CALIBRATION_DATA.lock().await;
+                            if let Some(ref mut cal) = *data {
+                                cal.imu = imu_cal;
+                            } else {
+                                *data = Some(CalibrationData {
+                                    motor: MotorCalibration::default(),
+                                    imu: imu_cal,
+                                });
+                            }
+                            drop(data);
+
+                            // Send event with calibration data
+                            send_event(Events::CalibrationDataLoaded(
+                                CalibrationKind::Imu,
+                                Some(CalibrationDataKind::Imu(imu_cal)),
+                            ))
+                            .await;
+                        }
+                        Ok(None) => {
+                            info!("No IMU calibration found in flash");
+                            // Send event with None to indicate no data
+                            send_event(Events::CalibrationDataLoaded(CalibrationKind::Imu, None)).await;
+                        }
+                        Err(e) => {
+                            error!("Failed to load IMU calibration: {}", defmt::Debug2Format(&e));
+                            // Send event with None to indicate failure
+                            send_event(Events::CalibrationDataLoaded(CalibrationKind::Imu, None)).await;
+                        }
+                    }
                 }
             },
 
@@ -472,13 +475,11 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                         }
                         drop(data);
 
-                        // Apply to motor driver
-                        send_motor_command(MotorCommand::UpdateAllCalibration {
-                            left_front: motor_cal.left_front,
-                            left_rear: motor_cal.left_rear,
-                            right_front: motor_cal.right_front,
-                            right_rear: motor_cal.right_rear,
-                        })
+                        // Send event to notify orchestrator
+                        send_event(Events::CalibrationDataLoaded(
+                            CalibrationKind::Motor,
+                            Some(CalibrationDataKind::Motor(motor_cal)),
+                        ))
                         .await;
                     }
                     Ok(None) => {
@@ -509,6 +510,14 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                                 imu: imu_cal,
                             });
                         }
+                        drop(data);
+
+                        // Send event to notify orchestrator
+                        send_event(Events::CalibrationDataLoaded(
+                            CalibrationKind::Imu,
+                            Some(CalibrationDataKind::Imu(imu_cal)),
+                        ))
+                        .await;
                     }
                     Ok(None) => {
                         warn!("No IMU calibration to reload");

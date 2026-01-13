@@ -10,7 +10,7 @@ pub mod imu_read;
 // pub mod ir_obstacle_detect;
 // pub mod monitor_motion;
 pub mod motor_driver;
-// pub mod orchestrate;
+pub mod orchestrate;
 pub mod port_expander;
 // pub mod rc_control;
 // pub mod rgb_led_indicate;

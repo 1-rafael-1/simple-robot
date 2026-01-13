@@ -5,216 +5,277 @@
 //! # Architecture
 //! This module implements a central event loop that:
 //! - Waits for system events (button presses, sensor readings, etc.)
-//! - Processes events to determine if they cause state changes
-//! - Handles state transitions by coordinating other system tasks
+//! - Processes events and coordinates responses across system tasks
 //!
-//! # State Management
-//! The system has two primary operation modes:
-//! - Manual: Direct RC control of the robot
-//! - Autonomous: Self-driving with obstacle avoidance
-//!
-//! Additional states like standby and obstacle detection are managed across modes.
+//! Each event is handled by a dedicated function for clarity and maintainability.
 
 use core::fmt::Write;
 
-use defmt::{Debug2Format, info};
+use defmt::info;
 use heapless::String;
-use micromath::F32Ext;
 
 use crate::{
     system::{
-        button_actions,
-        event::{Events, send_event, wait},
-        state,
-        state::{OperationMode, SYSTEM_STATE},
+        event::{Events, wait},
+        state::{CalibrationStatus, SYSTEM_STATE},
     },
-    task::{
-        autonomous_drive, display, drive,
-        drive::DriveAction,
-        encoder_read::{start_encoder_readings, stop_encoder_readings},
-        imu_read::{start_imu_readings, stop_imu_readings},
-        monitor_motion::{start_motion_control, stop_motion_control},
-        rgb_led_indicate, track_inactivity,
-    },
+    task::{display, flash_storage, motor_driver},
 };
 
 /// Main coordination task that implements the system's event loop
 #[embassy_executor::task]
 pub async fn orchestrate() {
+    info!("Orchestrator starting");
+
     loop {
         let event = wait().await;
-        if let Some(state_change) = process_event(event).await {
-            handle_state_changes(state_change).await;
-        }
+        handle_event(event).await;
     }
 }
 
-/// Evaluates events for state changes by comparing event data with current system state
-///
-/// Returns Some(event) if it caused a state change, None otherwise
-async fn process_event(event: Events) -> Option<Events> {
-    let mut state = SYSTEM_STATE.lock().await;
-
+/// Routes events to their respective handlers
+async fn handle_event(event: Events) {
     match event {
-        Events::OperationModeSet(new_mode) => {
-            if state.operation_mode != new_mode {
-                state.set_operation_mode(new_mode);
-                Some(event)
-            } else {
-                None
-            }
-        }
-        Events::ObstacleDetected(is_detected) => {
-            if state.obstacle_detected != is_detected {
-                state.obstacle_detected = is_detected;
-                Some(event)
-            } else {
-                None
-            }
-        }
-        Events::ObstacleAvoidanceAttempted => {
-            // Retry avoidance if still blocked in autonomous mode
-            if state.obstacle_detected && state.operation_mode == OperationMode::Autonomous {
-                Some(event)
-            } else {
-                None
-            }
-        }
-        Events::BatteryLevelMeasured(level) => {
-            if state.battery_level != level {
-                state.battery_level = level;
-                Some(event)
-            } else {
-                None
-            }
-        }
-        Events::ButtonPressed(_) | Events::ButtonHoldStart(_) | Events::ButtonHoldEnd(_) => Some(event),
-        Events::InactivityTimeout => {
-            if !state.standby {
-                Some(event)
-            } else {
-                None
-            }
-        }
-        Events::DriveCommandExecuted(_) => Some(event),
-        Events::EncoderMeasurementTaken(_) => Some(event),
-        Events::UltrasonicSweepReadingTaken(_, _) => Some(event),
-        Events::ImuMeasurementTaken(_) => Some(event),
-        Events::RotationCompleted => Some(event),
-        Events::MotionCorrectionRequired(_) => Some(event),
-        Events::StartStopMotionDataCollection(_) => Some(event),
-        Events::StartStopUltrasonicSweep(_) => Some(event),
+        Events::Initialize => handle_initialize().await,
+        Events::CalibrationDataLoaded(kind, data) => handle_calibration_data_loaded(kind, data).await,
+        Events::OperationModeSet(mode) => handle_operation_mode_set(mode).await,
+        Events::ObstacleDetected(detected) => handle_obstacle_detected(detected).await,
+        Events::ObstacleAvoidanceAttempted => handle_obstacle_avoidance_attempted().await,
+        Events::BatteryLevelMeasured(level) => handle_battery_level_measured(level).await,
+        Events::ButtonPressed(button_id) => handle_button_pressed(button_id).await,
+        Events::ButtonHoldStart(button_id) => handle_button_hold_start(button_id).await,
+        Events::ButtonHoldEnd(button_id) => handle_button_hold_end(button_id).await,
+        Events::InactivityTimeout => handle_inactivity_timeout().await,
+        Events::UltrasonicSweepReadingTaken(distance, angle) => handle_ultrasonic_sweep_reading(distance, angle).await,
+        Events::ImuMeasurementTaken(measurement) => handle_imu_measurement(measurement).await,
+        Events::RotationCompleted => handle_rotation_completed().await,
+        Events::StartStopMotionDataCollection(start) => handle_start_stop_motion_data(start).await,
+        Events::StartStopUltrasonicSweep(start) => handle_start_stop_ultrasonic_sweep(start).await,
     }
 }
 
-/// Processes state changes by coordinating system tasks based on events
-async fn handle_state_changes(event: Events) {
-    match event {
-        Events::OperationModeSet(new_mode) => match new_mode {
-            OperationMode::Manual => {
-                rgb_led_indicate::update_indicator(true);
-                autonomous_drive::send_autonomous_command(autonomous_drive::Command::Stop);
-            }
-            OperationMode::Autonomous => {
-                rgb_led_indicate::update_indicator(true);
-                autonomous_drive::send_autonomous_command(autonomous_drive::Command::Initialize);
-                autonomous_drive::send_autonomous_command(autonomous_drive::Command::Start);
-            }
-        },
-        Events::ObstacleDetected(is_detected) => {
-            rgb_led_indicate::update_indicator(true);
-            {
-                let state = SYSTEM_STATE.lock().await;
-                if state.operation_mode == OperationMode::Autonomous {
-                    autonomous_drive::send_autonomous_command(if is_detected {
-                        autonomous_drive::Command::AvoidObstacle
-                    } else {
-                        autonomous_drive::Command::Start
-                    });
-                }
-            }
-        }
-        Events::ObstacleAvoidanceAttempted => {
-            rgb_led_indicate::update_indicator(true);
-            autonomous_drive::send_autonomous_command(autonomous_drive::Command::AvoidObstacle);
-        }
-        Events::BatteryLevelMeasured(_) => {
-            rgb_led_indicate::update_indicator(false);
-        }
-        Events::ButtonPressed(button_id) => {
-            button_actions::handle_button_action(button_id, button_actions::ButtonActionType::Press).await;
-            track_inactivity::signal_activity();
-        }
-        Events::ButtonHoldStart(button_id) => {
-            button_actions::handle_button_action(button_id, button_actions::ButtonActionType::HoldStart).await;
-            track_inactivity::signal_activity();
-        }
-        Events::ButtonHoldEnd(button_id) => {
-            button_actions::handle_button_action(button_id, button_actions::ButtonActionType::HoldEnd).await;
-            track_inactivity::signal_activity();
-        }
-        Events::InactivityTimeout => {
-            // Inactivity timeout occurred, set operation mode to manual and start standby mode
-            send_event(Events::OperationModeSet(state::OperationMode::Manual)).await;
-            drive::send_drive_command(drive::DriveCommand::Drive(drive::DriveAction::Standby));
-        }
-        Events::DriveCommandExecuted(drive_action) => {
-            info!("executed {}", Debug2Format(&drive_action));
-            match drive_action {
-                DriveAction::Brake | DriveAction::Coast | DriveAction::Standby => {
-                    stop_motion_control();
-                }
-                _ => {
-                    start_motion_control();
-                }
-            }
-        }
-        Events::EncoderMeasurementTaken(measurement) => {
-            // ToDo: Send encoder measurement to motion control
-            info!("Encoder measurement taken: {}", measurement);
-        }
-        Events::UltrasonicSweepReadingTaken(distance, angle) => {
-            // Ultrasonic sensor reading received, send distance and servo angle to display and obstacle detection
-            let mut txt: String<20> = String::new();
-            let _ = write!(txt, "{}deg {}cm", angle.round(), (distance as f32).round());
-            display::display_update(display::DisplayAction::ShowText(txt, 0)).await;
-            display::display_update(display::DisplayAction::ShowSweep(distance, angle)).await;
-        }
-        Events::ImuMeasurementTaken(measurement) => {
-            drive::send_drive_command(drive::DriveCommand::ImuFeedback(measurement));
-            // update display with rotation rate
-            let mut txt: String<20> = String::new();
-            let _ = write!(txt, "Yaw: {}deg", measurement.orientation.yaw);
-            display::display_update(display::DisplayAction::ShowText(txt, 1)).await;
-            let mut txt: String<20> = String::new();
-            let _ = write!(txt, "Pitch: {}deg", measurement.orientation.pitch);
-            display::display_update(display::DisplayAction::ShowText(txt, 2)).await;
-            let mut txt: String<20> = String::new();
-            let _ = write!(txt, "Roll: {}deg", measurement.orientation.roll);
-            display::display_update(display::DisplayAction::ShowText(txt, 3)).await;
-        }
-        Events::RotationCompleted => {
-            // Flash LED to indicate completion
-            rgb_led_indicate::update_indicator(true);
+/// Handle system initialization
+async fn handle_initialize() {
+    info!("System initializing");
 
-            // Update display
-            let mut txt: String<20> = String::new();
-            let _ = write!(txt, "Rotation Done");
-            display::display_update(display::DisplayAction::ShowText(txt, 3)).await;
-        }
-        Events::MotionCorrectionRequired(_correction_instruction) => {
-            // Correct motion based on sensor data
-            // send to drive task for correction
-        }
-        Events::StartStopMotionDataCollection(start) => {
-            if start {
-                start_imu_readings();
-                start_encoder_readings();
+    // Display initialization message
+    let mut txt: String<20> = String::new();
+    let _ = write!(txt, "Initializing...");
+    display::display_update(display::DisplayAction::ShowText(txt, 0)).await;
+
+    // Request motor calibration from flash
+    info!("Requesting motor calibration from flash");
+    flash_storage::send_flash_command(flash_storage::FlashCommand::GetData(
+        flash_storage::CalibrationKind::Motor,
+    ))
+    .await;
+
+    // Request IMU calibration from flash
+    info!("Requesting IMU calibration from flash");
+    flash_storage::send_flash_command(flash_storage::FlashCommand::GetData(
+        flash_storage::CalibrationKind::Imu,
+    ))
+    .await;
+
+    // Note: Initialization completes when calibration data arrives via CalibrationDataLoaded events
+}
+
+/// Check if initialization is complete and update display if so
+async fn check_initialization_complete() {
+    let state = SYSTEM_STATE.lock().await;
+
+    // Check if both calibrations have been checked
+    if state.is_initialized() {
+        // Display final initialization status
+        let mut txt: String<20> = String::new();
+        let _ = write!(txt, "System Ready");
+        display::display_update(display::DisplayAction::ShowText(txt, 0)).await;
+
+        info!("System initialization complete");
+        info!("  Motor calibration: {:?}", state.motor_calibration_status);
+        info!("  IMU calibration: {:?}", state.imu_calibration_status);
+    }
+}
+
+/// Handle calibration data loaded from flash storage
+async fn handle_calibration_data_loaded(
+    kind: flash_storage::CalibrationKind,
+    data: Option<flash_storage::CalibrationDataKind>,
+) {
+    use flash_storage::{CalibrationDataKind, CalibrationKind};
+
+    match kind {
+        CalibrationKind::Motor => {
+            if let Some(CalibrationDataKind::Motor(motor_cal)) = data {
+                info!(
+                    "Motor calibration loaded: [{}, {}, {}, {}]",
+                    motor_cal.left_front, motor_cal.left_rear, motor_cal.right_front, motor_cal.right_rear
+                );
+
+                // Update system state
+                {
+                    let mut state = SYSTEM_STATE.lock().await;
+                    state.motor_calibration_status = CalibrationStatus::Loaded;
+                }
+
+                // Send calibration to motor driver
+                motor_driver::send_motor_command(motor_driver::MotorCommand::LoadCalibration(motor_cal)).await;
+
+                // Update display
+                let mut txt: String<20> = String::new();
+                let _ = write!(txt, "Calibration loaded");
+                display::display_update(display::DisplayAction::ShowText(txt, 1)).await;
             } else {
-                stop_imu_readings();
-                stop_encoder_readings();
+                info!("No motor calibration found - using defaults");
+
+                // Update system state
+                {
+                    let mut state = SYSTEM_STATE.lock().await;
+                    state.motor_calibration_status = CalibrationStatus::NotAvailable;
+                }
+
+                // Update display
+                let mut txt: String<20> = String::new();
+                let _ = write!(txt, "Need motor calib");
+                display::display_update(display::DisplayAction::ShowText(txt, 1)).await;
             }
         }
-        Events::StartStopUltrasonicSweep(_start) => {}
+        CalibrationKind::Imu => {
+            if let Some(CalibrationDataKind::Imu(imu_cal)) = data {
+                info!("IMU calibration loaded from flash");
+
+                // Update system state
+                {
+                    let mut state = SYSTEM_STATE.lock().await;
+                    state.imu_calibration_status = CalibrationStatus::Loaded;
+                }
+
+                // TODO: Send to IMU task when implemented
+                let _ = imu_cal; // Suppress unused warning
+
+                // Update display
+                let mut txt: String<20> = String::new();
+                let _ = write!(txt, "IMU cal loaded");
+                display::display_update(display::DisplayAction::ShowText(txt, 2)).await;
+            } else {
+                info!("No IMU calibration found - using defaults");
+
+                // Update system state
+                {
+                    let mut state = SYSTEM_STATE.lock().await;
+                    state.imu_calibration_status = CalibrationStatus::NotAvailable;
+                }
+
+                // Update display
+                let mut txt: String<20> = String::new();
+                let _ = write!(txt, "Need IMU calib");
+                display::display_update(display::DisplayAction::ShowText(txt, 2)).await;
+            }
+        }
     }
+
+    // Check if initialization is complete
+    check_initialization_complete().await;
+}
+
+/// Handle operation mode changes
+async fn handle_operation_mode_set(_mode: crate::system::state::OperationMode) {
+    info!("Operation mode set");
+    // TODO: Implement mode transition logic
+    // - Start/stop autonomous drive
+    // - Update LED indicators
+}
+
+/// Handle obstacle detection status changes
+async fn handle_obstacle_detected(_detected: bool) {
+    info!("Obstacle detection status changed");
+    // TODO: Implement obstacle response
+    // - Trigger avoidance in autonomous mode
+    // - Update LED indicators
+}
+
+/// Handle obstacle avoidance completion
+async fn handle_obstacle_avoidance_attempted() {
+    info!("Obstacle avoidance attempted");
+    // TODO: Implement post-avoidance logic
+    // - Resume normal operation or retry
+}
+
+/// Handle battery level updates
+async fn handle_battery_level_measured(_level: u8) {
+    info!("Battery level measured");
+    // TODO: Implement battery response
+    // - Update LED color
+    // - Trigger low battery warnings
+}
+
+/// Handle button press events
+async fn handle_button_pressed(_button_id: crate::system::event::ButtonId) {
+    info!("Button pressed");
+    // TODO: Implement button actions
+    // - Map to drive commands
+    // - Signal activity tracker
+}
+
+/// Handle button hold start events
+async fn handle_button_hold_start(_button_id: crate::system::event::ButtonId) {
+    info!("Button hold started");
+    // TODO: Implement hold start actions
+    // - Prepare for mode change
+    // - Signal activity tracker
+}
+
+/// Handle button hold end events
+async fn handle_button_hold_end(_button_id: crate::system::event::ButtonId) {
+    info!("Button hold ended");
+    // TODO: Implement hold end actions
+    // - Complete mode change
+    // - Signal activity tracker
+}
+
+/// Handle inactivity timeout
+async fn handle_inactivity_timeout() {
+    info!("Inactivity timeout");
+    // TODO: Implement power saving
+    // - Switch to manual mode
+    // - Enter standby
+}
+
+/// Handle ultrasonic sensor readings
+async fn handle_ultrasonic_sweep_reading(_distance: f64, _angle: f32) {
+    info!("Ultrasonic sweep reading");
+    // TODO: Implement sensor data processing
+    // - Update display with sweep visualization
+    // - Feed data to obstacle detection
+}
+
+/// Handle IMU measurements
+async fn handle_imu_measurement(_measurement: crate::task::imu_read::ImuMeasurement) {
+    info!("IMU measurement taken");
+    // TODO: Implement IMU data processing
+    // - Send orientation feedback to drive task
+    // - Update display with orientation data
+}
+
+/// Handle rotation completion
+async fn handle_rotation_completed() {
+    info!("Rotation completed");
+    // TODO: Implement rotation completion logic
+    // - Update display
+    // - Signal next movement phase
+}
+
+/// Handle motion data collection control
+async fn handle_start_stop_motion_data(_start: bool) {
+    info!("Motion data collection control");
+    // TODO: Implement sensor control
+    // - Start/stop IMU readings
+    // - Start/stop encoder readings
+}
+
+/// Handle ultrasonic sweep control
+async fn handle_start_stop_ultrasonic_sweep(_start: bool) {
+    info!("Ultrasonic sweep control");
+    // TODO: Implement ultrasonic sweep control
+    // - Start/stop sweep task
 }

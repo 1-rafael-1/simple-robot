@@ -63,6 +63,20 @@ pub async fn wait() -> Events {
 /// System-wide events that can occur during robot operation
 #[derive(Debug, Clone)]
 pub enum Events {
+    /// System initialization requested
+    /// - Triggered at startup or after reset
+    /// - Coordinates initial setup across tasks
+    Initialize,
+
+    /// Calibration data loaded from flash storage
+    /// - Triggered when flash storage completes reading calibration data
+    /// - Carries Option: Some(data) if found, None if not found in flash
+    /// - Allows orchestrator to update system state accordingly
+    CalibrationDataLoaded(
+        crate::task::flash_storage::CalibrationKind,
+        Option<crate::task::flash_storage::CalibrationDataKind>,
+    ),
+
     /// Operation mode change requested
     /// - Triggered by button holds or system conditions
     /// - Carries target operation mode
