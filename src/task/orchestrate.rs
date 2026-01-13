@@ -19,7 +19,7 @@ use crate::{
         event::{Events, wait},
         state::{CalibrationStatus, SYSTEM_STATE},
     },
-    task::{display, flash_storage, motor_driver},
+    task::{display, drive, flash_storage, motor_driver},
 };
 
 /// Main coordination task that implements the system's event loop
@@ -46,6 +46,7 @@ async fn handle_event(event: Events) {
         Events::ButtonHoldStart(button_id) => handle_button_hold_start(button_id).await,
         Events::ButtonHoldEnd(button_id) => handle_button_hold_end(button_id).await,
         Events::InactivityTimeout => handle_inactivity_timeout().await,
+        Events::EncoderMeasurementTaken(measurement) => handle_encoder_measurement(measurement).await,
         Events::UltrasonicSweepReadingTaken(distance, angle) => handle_ultrasonic_sweep_reading(distance, angle).await,
         Events::ImuMeasurementTaken(measurement) => handle_imu_measurement(measurement).await,
         Events::RotationCompleted => handle_rotation_completed().await,
@@ -239,6 +240,12 @@ async fn handle_inactivity_timeout() {
     // TODO: Implement power saving
     // - Switch to manual mode
     // - Enter standby
+}
+
+/// Handle encoder measurements
+async fn handle_encoder_measurement(measurement: crate::task::encoder_read::EncoderMeasurement) {
+    // Forward encoder measurements to drive task for calibration and feedback control
+    drive::send_encoder_measurement(measurement).await;
 }
 
 /// Handle ultrasonic sensor readings

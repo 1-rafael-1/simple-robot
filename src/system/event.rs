@@ -29,11 +29,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 
 use crate::{
     system::state::OperationMode,
-    task::{
-        // drive::DriveAction, encoder_read::EncoderMeasurement,
-        imu_read::ImuMeasurement,
-        // monitor_motion::MotionCorrectionInstruction,
-    },
+    task::{encoder_read::EncoderMeasurement, imu_read::ImuMeasurement},
 };
 
 /// Multi-producer, single-consumer event channel
@@ -118,15 +114,11 @@ pub enum Events {
     /// - Triggers power saving measures
     InactivityTimeout,
 
-    // /// Drive command was executed
-    // /// - Signals that motor speeds have been set
-    // /// - Triggers encoder measurement
-    // DriveCommandExecuted(DriveAction),
+    /// Encoder measurement completed
+    /// - Contains latest pulse counts and timing
+    /// - Used for speed adjustments and calibration
+    EncoderMeasurementTaken(EncoderMeasurement),
 
-    // /// Encoder measurement completed
-    // /// - Contains latest pulse counts and timing
-    // /// - Used for speed adjustments
-    // EncoderMeasurementTaken(EncoderMeasurement),
     /// Ultrasonic sensor reading received
     /// - Contains distance measurements and servo angle
     /// - used for display and obstacle detection

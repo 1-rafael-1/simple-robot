@@ -172,6 +172,7 @@ async fn send_initialize_event() {
 
 /// Initialize motor driver with PWM channels and encoders
 /// Direction and standby control are handled via PCA9555 port expander
+/// Encoders are passed to the encoder_read task for sensing
 fn init_motor_driver(spawner: &Spawner, pins: MotorDriverPins) {
     // Configure PWM at 10kHz for motor speed control
     let desired_freq_hz = 10_000u32;
@@ -240,10 +241,11 @@ fn init_motor_driver(spawner: &Spawner, pins: MotorDriverPins) {
         encoder_pwm_config,
     );
 
-    // Spawn motor driver task (handles PWM + encoders + coordinates with port expander)
-    spawner.must_spawn(task::motor_driver::motor_driver(
-        pwm_driver_left,
-        pwm_driver_right,
+    // Spawn motor driver task (handles PWM + coordinates with port expander)
+    spawner.must_spawn(task::motor_driver::motor_driver(pwm_driver_left, pwm_driver_right));
+
+    // Spawn encoder read task (handles encoder sensing)
+    spawner.must_spawn(task::encoder_read::encoder_read(
         encoder_left_front,
         encoder_left_rear,
         encoder_right_front,
@@ -251,7 +253,7 @@ fn init_motor_driver(spawner: &Spawner, pins: MotorDriverPins) {
     ));
 
     // Spawn drive task (high-level drive control)
-    // spawner.must_spawn(task::drive::drive());
+    spawner.must_spawn(task::drive::drive());
 }
 
 // /// Initialize IR obstacle detection

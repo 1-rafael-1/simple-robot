@@ -50,25 +50,18 @@
 //! for manufacturing variations. The calibration is applied as a multiplier
 //! to the commanded speed before converting to PWM duty cycle.
 //!
-//! ## Automatic Calibration Procedure
+//! ## Motor Calibration
 //!
-//! The `RunCalibration` command performs a 9-step automated calibration:
-//! 1. Test left track motors individually at 50% speed (2 seconds each)
-//! 2. Match left track motors to the weaker one
-//! 3. Verify left track by running both together
-//! 4. Test right track motors individually at 50% speed
-//! 5. Match right track motors to the weaker one
-//! 6. Verify right track by running both together
-//! 7. Match both tracks to the weakest overall motor
-//! 8. Final verification with all 4 motors running
-//! 9. Save calibration factors to flash storage
+//! Motor calibration is now handled by the `drive` task, which coordinates
+//! encoder readings from the `encoder_read` task with motor commands to
+//! this task. This provides better separation of concerns:
+//! - `motor_driver`: Pure actuation (PWM control)
+//! - `encoder_read`: Pure sensing (encoder pulse counting)
+//! - `drive`: Control logic (calibration procedures)
 //!
-//! **Important**: Robot must be elevated (wheels off ground) during calibration!
-//!
-//! The calibration uses encoder feedback to measure actual motor speeds and
-//! automatically calculates correction factors. Single-point calibration at 50%
-//! speed is used, with the assumption that motor speed relationships are
-//! approximately linear in the operational range.
+//! Calibration factors are stored in the `MotorCalibration` struct and can be
+//! loaded from flash storage or updated dynamically using the `UpdateCalibration`
+//! and `LoadCalibration` commands.
 //!
 //! # Usage
 //!
@@ -94,19 +87,15 @@
 //!     motor: Motor::Front,
 //! }).await;
 //!
-//! // Run motor calibration (robot must be elevated with wheels off ground)
-//! motor_driver::send_motor_command(MotorCommand::RunCalibration).await;
+//! // Load calibration from flash storage
+//! motor_driver::send_motor_command(MotorCommand::LoadCalibration(calibration)).await;
 //! ```
 
-use defmt::{Format, debug, error, info, warn};
+use defmt::{Format, debug, info, warn};
 use embassy_rp::pwm::{Pwm, SetDutyCycle};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
-use embassy_time::{Duration, Timer};
 
-use crate::task::{
-    flash_storage,
-    port_expander::{self, PortExpanderCommand, PortNumber},
-};
+use crate::task::port_expander::{self, PortExpanderCommand, PortNumber};
 
 /// Track selection (left or right side of robot)
 #[derive(Debug, Clone, Copy, PartialEq, Format)]
@@ -293,7 +282,6 @@ pub enum MotorCommand {
     /// 4. Saves the calibration to flash storage
     ///
     /// The robot must be elevated (wheels off ground) during calibration.
-    RunCalibration,
 
     /// Load calibration data from provided calibration struct
     ///
@@ -760,376 +748,7 @@ async fn process_command(pwm_channels: &mut PwmChannels, calibration: &mut Motor
             );
             *calibration = new_calibration;
         }
-
-        MotorCommand::RunCalibration => {
-            // This should never be reached - calibration is handled in the main loop
-            error!("RunCalibration should be handled in main loop");
-        }
     }
-}
-
-/// Encoder configuration constants
-const ENCODER_PULSES_PER_MOTOR_REV: u16 = 8;
-const ENCODER_GEAR_RATIO: u16 = 120;
-const ENCODER_PULSES_PER_OUTPUT_REV: u16 = ENCODER_PULSES_PER_MOTOR_REV * ENCODER_GEAR_RATIO;
-
-/// Calibration test parameters
-const CALIBRATION_SPEED: i8 = 50; // 50% forward speed for calibration
-const CALIBRATION_SAMPLE_DURATION_MS: u64 = 2000; // 2 second measurement window
-const CALIBRATION_COAST_DURATION_MS: u64 = 500; // 0.5 second coast between tests
-
-/// Encoder channels for all 4 motors
-struct EncoderChannels {
-    left_front: Pwm<'static>,  // GPIO 7, PWM Slice 3B
-    left_rear: Pwm<'static>,   // GPIO 21, PWM Slice 2B
-    right_front: Pwm<'static>, // GPIO 9, PWM Slice 4B
-    right_rear: Pwm<'static>,  // GPIO 27, PWM Slice 5B
-}
-
-impl EncoderChannels {
-    /// Reset all encoder counters to zero
-    fn reset_all(&self) {
-        self.left_front.set_counter(0);
-        self.left_rear.set_counter(0);
-        self.right_front.set_counter(0);
-        self.right_rear.set_counter(0);
-    }
-
-    /// Read encoder count for a specific motor
-    fn read(&self, track: Track, motor: Motor) -> u16 {
-        match (track, motor) {
-            (Track::Left, Motor::Front) => self.left_front.counter(),
-            (Track::Left, Motor::Rear) => self.left_rear.counter(),
-            (Track::Right, Motor::Front) => self.right_front.counter(),
-            (Track::Right, Motor::Rear) => self.right_rear.counter(),
-        }
-    }
-
-    /// Read all encoder counts at once
-    fn read_all(&self) -> [u16; 4] {
-        [
-            self.left_front.counter(),
-            self.left_rear.counter(),
-            self.right_front.counter(),
-            self.right_rear.counter(),
-        ]
-    }
-}
-
-/// Run the motor calibration procedure
-///
-/// This function performs automated calibration of all 4 motors:
-/// 1. Tests left front motor individually, then left rear motor individually
-/// 2. Matches left track motors (adjusts stronger to match weaker)
-/// 3. Verifies left track by running both motors together
-/// 4. Tests right front motor individually, then right rear motor individually
-/// 5. Matches right track motors (adjusts stronger to match weaker)
-/// 6. Verifies right track by running both motors together
-/// 7. Compares tracks and matches to the weakest overall
-/// 8. Final verification with all 4 motors
-/// 9. Saves calibration to flash storage
-///
-/// Note: Each motor must be tested individually because front and rear motors
-/// on the same track are mechanically coupled. Running them together before
-/// matching would cause them to fight each other.
-async fn run_motor_calibration(
-    pwm_channels: &mut PwmChannels,
-    encoders: &EncoderChannels,
-    calibration: &mut MotorCalibration,
-) {
-    info!("=== Starting Motor Calibration ===");
-    info!("Initial calibration: {:?}", calibration);
-
-    // Step 1: Test left track motors individually
-    info!("Step 1: Testing left track motors individually");
-
-    // Test left front motor alone
-    info!("  Testing left front motor");
-    let cmd = motor_port_mapping::set_motor_direction_cmd(Track::Left, Motor::Front, MotorDirection::Forward);
-    port_expander::send_command(cmd).await;
-    let coast_cmd = motor_port_mapping::set_motor_direction_cmd(Track::Left, Motor::Rear, MotorDirection::Coast);
-    port_expander::send_command(coast_cmd).await;
-    let enable_cmd = motor_port_mapping::set_driver_enable_cmd(Track::Left, true);
-    port_expander::send_command(enable_cmd).await;
-
-    encoders.reset_all();
-    pwm_channels.set_speed(Track::Left, Motor::Front, CALIBRATION_SPEED);
-    pwm_channels.set_speed(Track::Left, Motor::Rear, 0);
-
-    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
-
-    let left_front_count = encoders.read(Track::Left, Motor::Front);
-    info!("    Left front encoder count: {}", left_front_count);
-
-    // Coast left front
-    let coast_cmd = motor_port_mapping::set_motor_direction_cmd(Track::Left, Motor::Front, MotorDirection::Coast);
-    port_expander::send_command(coast_cmd).await;
-    pwm_channels.set_speed(Track::Left, Motor::Front, 0);
-    Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
-
-    // Test left rear motor alone
-    info!("  Testing left rear motor");
-    let cmd = motor_port_mapping::set_motor_direction_cmd(Track::Left, Motor::Rear, MotorDirection::Forward);
-    port_expander::send_command(cmd).await;
-
-    encoders.reset_all();
-    pwm_channels.set_speed(Track::Left, Motor::Rear, CALIBRATION_SPEED);
-
-    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
-
-    let left_rear_count = encoders.read(Track::Left, Motor::Rear);
-    info!("    Left rear encoder count: {}", left_rear_count);
-
-    // Coast left rear
-    let coast_cmd = motor_port_mapping::set_motor_direction_cmd(Track::Left, Motor::Rear, MotorDirection::Coast);
-    port_expander::send_command(coast_cmd).await;
-    pwm_channels.set_speed(Track::Left, Motor::Rear, 0);
-    Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
-
-    // Step 2: Match left track motors
-    info!("Step 2: Matching left track motors");
-    let left_weaker_count = if left_front_count < left_rear_count {
-        info!("  Left front is weaker (reference)");
-        if left_rear_count == 0 {
-            warn!("  Left rear encoder count is zero; skipping left track matching to avoid division by zero");
-            left_front_count
-        } else {
-            let factor = left_front_count as f32 / left_rear_count as f32;
-            calibration.left_rear *= factor;
-            info!("  Adjustment factor: {}", factor);
-            left_front_count
-        }
-    } else {
-        info!("  Left rear is weaker (reference)");
-        if left_front_count == 0 {
-            warn!("  Left front encoder count is zero; skipping left track matching to avoid division by zero");
-            left_rear_count
-        } else {
-            let factor = left_rear_count as f32 / left_front_count as f32;
-            calibration.left_front *= factor;
-            info!("  Adjustment factor: {}", factor);
-            left_rear_count
-        }
-    };
-
-    // Step 3: Verify left track match by running both motors together
-    info!("Step 3: Verifying left track match");
-    let cmd = motor_port_mapping::set_all_motor_directions_cmd(
-        MotorDirection::Forward,
-        MotorDirection::Forward,
-        MotorDirection::Coast,
-        MotorDirection::Coast,
-    );
-    port_expander::send_command(cmd).await;
-
-    encoders.reset_all();
-    let cal_left_front = calibration.apply(Track::Left, Motor::Front, CALIBRATION_SPEED);
-    let cal_left_rear = calibration.apply(Track::Left, Motor::Rear, CALIBRATION_SPEED);
-    pwm_channels.set_speed(Track::Left, Motor::Front, cal_left_front);
-    pwm_channels.set_speed(Track::Left, Motor::Rear, cal_left_rear);
-
-    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
-
-    let verify_left_front = encoders.read(Track::Left, Motor::Front);
-    let verify_left_rear = encoders.read(Track::Left, Motor::Rear);
-    info!("  Left front: {}, Left rear: {}", verify_left_front, verify_left_rear);
-
-    // Coast left motors
-    let coast_cmd = motor_port_mapping::set_all_motor_directions_cmd(
-        MotorDirection::Coast,
-        MotorDirection::Coast,
-        MotorDirection::Coast,
-        MotorDirection::Coast,
-    );
-    port_expander::send_command(coast_cmd).await;
-    pwm_channels.set_all_speeds(0, 0, 0, 0);
-    Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
-
-    // Step 4: Test right track motors individually
-    info!("Step 4: Testing right track motors individually");
-
-    // Test right front motor alone
-    info!("  Testing right front motor");
-    let cmd = motor_port_mapping::set_motor_direction_cmd(Track::Right, Motor::Front, MotorDirection::Forward);
-    port_expander::send_command(cmd).await;
-    let coast_cmd = motor_port_mapping::set_motor_direction_cmd(Track::Right, Motor::Rear, MotorDirection::Coast);
-    port_expander::send_command(coast_cmd).await;
-    let enable_cmd = motor_port_mapping::set_driver_enable_cmd(Track::Right, true);
-    port_expander::send_command(enable_cmd).await;
-
-    encoders.reset_all();
-    pwm_channels.set_speed(Track::Right, Motor::Front, CALIBRATION_SPEED);
-    pwm_channels.set_speed(Track::Right, Motor::Rear, 0);
-
-    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
-
-    let right_front_count = encoders.read(Track::Right, Motor::Front);
-    info!("    Right front encoder count: {}", right_front_count);
-
-    // Coast right front
-    let coast_cmd = motor_port_mapping::set_motor_direction_cmd(Track::Right, Motor::Front, MotorDirection::Coast);
-    port_expander::send_command(coast_cmd).await;
-    pwm_channels.set_speed(Track::Right, Motor::Front, 0);
-    Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
-
-    // Test right rear motor alone
-    info!("  Testing right rear motor");
-    let cmd = motor_port_mapping::set_motor_direction_cmd(Track::Right, Motor::Rear, MotorDirection::Forward);
-    port_expander::send_command(cmd).await;
-
-    encoders.reset_all();
-    pwm_channels.set_speed(Track::Right, Motor::Rear, CALIBRATION_SPEED);
-
-    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
-
-    let right_rear_count = encoders.read(Track::Right, Motor::Rear);
-    info!("    Right rear encoder count: {}", right_rear_count);
-
-    // Coast right rear
-    let coast_cmd = motor_port_mapping::set_motor_direction_cmd(Track::Right, Motor::Rear, MotorDirection::Coast);
-    port_expander::send_command(coast_cmd).await;
-    pwm_channels.set_speed(Track::Right, Motor::Rear, 0);
-    Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
-
-    // Step 5: Match right track motors
-    info!("Step 5: Matching right track motors");
-    let right_weaker_count = if right_front_count < right_rear_count {
-        info!("  Right front is weaker (reference)");
-        if right_rear_count == 0 {
-            warn!("  Right rear encoder count is zero; skipping right track matching to avoid division by zero");
-            right_front_count
-        } else {
-            let factor = right_front_count as f32 / right_rear_count as f32;
-            calibration.right_rear *= factor;
-            info!("  Adjustment factor: {}", factor);
-            right_front_count
-        }
-    } else {
-        info!("  Right rear is weaker (reference)");
-        if right_front_count == 0 {
-            warn!("  Right front encoder count is zero; skipping right track matching to avoid division by zero");
-            right_rear_count
-        } else {
-            let factor = right_rear_count as f32 / right_front_count as f32;
-            calibration.right_front *= factor;
-            info!("  Adjustment factor: {}", factor);
-            right_rear_count
-        }
-    };
-
-    // Step 6: Verify right track match by running both motors together
-    info!("Step 6: Verifying right track match");
-    let cmd = motor_port_mapping::set_all_motor_directions_cmd(
-        MotorDirection::Coast,
-        MotorDirection::Coast,
-        MotorDirection::Forward,
-        MotorDirection::Forward,
-    );
-    port_expander::send_command(cmd).await;
-    let enable_cmd = motor_port_mapping::set_driver_enable_cmd(Track::Right, true);
-    port_expander::send_command(enable_cmd).await;
-
-    encoders.reset_all();
-    let cal_right_front = calibration.apply(Track::Right, Motor::Front, CALIBRATION_SPEED);
-    let cal_right_rear = calibration.apply(Track::Right, Motor::Rear, CALIBRATION_SPEED);
-    pwm_channels.set_speed(Track::Right, Motor::Front, cal_right_front);
-    pwm_channels.set_speed(Track::Right, Motor::Rear, cal_right_rear);
-
-    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
-
-    let verify_right_front = encoders.read(Track::Right, Motor::Front);
-    let verify_right_rear = encoders.read(Track::Right, Motor::Rear);
-    info!(
-        "  Right front: {}, Right rear: {}",
-        verify_right_front, verify_right_rear
-    );
-
-    // Coast right motors
-    let coast_cmd = motor_port_mapping::set_all_motor_directions_cmd(
-        MotorDirection::Coast,
-        MotorDirection::Coast,
-        MotorDirection::Coast,
-        MotorDirection::Coast,
-    );
-    port_expander::send_command(coast_cmd).await;
-    pwm_channels.set_all_speeds(0, 0, 0, 0);
-    Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
-
-    // Step 7: Match both tracks to the weakest overall
-    // Now we can safely run both motors per track together since they're matched
-    info!("Step 7: Matching tracks to weakest overall motor");
-    let track_adjustment = if left_weaker_count < right_weaker_count {
-        info!("  Left track is weaker (reference)");
-        if right_weaker_count == 0 {
-            warn!("  Right track encoder count is zero; skipping track matching to avoid division by zero");
-            1.0
-        } else {
-            let factor = left_weaker_count as f32 / right_weaker_count as f32;
-            calibration.right_front *= factor;
-            calibration.right_rear *= factor;
-            factor
-        }
-    } else {
-        info!("  Right track is weaker (reference)");
-        if left_weaker_count == 0 {
-            warn!("  Left track encoder count is zero; skipping track matching to avoid division by zero");
-            1.0
-        } else {
-            let factor = right_weaker_count as f32 / left_weaker_count as f32;
-            calibration.left_front *= factor;
-            calibration.left_rear *= factor;
-            factor
-        }
-    };
-    info!("  Track adjustment factor: {}", track_adjustment);
-
-    // Step 8: Final verification with all motors
-    info!("Step 8: Final verification with all motors");
-    let cmd = motor_port_mapping::set_all_motor_directions_cmd(
-        MotorDirection::Forward,
-        MotorDirection::Forward,
-        MotorDirection::Forward,
-        MotorDirection::Forward,
-    );
-    port_expander::send_command(cmd).await;
-    let enable_cmd = motor_port_mapping::set_all_drivers_enable_cmd(true);
-    port_expander::send_command(enable_cmd).await;
-
-    encoders.reset_all();
-    let cal_left_front = calibration.apply(Track::Left, Motor::Front, CALIBRATION_SPEED);
-    let cal_left_rear = calibration.apply(Track::Left, Motor::Rear, CALIBRATION_SPEED);
-    let cal_right_front = calibration.apply(Track::Right, Motor::Front, CALIBRATION_SPEED);
-    let cal_right_rear = calibration.apply(Track::Right, Motor::Rear, CALIBRATION_SPEED);
-    pwm_channels.set_all_speeds(cal_left_front, cal_left_rear, cal_right_front, cal_right_rear);
-
-    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
-
-    let final_counts = encoders.read_all();
-    info!("  Final encoder counts:");
-    info!("    Left front:  {}", final_counts[0]);
-    info!("    Left rear:   {}", final_counts[1]);
-    info!("    Right front: {}", final_counts[2]);
-    info!("    Right rear:  {}", final_counts[3]);
-
-    // Stop all motors
-    let coast_cmd = motor_port_mapping::set_all_motor_directions_cmd(
-        MotorDirection::Coast,
-        MotorDirection::Coast,
-        MotorDirection::Coast,
-        MotorDirection::Coast,
-    );
-    port_expander::send_command(coast_cmd).await;
-    pwm_channels.set_all_speeds(0, 0, 0, 0);
-
-    // Step 9: Save calibration to flash
-    info!("Step 9: Saving calibration to flash");
-    info!("Final calibration factors: {:?}", calibration);
-    flash_storage::send_flash_command(flash_storage::FlashCommand::SaveData(
-        flash_storage::CalibrationDataKind::Motor(*calibration),
-    ))
-    .await;
-
-    info!("=== Calibration Complete ===");
 }
 
 /// Motor driver task - manages PWM control and coordinates with port expander
@@ -1159,14 +778,7 @@ async fn run_motor_calibration(
 /// port expander task. This task only manages PWM speed control and
 /// coordinates with the port expander for direction changes.
 #[embassy_executor::task]
-pub async fn motor_driver(
-    pwm_driver_left: Pwm<'static>,
-    pwm_driver_right: Pwm<'static>,
-    encoder_left_front: Pwm<'static>,
-    encoder_left_rear: Pwm<'static>,
-    encoder_right_front: Pwm<'static>,
-    encoder_right_rear: Pwm<'static>,
-) {
+pub async fn motor_driver(pwm_driver_left: Pwm<'static>, pwm_driver_right: Pwm<'static>) {
     info!("Motor driver task starting");
 
     // Split PWM slices into separate channel outputs for independent control
@@ -1181,14 +793,6 @@ pub async fn motor_driver(
         right_rear: right_b.expect("Right driver channel B not configured"),
     };
 
-    // Initialize encoder channels
-    let encoders = EncoderChannels {
-        left_front: encoder_left_front,
-        left_rear: encoder_left_rear,
-        right_front: encoder_right_front,
-        right_rear: encoder_right_rear,
-    };
-
     // Initialize calibration with defaults - will be updated when flash sends data
     let mut calibration = MotorCalibration::default();
     info!("Motor driver initialized with default calibration");
@@ -1200,15 +804,6 @@ pub async fn motor_driver(
     // Main command processing loop
     loop {
         let command = receive_motor_command().await;
-
-        // Handle calibration command specially since it needs encoder access
-        match command {
-            MotorCommand::RunCalibration => {
-                run_motor_calibration(&mut pwm_channels, &encoders, &mut calibration).await;
-            }
-            _ => {
-                process_command(&mut pwm_channels, &mut calibration, command).await;
-            }
-        }
+        process_command(&mut pwm_channels, &mut calibration, command).await;
     }
 }

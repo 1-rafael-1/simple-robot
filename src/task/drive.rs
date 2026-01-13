@@ -1,36 +1,131 @@
-//! Motor and motion control with encoder and gyroscope feedback
+//! High-level drive control and coordination
 //!
-//! Implements robot movement control using:
-//! - TB6612FNG dual motor driver
-//! - DFRobot FIT0450 DC motors with quadrature encoders
-//! - MPU-9250 IMU for precise rotation control
+//! This module implements the control layer that coordinates between sensing and actuation:
 //!
-//! The control system supports multiple operation modes:
-//! 1. Direct control with torque bias for manual steering
-//! 2. Precise rotation control using gyroscope feedback
-//! 3. Combined motion with simultaneous rotation and forward/backward movement
+//! # Architecture
 //!
-//! Motion commands are processed asynchronously while maintaining smooth
-//! transitions between different movement states.
+//! ```text
+//! encoder_read          drive (THIS)          motor_driver
+//! ├── Sensing       →   ├── Calibration   →   ├── PWM actuation
+//! └── Pulse counts      ├── Motion control    └── Direction control
+//!                       ├── Feedback loops
+//!                       └── Coordination
+//!
+//! imu_read          →   drive             →   motor_driver
+//! ├── Orientation       ├── Rotation
+//! └── Angles            └── Stabilization
+//! ```
+//!
+//! # Responsibilities
+//!
+//! 1. **Motor Calibration**: Orchestrates the calibration procedure by coordinating
+//!    encoder readings with motor commands and saving results to flash
+//!
+//! 2. **Motion Control**: Implements high-level driving behaviors:
+//!    - Direct speed control using motor_driver's -100 to +100 convention
+//!    - Differential steering (different left/right speeds)
+//!    - Precise rotation using IMU feedback
+//!    - Combined rotation + motion maneuvers
+//!
+//! 3. **Feedback Processing**: Receives sensor data from orchestrator and uses it for:
+//!    - Speed adjustments based on encoder feedback
+//!    - Rotation control using gyroscope/IMU data
+//!    - Tilt compensation for inclines
+//!    - Straight-line correction
+//!
+//! 4. **Task Coordination**: Sends commands to lower-level tasks:
+//!    - `motor_driver`: PWM speed and direction commands
+//!    - `encoder_read`: Start/stop/reset commands
+//!    - `flash_storage`: Save calibration data
+//!
+//! # Speed Convention
+//!
+//! This module uses the same speed convention as `motor_driver`:
+//! - **-100 to +100**: Full range of motor control
+//! - **Positive values**: Forward motion
+//! - **Negative values**: Backward motion
+//! - **Zero**: Coast (freewheel)
+//!
+//! No unnecessary abstraction - the motor_driver's interface is clean and simple.
+//!
+//! # Data Flow
+//!
+//! ## Commands (from orchestrator or other high-level tasks)
+//! ```rust
+//! // Direct speed control
+//! drive::send_drive_command(DriveCommand::Drive(
+//!     DriveAction::SetSpeed { left: 50, right: 50 }
+//! )).await;
+//!
+//! // Differential steering (turn right)
+//! drive::send_drive_command(DriveCommand::Drive(
+//!     DriveAction::SetSpeed { left: 60, right: 40 }
+//! )).await;
+//!
+//! // Calibration
+//! drive::send_drive_command(DriveCommand::RunMotorCalibration).await;
+//! ```
+//!
+//! ## Sensor Feedback (from orchestrator)
+//! ```rust
+//! // Encoder measurements (forwarded by orchestrator from encoder_read events)
+//! drive::send_encoder_measurement(measurement).await;
+//!
+//! // IMU measurements (forwarded by orchestrator from imu_read events)
+//! drive::send_drive_command(DriveCommand::ImuFeedback(measurement)).await;
+//! ```
+//!
+//! # Important: Event Channel Usage
+//!
+//! This task does NOT directly consume system events. All sensor data is forwarded
+//! by the orchestrator via dedicated channels (`send_encoder_measurement()`) to
+//! prevent multiple tasks from competing for events on the system event channel.
+//!
+//! # Control Modes
+//!
+//! - **Direct Control**: Manual speed commands (-100 to +100 per track)
+//! - **Calibration Mode**: Automated motor matching procedure
+//! - **Rotation Control**: IMU-based precise turning
+//! - **Feedback Control**: Encoder-based speed adjustment (TODO)
+//! - **Straight-Line**: IMU-based drift correction (TODO)
 
 #![allow(clippy::too_many_arguments)]
 
 use defmt::info;
 
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal};
 use embassy_time::{Duration, Timer};
 
-use crate::{
-    system::event::{self, Events},
-    task::{
-        encoder_read::EncoderMeasurement,
-        imu_read::ImuMeasurement,
-        motor_driver::{self, Motor, MotorCommand, Track},
-    },
+use crate::task::{
+    encoder_read::EncoderMeasurement,
+    imu_read::ImuMeasurement,
+    motor_driver::{self, MotorCommand, Track},
 };
 
-/// Dispatches drive commands to the motor control task
+/// Command signal for drive control
+///
+/// Used by orchestrator and other high-level tasks to send drive commands
 static DRIVE_CONTROL: Signal<CriticalSectionRawMutex, DriveCommand> = Signal::new();
+
+/// Channel for receiving encoder measurements from orchestrator
+/// Capacity of 5 allows buffering during calibration sequences
+const ENCODER_FEEDBACK_QUEUE_SIZE: usize = 5;
+static ENCODER_FEEDBACK_CHANNEL: Channel<CriticalSectionRawMutex, EncoderMeasurement, ENCODER_FEEDBACK_QUEUE_SIZE> =
+    Channel::new();
+
+/// Send encoder measurement to drive task
+///
+/// Called by orchestrator to forward encoder events from the encoder_read task.
+/// This prevents the drive task from directly consuming system events, which
+/// would interfere with the orchestrator's event processing.
+pub async fn send_encoder_measurement(measurement: EncoderMeasurement) {
+    ENCODER_FEEDBACK_CHANNEL.sender().send(measurement).await;
+}
+
+/// Receive encoder measurement (internal use by drive task)
+async fn receive_encoder_measurement() -> EncoderMeasurement {
+    ENCODER_FEEDBACK_CHANNEL.receive().await
+}
 
 /// Combined motor control and sensor feedback commands
 #[derive(Debug, Clone)]
@@ -41,22 +136,27 @@ pub enum DriveCommand {
     EncoderFeedback(EncoderMeasurement),
     /// Gyroscope feedback for rotation control
     ImuFeedback(ImuMeasurement),
+    /// Run motor calibration procedure
+    RunMotorCalibration,
 }
 
 /// Motion control commands with associated parameters
 #[derive(Debug, Clone, PartialEq)]
 pub enum DriveAction {
-    /// Differential steering by reducing torque on one side
-    TorqueBias {
-        /// Which motor side to reduce power on
-        reduce_side: MotorSide,
-        /// Amount of power reduction (0-100%)
-        bias_amount: u8,
+    /// Set motor speeds directly using motor_driver convention
+    ///
+    /// Speed range: -100 (full backward) to +100 (full forward)
+    /// - Positive values: Forward motion
+    /// - Negative values: Backward motion
+    /// - Zero: Coast (freewheel)
+    ///
+    /// This directly maps to motor_driver's SetTracks command.
+    SetSpeed {
+        /// Left track speed (-100 to +100)
+        left: i8,
+        /// Right track speed (-100 to +100)
+        right: i8,
     },
-    /// Move forward at specified speed (0-100%)
-    Forward(u8),
-    /// Move backward at specified speed (0-100%)
-    Backward(u8),
     /// Active electrical braking
     Brake,
     /// Passive stop (freewheeling)
@@ -74,15 +174,6 @@ pub enum DriveAction {
     },
 }
 
-/// Motor side selection for differential steering
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum MotorSide {
-    /// Left side motor
-    Left,
-    /// Right side motor
-    Right,
-}
-
 /// Rotation direction for precise turning
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RotationDirection {
@@ -97,10 +188,9 @@ pub enum RotationDirection {
 pub enum RotationMotion {
     /// Rotate in place
     Stationary,
-    /// Rotate while maintaining forward motion
-    WhileForward(u8),
-    /// Rotate while maintaining backward motion
-    WhileBackward(u8),
+    /// Rotate while moving at specified speed (-100 to +100)
+    /// Positive = forward, Negative = backward
+    WhileMoving(i8),
 }
 
 // Control parameters
@@ -115,12 +205,22 @@ const ROTATION_TOLERANCE_DEG: f32 = 2.0;
 /// Maximum speed differential during combined motion
 const SPEED_DIFF_MAX: i8 = 30;
 
-/// Queues a drive command for execution
+// Motor calibration constants
+/// Calibration test speed (50% forward)
+const CALIBRATION_SPEED: i8 = 50;
+/// Calibration measurement duration in milliseconds
+const CALIBRATION_SAMPLE_DURATION_MS: u64 = 2000;
+/// Coast time between calibration tests in milliseconds
+const CALIBRATION_COAST_DURATION_MS: u64 = 500;
+
+/// Send a drive command for execution
+///
+/// Non-blocking signal delivery for drive commands
 pub fn send_drive_command(command: DriveCommand) {
     DRIVE_CONTROL.signal(command);
 }
 
-/// Blocks until next motor command is available
+/// Wait for next drive command (internal use)
 async fn wait() -> DriveCommand {
     DRIVE_CONTROL.wait().await
 }
@@ -128,7 +228,10 @@ async fn wait() -> DriveCommand {
 // Motor control now handled by motor_driver task
 // Left/right motor state tracking removed - motor_driver task handles this
 
-/// Tracks state during precise rotation maneuvers
+/// State tracking for precise rotation maneuvers
+///
+/// Maintains rotation progress and calculates differential motor speeds
+/// needed to achieve the target rotation angle using IMU feedback.
 struct RotationState {
     /// Target rotation angle in degrees
     target_angle: f32,
@@ -151,8 +254,7 @@ impl RotationState {
     fn new(target_angle: f32, direction: RotationDirection, motion: RotationMotion) -> Self {
         let base_speed = match motion {
             RotationMotion::Stationary => 0,
-            RotationMotion::WhileForward(speed) => speed as i8,
-            RotationMotion::WhileBackward(speed) => -(speed as i8),
+            RotationMotion::WhileMoving(speed) => speed,
         };
 
         Self {
@@ -216,7 +318,7 @@ impl RotationState {
                     RotationDirection::CounterClockwise => (-(rotation_speed as i8), rotation_speed as i8),
                 }
             }
-            RotationMotion::WhileForward(_) | RotationMotion::WhileBackward(_) => {
+            RotationMotion::WhileMoving(_) => {
                 // Combine base motion with rotation
                 let rotation_diff = rotation_speed.min(SPEED_DIFF_MAX as u8) as i8;
 
@@ -236,7 +338,7 @@ impl RotationState {
     fn continuation_speed(&self) -> Option<i8> {
         match self.motion {
             RotationMotion::Stationary => None,
-            RotationMotion::WhileForward(_) | RotationMotion::WhileBackward(_) => Some(self.base_speed),
+            RotationMotion::WhileMoving(_) => Some(self.base_speed),
         }
     }
 }
@@ -377,13 +479,14 @@ impl MotorState {
     /// Actively stops motor using electrical braking
     async fn brake(&mut self, track: Track) {
         self.current_speed = 0;
-        motor_driver::send_motor_command(MotorCommand::BrakeTrack { track }).await;
+        motor_driver::send_motor_command(MotorCommand::SetTrack { track, speed: 0 }).await;
+        motor_driver::send_motor_command(MotorCommand::BrakeAll).await;
     }
 
     /// Stops motor by letting it spin freely
     async fn coast(&mut self, track: Track) {
         self.current_speed = 0;
-        motor_driver::send_motor_command(MotorCommand::CoastTrack { track }).await;
+        motor_driver::send_motor_command(MotorCommand::SetTrack { track, speed: 0 }).await;
     }
 
     /// Returns current motor speed setting (-100 to +100)
@@ -392,16 +495,341 @@ impl MotorState {
     }
 }
 
-/// Detects if robot is performing a stationary rotation
+/// Detect if robot is performing a stationary rotation (turn in place)
+///
+/// Returns true if left and right tracks have equal but opposite speeds.
 fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
     left_speed == -right_speed && left_speed != 0
 }
 
-/// Primary motor control task that processes movement commands and sensor feedback
+/// Wait for an encoder measurement with timeout
 ///
-/// NOTE: This task has been simplified to work with the new motor_driver task.
-/// Motor control is now delegated to the motor_driver task which handles
-/// PWM and direction control via the port expander.
+/// Receives encoder measurements forwarded by the orchestrator from encoder_read events.
+/// Returns `None` if timeout expires before receiving a measurement.
+///
+/// # Important
+/// Does NOT consume system events directly - measurements come via the dedicated
+/// encoder feedback channel populated by the orchestrator.
+async fn wait_for_encoder_event_timeout(timeout_ms: u64) -> Option<EncoderMeasurement> {
+    use embassy_futures::select::{Either, select};
+    use embassy_time::{Duration, Timer};
+
+    let timeout = Timer::after(Duration::from_millis(timeout_ms));
+
+    match select(timeout, receive_encoder_measurement()).await {
+        Either::First(_) => None,
+        Either::Second(measurement) => Some(measurement),
+    }
+}
+
+/// Run the motor calibration procedure
+///
+/// Coordinates a multi-step calibration process across three tasks:
+/// - `encoder_read`: Provides pulse count measurements
+/// - `motor_driver`: Applies speed commands and stores calibration factors
+/// - `flash_storage`: Persists calibration data (TODO)
+///
+/// # Calibration Steps
+///
+/// 1. Start encoder sampling at 50Hz
+/// 2. Test each motor individually at 50% speed (2 seconds each)
+/// 3. Calculate calibration factors to match motors within each track
+/// 4. Verify track matching by running both motors together
+/// 5. Repeat for the other track
+/// 6. Final verification with all motors
+/// 7. Stop encoder sampling
+///
+/// # Requirements
+///
+/// - Robot must be elevated (wheels off ground)
+/// - No interference during the ~30 second procedure
+///
+/// # Architecture Note
+///
+/// This procedure demonstrates the clean separation of concerns:
+/// - Sensing (encoder_read): Just counts pulses, doesn't know about calibration
+/// - Actuation (motor_driver): Just runs motors, receives calibration factors
+/// - Control (drive/this): Orchestrates the procedure and calculates factors
+async fn run_motor_calibration() {
+    use crate::task::{encoder_read, flash_storage, motor_driver::MotorCalibration};
+
+    info!("=== Starting Motor Calibration ===");
+
+    // Start encoder readings at 50Hz for calibration
+    encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
+    Timer::after(Duration::from_millis(100)).await; // Let encoder task start
+
+    // Track calibration factors as we calculate them
+    let mut calibration = MotorCalibration::default();
+    info!("Starting calibration with default factors: {:?}", calibration);
+
+    // Step 1: Test left track motors individually
+    info!("Step 1: Testing left track motors individually");
+
+    // Test left front motor alone
+    info!("  Testing left front motor");
+    motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+        left_front: CALIBRATION_SPEED,
+        left_rear: 0,
+        right_front: 0,
+        right_rear: 0,
+    })
+    .await;
+
+    encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
+
+    let left_front_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
+        measurement.left_front
+    } else {
+        info!("    Warning: No encoder event received for left front");
+        0
+    };
+    info!("    Left front encoder count: {}", left_front_count);
+
+    motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+    Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
+
+    // Test left rear motor alone
+    info!("  Testing left rear motor");
+    motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+        left_front: 0,
+        left_rear: CALIBRATION_SPEED,
+        right_front: 0,
+        right_rear: 0,
+    })
+    .await;
+
+    encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
+
+    let left_rear_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
+        measurement.left_rear
+    } else {
+        info!("    Warning: No encoder event received for left rear");
+        0
+    };
+    info!("    Left rear encoder count: {}", left_rear_count);
+
+    motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+    Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
+
+    // Step 2: Match left track motors
+    info!("Step 2: Matching left track motors");
+    let _left_weaker_count = if left_front_count < left_rear_count {
+        info!("  Left front is weaker (reference)");
+        if left_rear_count > 0 {
+            let factor = left_front_count as f32 / left_rear_count as f32;
+            calibration.left_rear *= factor;
+            motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
+                track: Track::Left,
+                motor: motor_driver::Motor::Rear,
+                factor,
+            })
+            .await;
+            info!("  Adjustment factor: {}", factor);
+        }
+        left_front_count
+    } else {
+        info!("  Left rear is weaker (reference)");
+        if left_front_count > 0 {
+            let factor = left_rear_count as f32 / left_front_count as f32;
+            calibration.left_front *= factor;
+            motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
+                track: Track::Left,
+                motor: motor_driver::Motor::Front,
+                factor,
+            })
+            .await;
+            info!("  Adjustment factor: {}", factor);
+        }
+        left_rear_count
+    };
+
+    // Step 3: Verify left track match
+    info!("Step 3: Verifying left track match");
+    motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+        left_front: CALIBRATION_SPEED,
+        left_rear: CALIBRATION_SPEED,
+        right_front: 0,
+        right_rear: 0,
+    })
+    .await;
+
+    encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
+
+    if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
+        info!(
+            "  Left front: {}, Left rear: {}",
+            measurement.left_front, measurement.left_rear
+        );
+    }
+
+    motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+    Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
+
+    // Step 4: Test right track motors individually (similar to left track)
+    info!("Step 4: Testing right track motors individually");
+
+    // Test right front motor alone
+    info!("  Testing right front motor");
+    motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+        left_front: 0,
+        left_rear: 0,
+        right_front: CALIBRATION_SPEED,
+        right_rear: 0,
+    })
+    .await;
+
+    encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
+
+    let right_front_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
+        measurement.right_front
+    } else {
+        info!("    Warning: No encoder event received for right front");
+        0
+    };
+    info!("    Right front encoder count: {}", right_front_count);
+
+    motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+    Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
+
+    // Test right rear motor alone
+    info!("  Testing right rear motor");
+    motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+        left_front: 0,
+        left_rear: 0,
+        right_front: 0,
+        right_rear: CALIBRATION_SPEED,
+    })
+    .await;
+
+    encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
+
+    let right_rear_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
+        measurement.right_rear
+    } else {
+        info!("    Warning: No encoder event received for right rear");
+        0
+    };
+    info!("    Right rear encoder count: {}", right_rear_count);
+
+    motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+    Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
+
+    // Step 5: Match right track motors
+    info!("Step 5: Matching right track motors");
+    let _right_weaker_count = if right_front_count < right_rear_count {
+        info!("  Right front is weaker (reference)");
+        if right_rear_count > 0 {
+            let factor = right_front_count as f32 / right_rear_count as f32;
+            calibration.right_rear *= factor;
+            motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
+                track: Track::Right,
+                motor: motor_driver::Motor::Rear,
+                factor,
+            })
+            .await;
+            info!("  Adjustment factor: {}", factor);
+        }
+        right_front_count
+    } else {
+        info!("  Right rear is weaker (reference)");
+        if right_front_count > 0 {
+            let factor = right_rear_count as f32 / right_front_count as f32;
+            calibration.right_front *= factor;
+            motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
+                track: Track::Right,
+                motor: motor_driver::Motor::Front,
+                factor,
+            })
+            .await;
+            info!("  Adjustment factor: {}", factor);
+        }
+        right_rear_count
+    };
+
+    // Step 6: Verify right track match
+    info!("Step 6: Verifying right track match");
+    motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+        left_front: 0,
+        left_rear: 0,
+        right_front: CALIBRATION_SPEED,
+        right_rear: CALIBRATION_SPEED,
+    })
+    .await;
+
+    encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
+
+    if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
+        info!(
+            "  Right front: {}, Right rear: {}",
+            measurement.right_front, measurement.right_rear
+        );
+    }
+
+    motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+    Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
+
+    // Step 7: Final verification with all motors
+    info!("Step 7: Final verification with all motors");
+    motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+        left_front: CALIBRATION_SPEED,
+        left_rear: CALIBRATION_SPEED,
+        right_front: CALIBRATION_SPEED,
+        right_rear: CALIBRATION_SPEED,
+    })
+    .await;
+
+    encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
+
+    if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
+        info!("  Final encoder counts:");
+        info!("    Left front:  {}", measurement.left_front);
+        info!("    Left rear:   {}", measurement.left_rear);
+        info!("    Right front: {}", measurement.right_front);
+        info!("    Right rear:  {}", measurement.right_rear);
+    }
+
+    motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+
+    // Step 8: Save calibration to flash
+    info!("Step 8: Saving calibration to flash storage");
+    info!("Final calibration factors: {:?}", calibration);
+
+    flash_storage::send_flash_command(flash_storage::FlashCommand::SaveData(
+        flash_storage::CalibrationDataKind::Motor(calibration),
+    ))
+    .await;
+
+    // Stop encoder readings
+    encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
+
+    info!("=== Calibration Complete ===");
+}
+
+/// Drive control task - coordinates motion and sensor feedback
+///
+/// # Architecture
+///
+/// This is a high-level control task that:
+/// - Receives drive commands via signal
+/// - Receives encoder feedback via channel (from orchestrator)
+/// - Receives IMU feedback via command (from orchestrator)
+/// - Sends motor commands to motor_driver task
+/// - Coordinates calibration procedures
+///
+/// # Sensor Data Flow
+///
+/// Sensor tasks → Events → Orchestrator → Drive task (this) → Motor driver
+///
+/// The orchestrator forwards relevant sensor events to this task via dedicated
+/// channels rather than having this task consume system events directly.
 #[embassy_executor::task]
 pub async fn drive() {
     // Initialize motor state tracking (for 2 motors on Driver1)
@@ -423,16 +851,10 @@ pub async fn drive() {
 
         match command {
             DriveCommand::Drive(action) => {
-                let left_speed_cmd = left_state.current_speed();
-                let right_speed_cmd = right_state.current_speed();
-
                 // Wake from standby if movement requested
                 if standby_enabled {
                     match action {
-                        DriveAction::Forward(_)
-                        | DriveAction::Backward(_)
-                        | DriveAction::TorqueBias { .. }
-                        | DriveAction::RotateExact { .. } => {
+                        DriveAction::SetSpeed { .. } | DriveAction::RotateExact { .. } => {
                             motor_driver::send_motor_command(MotorCommand::SetAllDriversEnable { enabled: true }).await;
                             standby_enabled = false;
                             Timer::after(Duration::from_millis(100)).await;
@@ -448,61 +870,13 @@ pub async fn drive() {
 
                 // Execute drive action
                 match action {
-                    DriveAction::Forward(speed) => {
-                        // Stop first if currently moving backward
-                        if left_speed_cmd < 0 || right_speed_cmd < 0 {
-                            info!("in conflicting motion, stopping");
-                            send_drive_command(DriveCommand::Drive(DriveAction::Coast));
-                        } else {
-                            let new_speed = (left_speed_cmd + speed as i8).clamp(0, 100);
-                            left_state.set_speed(Track::Left, new_speed).await;
-                            right_state.set_speed(Track::Right, new_speed).await;
-                        }
-                    }
-                    DriveAction::Backward(speed) => {
-                        // Stop first if currently moving forward
-                        if left_speed_cmd > 0 || right_speed_cmd > 0 {
-                            info!("in conflicting motion, stopping");
-                            send_drive_command(DriveCommand::Drive(DriveAction::Coast));
-                        } else {
-                            let new_speed = (-left_speed_cmd + speed as i8).clamp(0, 100);
-                            let neg_speed = -new_speed;
-                            left_state.set_speed(Track::Left, neg_speed).await;
-                            right_state.set_speed(Track::Right, neg_speed).await;
-                        }
-                    }
-                    DriveAction::TorqueBias {
-                        reduce_side,
-                        bias_amount,
-                    } => {
-                        if left_speed_cmd > right_speed_cmd {
-                            // We're in an opposite bias, need to counter it
-                            if is_turning_in_place(left_speed_cmd, right_speed_cmd) {
-                                info!("stopping turn-in-place maneuver");
-                                send_drive_command(DriveCommand::Drive(DriveAction::Coast));
-                            } else {
-                                // If turning while moving, restore original motion
-                                let original_speed = (left_speed_cmd + right_speed_cmd) / 2;
-                                left_state.set_speed(Track::Left, original_speed).await;
-                                right_state.set_speed(Track::Right, original_speed).await;
-                            }
-                        } else {
-                            // Apply new torque bias
-                            match reduce_side {
-                                MotorSide::Left => {
-                                    let new_left_speed = (left_speed_cmd - bias_amount as i8).clamp(-100, 100);
-                                    let target_right_speed = (right_speed_cmd + bias_amount as i8).clamp(-100, 100);
-                                    left_state.set_speed(Track::Left, new_left_speed).await;
-                                    right_state.set_speed(Track::Right, target_right_speed).await;
-                                }
-                                MotorSide::Right => {
-                                    let new_left_speed = (left_speed_cmd + bias_amount as i8).clamp(-100, 100);
-                                    let target_right_speed = (right_speed_cmd - bias_amount as i8).clamp(-100, 100);
-                                    left_state.set_speed(Track::Left, new_left_speed).await;
-                                    right_state.set_speed(Track::Right, target_right_speed).await;
-                                }
-                            }
-                        }
+                    DriveAction::SetSpeed { left, right } => {
+                        // Clamp speeds to valid range
+                        let left_clamped = left.clamp(-100, 100);
+                        let right_clamped = right.clamp(-100, 100);
+
+                        left_state.set_speed(Track::Left, left_clamped).await;
+                        right_state.set_speed(Track::Right, right_clamped).await;
                     }
                     DriveAction::RotateExact {
                         degrees,
@@ -543,8 +917,7 @@ pub async fn drive() {
                     }
                 }
 
-                // Notify that drive command was executed
-                event::send_event(Events::DriveCommandExecuted(action)).await;
+                // Drive command executed
             }
 
             DriveCommand::EncoderFeedback(_measurement) => {
@@ -706,6 +1079,12 @@ pub async fn drive() {
                 //         straight_line_state = None;
                 //     }
                 // }
+            }
+
+            DriveCommand::RunMotorCalibration => {
+                info!("Starting motor calibration procedure");
+                run_motor_calibration().await;
+                info!("Motor calibration procedure completed");
             }
         }
     }
