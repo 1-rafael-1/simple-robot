@@ -92,7 +92,6 @@
 #![allow(clippy::too_many_arguments)]
 
 use defmt::info;
-
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal};
 use embassy_time::{Duration, Timer};
 
