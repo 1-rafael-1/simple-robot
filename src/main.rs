@@ -191,8 +191,7 @@ async fn auto_start_calibration() {
 /// Direction and standby control are handled via PCA9555 port expander
 /// Encoders are passed to the encoder_read task for sensing
 fn init_motor_driver(spawner: &Spawner, pins: MotorDriverPins) {
-    // Configure PWM at 10kHz for motor speed control
-    let desired_freq_hz = 10_000u32;
+    let desired_freq_hz = 20_000u32;
     let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
     let divider = ((clock_freq_hz / desired_freq_hz) / 65535 + 1) as u8;
     let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
