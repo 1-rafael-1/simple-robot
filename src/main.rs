@@ -327,7 +327,8 @@ fn init_port_expander(
     i2c_bus: &'static I2cBusShared,
     int: Peri<'static, embassy_rp::peripherals::PIN_20>,
 ) {
-    spawner.must_spawn(task::port_expander::port_expander(i2c_bus, int));
+    let interrupt = embassy_rp::gpio::Input::new(int, Pull::Up);
+    spawner.must_spawn(task::port_expander::port_expander(i2c_bus, interrupt));
 }
 
 /// Initialize flash storage task for persistent calibration data

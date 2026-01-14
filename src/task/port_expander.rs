@@ -46,11 +46,7 @@
 
 use defmt::{Format, debug, error, info};
 use embassy_futures::select::{Either, select};
-use embassy_rp::{
-    Peri,
-    gpio::{Input, Pull},
-    peripherals::PIN_20,
-};
+use embassy_rp::gpio::Input;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
 use embedded_hal_async::i2c::I2c;
@@ -275,12 +271,11 @@ impl Pca9555Driver {
 
 /// Main port expander task
 #[embassy_executor::task]
-pub async fn port_expander(i2c_bus: &'static I2cBusShared, int_pin: Peri<'static, PIN_20>) {
+pub async fn port_expander(i2c_bus: &'static I2cBusShared, mut interrupt: Input<'static>) {
     info!("Port expander task starting");
 
     // Initialize hardware
     let mut driver = Pca9555Driver::new(i2c_bus);
-    let mut interrupt = Input::new(int_pin, Pull::Up);
 
     // Initialize the device
     if (driver.init().await).is_err() {
