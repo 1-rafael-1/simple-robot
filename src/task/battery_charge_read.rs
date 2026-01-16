@@ -1,32 +1,47 @@
 //! Battery charge monitoring
 //!
-//! Monitors Li-Ion battery voltage and calculates charge level percentage.
+//! Monitors 2S Li-Ion battery pack voltage (two 18650 cells in series).
+//!
+//! # Battery Specifications
+//! - Configuration: 2S (two cells in series)
+//! - Voltage range: 8.4V (fully charged) to 6.0V (cutoff)
+//! - Cell chemistry: Li-Ion 18650
 //!
 //! # Measurement Strategy
-//! - Reads voltage through ADC every 20 seconds
-//! - Uses voltage divider (3:1 ratio) to scale battery voltage to ADC range
+//! - Reads voltage through ADC every 5 seconds (faster for motor control responsiveness)
+//! - Uses voltage divider to scale battery voltage to ADC range
 //! - Applies median filtering over 9 samples to reduce noise
 //! - Initial 500ms delay ensures system stabilization
 //!
+//! # Hardware Configuration
+//! ```text
+//! Battery+ ----[R1=100kΩ]----+----[R2=56kΩ]---- GND
+//!                            |
+//!                         ADC Input
+//!
+//! Voltage Divider Ratio: R2/(R1+R2) = 56k/(100k+56k) = 0.359
+//! At 8.4V battery: ADC sees 3.02V (within safe range)
+//! At 6.0V battery: ADC sees 2.15V
+//! ```
+//!
 //! # Voltage Calculations
 //! ```text
-//! Battery Voltage = (ADC Value * 3.3V * 3.0) / 4096
+//! Battery Voltage = (ADC Value * 3.3V) / (4096 * 0.359)
 //! Where:
 //! - 3.3V is ADC reference voltage
-//! - 3.0 is voltage divider ratio
+//! - 0.359 is voltage divider ratio (R2/(R1+R2))
 //! - 4096 is ADC resolution (12-bit)
 //! ```
 //!
 //! # Charge Level Calculation
-//! - Maps voltage range 2.5V-4.2V to 0%-99%
+//! - Maps voltage range 6.0V-8.4V to 0%-99%
 //! - Linear interpolation between min/max voltages
 //! - Caps at 99% to indicate charging might still occur
-//! - Reports 0% at or below 2.5V (warning level)
+//! - Reports 0% at or below 6.0V (warning level)
 //!
-//! # ADC Management
-//! - Uses mutex-protected global ADC instance
-//! - Lock acquired only during reading
-//! - Quick release ensures other tasks can access ADC
+//! # Motor Driver Integration
+//! - Battery voltage is shared with motor driver for voltage compensation
+//! - Motor driver uses this to maintain consistent 6V output as battery drains
 
 use embassy_rp::adc::{Adc, Async as AdcAsync, Channel};
 use embassy_time::{Duration, Timer};
@@ -34,21 +49,22 @@ use moving_median::MovingMedian;
 
 use crate::system::event;
 
-/// Time between voltage measurements (20s provides good balance of
-/// responsiveness and power efficiency)
-const MEASUREMENT_INTERVAL: Duration = Duration::from_secs(20);
+/// Time between voltage measurements (5s provides fast response for motor control)
+const MEASUREMENT_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Minimum battery voltage (2.5V indicates battery needs charging)
-const BATTERY_VOLTAGE_LOWER: f32 = 2.5;
+/// Minimum battery voltage for 2S Li-Ion pack (6.0V is safe cutoff)
+const BATTERY_VOLTAGE_LOWER: f32 = 6.0;
 
-/// Maximum battery voltage (4.2V is typical Li-Ion full charge)
-const BATTERY_VOLTAGE_UPPER: f32 = 4.2;
+/// Maximum battery voltage for 2S Li-Ion pack (8.4V is full charge, 4.2V per cell)
+const BATTERY_VOLTAGE_UPPER: f32 = 8.4;
 
 /// ADC reference voltage (3.3V is RP2040's reference)
 const REF_VOLTAGE: f32 = 3.3;
 
-/// Hardware voltage divider ratio (3:1 scales battery voltage to ADC range)
-const V_DIVIDER_RATIO: f32 = 3.0;
+/// Hardware voltage divider ratio
+/// R1 = 100kΩ (high side), R2 = 56kΩ (low side to ADC)
+/// Ratio = R2/(R1+R2) = 56/(100+56) = 0.359
+const V_DIVIDER_RATIO: f32 = 0.359;
 
 /// ADC resolution (12-bit = 4096 steps)
 const ADC_RANGE: f32 = 4096.0;
@@ -68,9 +84,11 @@ pub async fn battery_charge_read(mut adc: Adc<'static, AdcAsync>, mut channel: C
     Timer::after(Duration::from_millis(500)).await;
 
     loop {
-        // Read ADC value and convert to voltage
-        // Formula: (adc_value * reference_voltage * voltage_divider_ratio) / adc_resolution
-        let voltage = f32::from(adc.read(&mut channel).await.unwrap_or(0)) * REF_VOLTAGE * V_DIVIDER_RATIO / ADC_RANGE;
+        // Read ADC value and convert to battery voltage
+        // Formula: (adc_value * reference_voltage) / (adc_resolution * voltage_divider_ratio)
+        // The voltage divider brings battery voltage down, so we divide by the ratio to get actual voltage
+        let voltage =
+            f32::from(adc.read(&mut channel).await.unwrap_or(0)) * REF_VOLTAGE / (ADC_RANGE * V_DIVIDER_RATIO);
 
         // Apply median filtering to reduce noise in readings
         median_filter.add_value(voltage);
@@ -90,6 +108,9 @@ pub async fn battery_charge_read(mut adc: Adc<'static, AdcAsync>, mut channel: C
 
         // Send battery level event (as percentage)
         event::send_event(event::Events::BatteryLevelMeasured((battery_level * 100.0) as u8)).await;
+
+        // Send battery voltage to motor driver for voltage compensation
+        event::send_event(event::Events::BatteryVoltageMeasured(filtered_voltage)).await;
 
         // Wait for next measurement interval
         Timer::after(MEASUREMENT_INTERVAL).await;

@@ -1,7 +1,7 @@
 //! Robot task implementations
 
 // pub mod autonomous_drive;
-// pub mod battery_charge_read;
+pub mod battery_charge_read;
 pub mod display;
 pub mod drive;
 pub mod encoder_read;

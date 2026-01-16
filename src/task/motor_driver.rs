@@ -95,7 +95,51 @@ use defmt::{Format, debug, info, warn};
 use embassy_rp::pwm::{Pwm, SetDutyCycle};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
-use crate::task::port_expander::{self, PortExpanderCommand, PortNumber};
+use crate::{
+    system::state,
+    task::port_expander::{self, PortExpanderCommand, PortNumber},
+};
+
+/// Target motor voltage (we compensate battery voltage down to this)
+const TARGET_MOTOR_VOLTAGE: f32 = 6.0;
+
+/// Get current battery voltage from system state (truly non-blocking)
+/// Returns None if no voltage reading available yet OR if mutex is busy
+fn try_get_battery_voltage() -> Option<f32> {
+    // Use try_lock to avoid blocking - if mutex is busy, just return None
+    state::SYSTEM_STATE.try_lock().ok()?.battery_voltage
+}
+
+/// Wait for first battery voltage reading from system state
+async fn wait_for_battery_voltage() -> f32 {
+    loop {
+        if let Some(voltage) = try_get_battery_voltage() {
+            return voltage;
+        }
+        // Small delay before checking again
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(100)).await;
+    }
+}
+
+/// Calculate voltage compensation factor
+/// This scales duty cycle to maintain 6V output to motors as battery drains
+///
+/// Examples:
+/// - At 8.4V battery: factor = 6.0/8.4 = 0.714 (71.4% duty cycle for 100% speed)
+/// - At 7.2V battery: factor = 6.0/7.2 = 0.833 (83.3% duty cycle for 100% speed)
+/// - At 6.0V battery: factor = 6.0/6.0 = 1.000 (100% duty cycle for 100% speed)
+fn calculate_voltage_compensation(battery_voltage: f32) -> f32 {
+    if battery_voltage < TARGET_MOTOR_VOLTAGE {
+        // Battery below target - can't compensate, use full range
+        warn!(
+            "Battery voltage {} below target {}V",
+            battery_voltage, TARGET_MOTOR_VOLTAGE
+        );
+        1.0
+    } else {
+        TARGET_MOTOR_VOLTAGE / battery_voltage
+    }
+}
 
 /// Track selection (left or right side of robot)
 #[derive(Debug, Clone, Copy, PartialEq, Format)]
@@ -502,6 +546,36 @@ impl MotorCalibration {
         calibrated.clamp(-100, 100)
     }
 
+    /// Apply both calibration AND voltage compensation to a commanded speed
+    ///
+    /// This applies two corrections in sequence:
+    /// 1. Motor calibration factor (compensates for motor variations)
+    /// 2. Voltage compensation factor (compensates for battery voltage)
+    ///
+    /// The voltage compensation ensures motors always receive ~6V regardless of battery level.
+    ///
+    /// Returns the fully compensated speed, clamped to [-100, 100]
+    pub fn apply_with_voltage_compensation(
+        &self,
+        track: Track,
+        motor: Motor,
+        speed: i8,
+        voltage_compensation: f32,
+    ) -> i8 {
+        // First apply motor calibration
+        let calibrated = self.apply(track, motor, speed);
+
+        // Then apply voltage compensation
+        let final_f32 = calibrated as f32 * voltage_compensation;
+        let final_speed = if final_f32 >= 0.0 {
+            (final_f32 + 0.5) as i8
+        } else {
+            (final_f32 - 0.5) as i8
+        };
+
+        final_speed.clamp(-100, 100)
+    }
+
     /// Clamp all factors to valid range
     fn clamp_all(&mut self) {
         self.left_front = self.left_front.clamp(Self::MIN_FACTOR, Self::MAX_FACTOR);
@@ -561,78 +635,114 @@ fn speed_to_direction(speed: i8) -> MotorDirection {
 async fn process_set_speed(
     pwm_channels: &mut PwmChannels,
     calibration: &MotorCalibration,
+    voltage_compensation: f32,
     track: Track,
     motor: Motor,
     speed: i8,
 ) {
-    // Apply calibration
-    let calibrated_speed = calibration.apply(track, motor, speed);
+    // Apply both calibration and voltage compensation
+    let final_speed = calibration.apply_with_voltage_compensation(track, motor, speed, voltage_compensation);
 
     debug!(
-        "Motor {:?} {:?}: speed {} -> calibrated {}",
-        track, motor, speed, calibrated_speed
+        "Motor {:?} {:?}: speed {} -> final {} (voltage comp: {})",
+        track, motor, speed, final_speed, voltage_compensation
     );
 
     // Set direction via port expander using motor-specific helper
-    let direction = speed_to_direction(calibrated_speed);
+    let direction = speed_to_direction(final_speed);
     let cmd = motor_port_mapping::set_motor_direction_cmd(track, motor, direction);
     port_expander::send_command(cmd).await;
 
     // Set PWM duty cycle
-    pwm_channels.set_speed(track, motor, calibrated_speed);
+    pwm_channels.set_speed(track, motor, final_speed);
 }
 
 /// Process bulk motor command (all 4 motors at once)
 async fn process_set_all_motors(
     pwm_channels: &mut PwmChannels,
     calibration: &MotorCalibration,
+    voltage_compensation: f32,
     left_front: i8,
     left_rear: i8,
     right_front: i8,
     right_rear: i8,
 ) {
-    // Apply calibration to all motors
-    let cal_left_front = calibration.apply(Track::Left, Motor::Front, left_front);
-    let cal_left_rear = calibration.apply(Track::Left, Motor::Rear, left_rear);
-    let cal_right_front = calibration.apply(Track::Right, Motor::Front, right_front);
-    let cal_right_rear = calibration.apply(Track::Right, Motor::Rear, right_rear);
+    // Apply both calibration AND voltage compensation to all motors
+    let final_left_front =
+        calibration.apply_with_voltage_compensation(Track::Left, Motor::Front, left_front, voltage_compensation);
+    let final_left_rear =
+        calibration.apply_with_voltage_compensation(Track::Left, Motor::Rear, left_rear, voltage_compensation);
+    let final_right_front =
+        calibration.apply_with_voltage_compensation(Track::Right, Motor::Front, right_front, voltage_compensation);
+    let final_right_rear =
+        calibration.apply_with_voltage_compensation(Track::Right, Motor::Rear, right_rear, voltage_compensation);
 
     debug!(
-        "All motors: [{}, {}, {}, {}] -> calibrated [{}, {}, {}, {}]",
-        left_front, left_rear, right_front, right_rear, cal_left_front, cal_left_rear, cal_right_front, cal_right_rear
+        "All motors: [{}, {}, {}, {}] -> final [{}, {}, {}, {}] (voltage comp: {})",
+        left_front,
+        left_rear,
+        right_front,
+        right_rear,
+        final_left_front,
+        final_left_rear,
+        final_right_front,
+        final_right_rear,
+        voltage_compensation
     );
 
     // Set all directions via port expander (atomic bulk operation)
     let cmd = motor_port_mapping::set_all_motor_directions_cmd(
-        speed_to_direction(cal_left_front),
-        speed_to_direction(cal_left_rear),
-        speed_to_direction(cal_right_front),
-        speed_to_direction(cal_right_rear),
+        speed_to_direction(final_left_front),
+        speed_to_direction(final_left_rear),
+        speed_to_direction(final_right_front),
+        speed_to_direction(final_right_rear),
     );
     port_expander::send_command(cmd).await;
 
     // Set all PWM duty cycles
-    pwm_channels.set_all_speeds(cal_left_front, cal_left_rear, cal_right_front, cal_right_rear);
+    pwm_channels.set_all_speeds(final_left_front, final_left_rear, final_right_front, final_right_rear);
 }
 
 /// Process a motor command
-async fn process_command(pwm_channels: &mut PwmChannels, calibration: &mut MotorCalibration, command: MotorCommand) {
+async fn process_command(
+    pwm_channels: &mut PwmChannels,
+    calibration: &mut MotorCalibration,
+    voltage_compensation: f32,
+    command: MotorCommand,
+) {
     match command {
-        // Normal operation commands (calibrated)
+        // Normal operation commands (calibrated + voltage compensated)
         MotorCommand::SetTrack { track, speed } => {
-            // Set both motors on the track to the same speed (with calibration)
-            process_set_speed(pwm_channels, calibration, track, Motor::Front, speed).await;
-            process_set_speed(pwm_channels, calibration, track, Motor::Rear, speed).await;
+            // Set both motors on the track to the same speed (with calibration + voltage compensation)
+            process_set_speed(
+                pwm_channels,
+                calibration,
+                voltage_compensation,
+                track,
+                Motor::Front,
+                speed,
+            )
+            .await;
+            process_set_speed(
+                pwm_channels,
+                calibration,
+                voltage_compensation,
+                track,
+                Motor::Rear,
+                speed,
+            )
+            .await;
         }
 
         MotorCommand::SetTracks {
             left_speed,
             right_speed,
         } => {
-            // Set both tracks efficiently (with calibration)
+            // Set both tracks efficiently (with calibration + voltage compensation)
             process_set_all_motors(
                 pwm_channels,
                 calibration,
+                voltage_compensation,
                 left_speed,
                 left_speed,
                 right_speed,
@@ -650,6 +760,7 @@ async fn process_command(pwm_channels: &mut PwmChannels, calibration: &mut Motor
             process_set_all_motors(
                 pwm_channels,
                 calibration,
+                voltage_compensation,
                 left_front,
                 left_rear,
                 right_front,
@@ -658,10 +769,11 @@ async fn process_command(pwm_channels: &mut PwmChannels, calibration: &mut Motor
             .await;
         }
 
-        // Raw commands (no calibration)
+        // Raw commands (no calibration, no voltage compensation)
         MotorCommand::SetSpeed { track, motor, speed } => {
-            // Raw speed command - no calibration applied
-            debug!("Raw motor {:?} {:?}: speed {}", track, motor, speed);
+            // Raw speed command - no calibration or voltage compensation applied
+            // Used for testing and calibration procedures
+            debug!("Raw motor {:?} {:?}: speed {} (no compensation)", track, motor, speed);
 
             let direction = speed_to_direction(speed);
             let cmd = motor_port_mapping::set_motor_direction_cmd(track, motor, direction);
@@ -801,9 +913,25 @@ pub async fn motor_driver(pwm_driver_left: Pwm<'static>, pwm_driver_right: Pwm<'
     pwm_channels.set_all_speeds(0, 0, 0, 0);
     info!("Motor driver initialized - all motors coasting");
 
+    // Wait for first battery voltage reading before allowing motor commands
+    info!("Waiting for battery voltage reading...");
+    let initial_voltage = wait_for_battery_voltage().await;
+    let mut voltage_compensation = calculate_voltage_compensation(initial_voltage);
+    info!(
+        "Battery voltage: {}V, voltage compensation factor: {}",
+        initial_voltage, voltage_compensation
+    );
+
     // Main command processing loop
     loop {
         let command = receive_motor_command().await;
-        process_command(&mut pwm_channels, &mut calibration, command).await;
+
+        // Try to get fresh battery voltage reading non-blocking
+        // If available and mutex not busy, update compensation; otherwise keep using previous value
+        if let Some(current_voltage) = try_get_battery_voltage() {
+            voltage_compensation = calculate_voltage_compensation(current_voltage);
+        }
+
+        process_command(&mut pwm_channels, &mut calibration, voltage_compensation, command).await;
     }
 }

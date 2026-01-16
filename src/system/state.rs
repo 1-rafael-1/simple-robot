@@ -42,12 +42,14 @@ pub enum CalibrationStatus {
 /// Initialized to:
 /// - Manual operation mode
 /// - 100% battery level
+/// - No battery voltage reading yet
 /// - No obstacles detected
 /// - Standby mode disabled
 /// - No calibration data loaded
 pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::new(SystemState {
     operation_mode: OperationMode::Manual,
     battery_level: 100,
+    battery_voltage: None,
     obstacle_detected: false,
     standby: false,
     motor_calibration_status: CalibrationStatus::NotLoaded,
@@ -69,6 +71,11 @@ pub struct SystemState {
     /// - 21-99: Normal operation
     /// - 100: Fully charged
     pub battery_level: u8,
+    /// Battery voltage in volts (2S Li-Ion: 6.0V-8.4V)
+    /// - None: No reading available yet
+    /// - Some(voltage): Latest voltage measurement
+    /// Used by motor driver for voltage compensation
+    pub battery_voltage: Option<f32>,
     /// Obstacle detection status
     /// - true: Obstacle detected within threshold distance
     /// - false: Path is clear

@@ -94,6 +94,12 @@ pub enum Events {
     /// - May affect operation decisions
     BatteryLevelMeasured(u8),
 
+    /// Battery voltage measurement (raw voltage)
+    /// - Used by motor driver for voltage compensation
+    /// - Ensures consistent 6V output to motors as battery drains
+    /// - Value in volts (f32)
+    BatteryVoltageMeasured(f32),
+
     /// Button press detected
     /// - Short press (< 1 second)
     /// - Maps to immediate actions

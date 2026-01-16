@@ -14,6 +14,8 @@ use core::fmt::Write;
 use defmt::info;
 use heapless::String;
 
+use crate::system::state;
+
 use crate::{
     system::{
         event::{Events, wait},
@@ -42,6 +44,7 @@ async fn handle_event(event: Events) {
         Events::ObstacleDetected(detected) => handle_obstacle_detected(detected).await,
         Events::ObstacleAvoidanceAttempted => handle_obstacle_avoidance_attempted().await,
         Events::BatteryLevelMeasured(level) => handle_battery_level_measured(level).await,
+        Events::BatteryVoltageMeasured(voltage) => handle_battery_voltage_measured(voltage).await,
         Events::ButtonPressed(button_id) => handle_button_pressed(button_id).await,
         Events::ButtonHoldStart(button_id) => handle_button_hold_start(button_id).await,
         Events::ButtonHoldEnd(button_id) => handle_button_hold_end(button_id).await,
@@ -53,6 +56,13 @@ async fn handle_event(event: Events) {
         Events::StartStopMotionDataCollection(start) => handle_start_stop_motion_data(start).await,
         Events::StartStopUltrasonicSweep(start) => handle_start_stop_ultrasonic_sweep(start).await,
     }
+}
+
+/// Handle battery voltage measurement
+async fn handle_battery_voltage_measured(voltage: f32) {
+    // Store battery voltage in system state for motor driver to poll
+    let mut state = state::SYSTEM_STATE.lock().await;
+    state.battery_voltage = Some(voltage);
 }
 
 /// Handle system initialization

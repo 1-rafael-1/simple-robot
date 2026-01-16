@@ -8,12 +8,14 @@
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::{
-    Peri, bind_interrupts,
+    Peri,
+    adc::{Adc, Channel, Config as AdcConfig, InterruptHandler as AdcInterruptHandler},
+    bind_interrupts,
     block::ImageDef,
     config::Config,
     flash::{Async, Flash},
     gpio::Pull,
-    i2c::{Config as I2cConfig, I2c, InterruptHandler as I2cInterruptHandler, SclPin},
+    i2c::{Config as I2cConfig, I2c, InterruptHandler as I2cInterruptHandler},
     peripherals::I2C0,
     pwm::{InputMode, Pwm},
 };
@@ -34,6 +36,7 @@ mod task;
 // Bind interrupts on global scope for convenience
 bind_interrupts!(pub struct Irqs {
     I2C0_IRQ => I2cInterruptHandler<I2C0>;
+    ADC_IRQ_FIFO => AdcInterruptHandler;
 });
 
 /// Motor driver peripheral pins (for new architecture with PCA9555)
@@ -73,7 +76,7 @@ async fn main(spawner: Spawner) {
     init_port_expander(&spawner, i2c_bus, p.PIN_20);
 
     init_orchestrate(&spawner);
-    // init_battery_monitoring(&spawner, p.ADC, p.PIN_29);
+    init_battery_monitoring(&spawner, p.ADC, p.PIN_29);
     // init_rgb_led(&spawner, p.PWM_SLICE1, p.PIN_2, p.PWM_SLICE2, p.PIN_4);
     // init_rc_buttons(&spawner, p.PIN_10, p.PIN_16, p.PIN_11, p.PIN_17);
 
@@ -141,16 +144,16 @@ async fn auto_start_calibration() {
     task::drive::send_drive_command(task::drive::DriveCommand::RunMotorCalibration);
 }
 
-// /// Initialize battery monitoring task with ADC
-// fn init_battery_monitoring(
-//     spawner: &Spawner,
-//     adc: Peri<'static, embassy_rp::peripherals::ADC>,
-//     pin_29: Peri<'static, embassy_rp::peripherals::PIN_29>,
-// ) {
-//     let adc = Adc::new(adc, Irqs, AdcConfig::default());
-//     let vsys_channel = Channel::new_pin(pin_29, Pull::None);
-//     spawner.must_spawn(battery_charge_read(adc, vsys_channel));
-// }
+/// Initialize battery monitoring task with ADC
+fn init_battery_monitoring(
+    spawner: &Spawner,
+    adc: Peri<'static, embassy_rp::peripherals::ADC>,
+    pin_29: Peri<'static, embassy_rp::peripherals::PIN_29>,
+) {
+    let adc = Adc::new(adc, Irqs, AdcConfig::default());
+    let battery_channel = Channel::new_pin(pin_29, Pull::None);
+    spawner.must_spawn(task::battery_charge_read::battery_charge_read(adc, battery_channel));
+}
 
 // /// Initialize RGB LED indicator with PWM outputs
 // fn init_rgb_led(
