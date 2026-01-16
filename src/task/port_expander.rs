@@ -56,8 +56,8 @@ use crate::{
     system::event::{ButtonId, Events, send_event},
 };
 
-/// PCA9555 I2C address (A0=A1=A2=low -> 0x20)
-const PCA9555_ADDR: u8 = 0x20;
+/// PCA9555 I2C address (A0=high, A1=A2=low -> 0x21)
+const PCA9555_ADDR: u8 = 0x21;
 
 /// PCA9555 Register addresses
 const REG_INPUT_PORT0: u8 = 0x00;
@@ -114,12 +114,13 @@ struct InputState {
 
 impl InputState {
     /// Create from Port 1 input register value
+    /// Note: RC buttons are inverted by NOT gates in hardware (active-LOW)
     fn from_port1(value: u8) -> Self {
         Self {
-            button_a: (value & 0b0000_0001) != 0,
-            button_b: (value & 0b0000_0010) != 0,
-            button_c: (value & 0b0000_0100) != 0,
-            button_d: (value & 0b0000_1000) != 0,
+            button_a: (value & 0b0000_0001) == 0, // Inverted: LOW = pressed
+            button_b: (value & 0b0000_0010) == 0, // Inverted: LOW = pressed
+            button_c: (value & 0b0000_0100) == 0, // Inverted: LOW = pressed
+            button_d: (value & 0b0000_1000) == 0, // Inverted: LOW = pressed
         }
     }
 
@@ -154,7 +155,7 @@ impl PortExpanderState {
     fn new() -> Self {
         Self {
             port0_output: 0x00,
-            port1_output: 0x00,
+            port1_output: 0x00, // No pull-ups - external pull-downs needed for RC inputs
             last_input_state: InputState {
                 button_a: false,
                 button_b: false,
