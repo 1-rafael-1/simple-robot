@@ -5822,6 +5822,26 @@
 			)
 		)
 	)
+	(global_label "I2C SDA"
+		(shape bidirectional)
+		(at 30.48 60.96 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "339bf5de-66f7-423d-975d-e795b7fc0dff")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 30.48 60.96 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "RC_C"
 		(shape input)
 		(at 125.73 102.87 0)
@@ -6018,6 +6038,26 @@
 			)
 		)
 	)
+	(global_label "I2C SCL"
+		(shape bidirectional)
+		(at 30.48 63.5 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "599ccc50-3582-43a2-9003-619c82632fa4")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 30.48 63.5 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "RC_C"
 		(shape output)
 		(at 101.6 31.75 180)
@@ -6206,46 +6246,6 @@
 		(uuid "80d562ac-8153-41ab-936a-4c2f13a33a7a")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 205.74 39.37 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "I2C SDA"
-		(shape bidirectional)
-		(at 30.48 63.5 180)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "81fc1139-4fe3-4bf5-985e-7043f0ebc221")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 30.48 63.5 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "I2C SCL"
-		(shape bidirectional)
-		(at 30.48 60.96 180)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "86589b61-2225-44a9-837d-9a796a56f15f")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 30.48 60.96 0)
 			(effects
 				(font
 					(size 1.27 1.27)

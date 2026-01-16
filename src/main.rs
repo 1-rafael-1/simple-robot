@@ -13,7 +13,7 @@ use embassy_rp::{
     config::Config,
     flash::{Async, Flash},
     gpio::Pull,
-    i2c::{Config as I2cConfig, I2c, InterruptHandler as I2cInterruptHandler},
+    i2c::{Config as I2cConfig, I2c, InterruptHandler as I2cInterruptHandler, SclPin},
     peripherals::I2C0,
     pwm::{InputMode, Pwm},
 };
@@ -296,12 +296,12 @@ fn init_motor_driver(spawner: &Spawner, pins: MotorDriverPins) {
 /// Initialize shared I2C bus for display and IMU
 fn init_i2c_bus(
     i2c0: Peri<'static, I2C0>,
-    pin_13: Peri<'static, embassy_rp::peripherals::PIN_13>,
-    pin_12: Peri<'static, embassy_rp::peripherals::PIN_12>,
+    scl: Peri<'static, embassy_rp::peripherals::PIN_13>,
+    sda: Peri<'static, embassy_rp::peripherals::PIN_12>,
 ) -> &'static I2cBusShared {
     let mut i2c_config = I2cConfig::default();
     i2c_config.frequency = 400_000;
-    let i2c = I2c::new_async(i2c0, pin_13, pin_12, Irqs, i2c_config);
+    let i2c = I2c::new_async(i2c0, scl, sda, Irqs, i2c_config);
     static I2C_BUS: StaticCell<I2cBusShared> = StaticCell::new();
     I2C_BUS.init(Mutex::new(i2c))
 }
