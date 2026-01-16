@@ -208,7 +208,7 @@ const SPEED_DIFF_MAX: i8 = 30;
 /// Calibration test speed (50% forward)
 const CALIBRATION_SPEED: i8 = 50;
 /// Calibration measurement duration in milliseconds
-const CALIBRATION_SAMPLE_DURATION_MS: u64 = 2000;
+const CALIBRATION_SAMPLE_DURATION_MS: u64 = 10_000;
 /// Coast time between calibration tests in milliseconds
 const CALIBRATION_COAST_DURATION_MS: u64 = 500;
 
@@ -554,6 +554,20 @@ async fn run_motor_calibration() {
 
     info!("=== Starting Motor Calibration ===");
 
+    // Enable both motor driver chips (take out of standby)
+    info!("Enabling motor driver chips");
+    motor_driver::send_motor_command(MotorCommand::SetDriverEnable {
+        track: Track::Left,
+        enabled: true,
+    })
+    .await;
+    motor_driver::send_motor_command(MotorCommand::SetDriverEnable {
+        track: Track::Right,
+        enabled: true,
+    })
+    .await;
+    Timer::after(Duration::from_millis(10)).await; // Brief delay for enable to take effect
+
     // Start encoder readings at 50Hz for calibration
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
     Timer::after(Duration::from_millis(100)).await; // Let encoder task start
@@ -808,6 +822,19 @@ async fn run_motor_calibration() {
 
     // Stop encoder readings
     encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
+
+    // Disable motor drivers (return to standby mode)
+    info!("Disabling motor driver chips");
+    motor_driver::send_motor_command(MotorCommand::SetDriverEnable {
+        track: Track::Left,
+        enabled: false,
+    })
+    .await;
+    motor_driver::send_motor_command(MotorCommand::SetDriverEnable {
+        track: Track::Right,
+        enabled: false,
+    })
+    .await;
 
     info!("=== Calibration Complete ===");
 }
