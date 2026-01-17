@@ -74,6 +74,7 @@ pub struct SystemState {
     /// Battery voltage in volts (2S Li-Ion: 6.0V-8.4V)
     /// - None: No reading available yet
     /// - Some(voltage): Latest voltage measurement
+    ///
     /// Used by motor driver for voltage compensation
     pub battery_voltage: Option<f32>,
     /// Obstacle detection status
