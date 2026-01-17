@@ -8,7 +8,9 @@
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::{
-    Peri, bind_interrupts,
+    Peri,
+    adc::{Adc, Channel, Config as AdcConfig, InterruptHandler as AdcInterruptHandler},
+    bind_interrupts,
     block::ImageDef,
     config::Config,
     flash::{Async, Flash},
@@ -34,6 +36,7 @@ mod task;
 // Bind interrupts on global scope for convenience
 bind_interrupts!(pub struct Irqs {
     I2C0_IRQ => I2cInterruptHandler<I2C0>;
+    ADC_IRQ_FIFO => AdcInterruptHandler;
 });
 
 /// Motor driver peripheral pins (for new architecture with PCA9555)
@@ -66,11 +69,17 @@ async fn main(spawner: Spawner) {
     config.clocks = embassy_rp::clocks::ClockConfig::system_freq(150_000_000).unwrap();
     let p = embassy_rp::init(config);
 
-    // make peripheral handles and spawn tasks - INITIAL REFACTORING: display, imu, motor_driver, drive
-    // init_orchestrate(&spawner);
-    // init_battery_monitoring(&spawner, p.ADC, p.PIN_29);
+    // make peripheral handles and spawn tasks
+
+    let i2c_bus = init_i2c_bus(p.I2C0, p.PIN_13, p.PIN_12);
+
+    init_port_expander(&spawner, i2c_bus, p.PIN_20);
+
+    init_orchestrate(&spawner);
+    init_battery_monitoring(&spawner, p.ADC, p.PIN_26);
     // init_rgb_led(&spawner, p.PWM_SLICE1, p.PIN_2, p.PWM_SLICE2, p.PIN_4);
     // init_rc_buttons(&spawner, p.PIN_10, p.PIN_16, p.PIN_11, p.PIN_17);
+
     init_motor_driver(
         &spawner,
         MotorDriverPins {
@@ -94,10 +103,8 @@ async fn main(spawner: Spawner) {
     // init_ir_obstacle_detect(&spawner, p.PIN_26);
     // init_ultrasonic_sweep(&spawner, p.PIO0, p.PIN_5, p.PIN_15, p.PIN_14);
 
-    let i2c_bus = init_i2c_bus(p.I2C0, p.PIN_13, p.PIN_12);
     init_display(&spawner, i2c_bus);
     init_imu_read(&spawner, i2c_bus, p.PIN_18, p.PIN_19);
-    init_port_expander(&spawner, i2c_bus, p.PIN_20);
     init_flash_storage(&spawner, p.FLASH, p.DMA_CH0);
 
     // init_motion_correction(&spawner);
@@ -106,21 +113,47 @@ async fn main(spawner: Spawner) {
     // main wishes you a great day
 }
 
-// /// Initialize orchestrator task
-// fn init_orchestrate(spawner: &Spawner) {
-//     spawner.must_spawn(orchestrate());
-// }
+/// Initialize orchestrator task
+fn init_orchestrate(spawner: &Spawner) {
+    spawner.must_spawn(task::orchestrate::orchestrate());
+    spawner.must_spawn(send_initialize_event());
+    spawner.must_spawn(auto_start_calibration());
+}
 
-// /// Initialize battery monitoring task with ADC
-// fn init_battery_monitoring(
-//     spawner: &Spawner,
-//     adc: Peri<'static, embassy_rp::peripherals::ADC>,
-//     pin_29: Peri<'static, embassy_rp::peripherals::PIN_29>,
-// ) {
-//     let adc = Adc::new(adc, Irqs, AdcConfig::default());
-//     let vsys_channel = Channel::new_pin(pin_29, Pull::None);
-//     spawner.must_spawn(battery_charge_read(adc, vsys_channel));
-// }
+/// Send initialization event to orchestrator
+#[embassy_executor::task]
+async fn send_initialize_event() {
+    // Small delay to ensure orchestrator is ready
+    embassy_time::Timer::after(embassy_time::Duration::from_millis(100)).await;
+    system::event::send_event(system::event::Events::Initialize).await;
+}
+
+/// Auto-start calibration for testing (TEMPORARY HACK)
+///
+/// This automatically triggers motor calibration after a few seconds.
+/// Remove this once we have proper UI control (menu, rotary encoder, or remote).
+#[embassy_executor::task]
+async fn auto_start_calibration() {
+    // Wait for system to initialize
+    embassy_time::Timer::after(embassy_time::Duration::from_secs(3)).await;
+
+    defmt::info!("🤖 AUTO-CALIBRATION: Starting motor calibration in 2 seconds...");
+    embassy_time::Timer::after(embassy_time::Duration::from_secs(2)).await;
+
+    defmt::info!("🤖 AUTO-CALIBRATION: Triggering calibration now!");
+    task::drive::send_drive_command(task::drive::DriveCommand::RunMotorCalibration);
+}
+
+/// Initialize battery monitoring task with ADC
+fn init_battery_monitoring(
+    spawner: &Spawner,
+    adc: Peri<'static, embassy_rp::peripherals::ADC>,
+    adc_pin: Peri<'static, embassy_rp::peripherals::PIN_26>,
+) {
+    let adc = Adc::new(adc, Irqs, AdcConfig::default());
+    let battery_channel = Channel::new_pin(adc_pin, Pull::None);
+    spawner.must_spawn(task::battery_charge_read::battery_charge_read(adc, battery_channel));
+}
 
 // /// Initialize RGB LED indicator with PWM outputs
 // fn init_rgb_led(
@@ -158,10 +191,10 @@ async fn main(spawner: Spawner) {
 // }
 
 /// Initialize motor driver with PWM channels and encoders
-/// Direction and standby control are now handled by PCA9555 port expander task
+/// Direction and standby control are handled via PCA9555 port expander
+/// Encoders are passed to the encoder_read task for sensing
 fn init_motor_driver(spawner: &Spawner, pins: MotorDriverPins) {
-    // Configure PWM at 10kHz for motor speed control
-    let desired_freq_hz = 10_000u32;
+    let desired_freq_hz = 20_000u32;
     let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
     let divider = ((clock_freq_hz / desired_freq_hz) / 65535 + 1) as u8;
     let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
@@ -227,10 +260,11 @@ fn init_motor_driver(spawner: &Spawner, pins: MotorDriverPins) {
         encoder_pwm_config,
     );
 
-    // Spawn motor driver task (handles PWM + encoders + coordinates with port expander)
-    spawner.must_spawn(task::motor_driver::motor_driver(
-        pwm_driver_left,
-        pwm_driver_right,
+    // Spawn motor driver task (handles PWM + coordinates with port expander)
+    spawner.must_spawn(task::motor_driver::motor_driver(pwm_driver_left, pwm_driver_right));
+
+    // Spawn encoder read task (handles encoder sensing)
+    spawner.must_spawn(task::encoder_read::encoder_read(
         encoder_left_front,
         encoder_left_rear,
         encoder_right_front,
@@ -238,7 +272,7 @@ fn init_motor_driver(spawner: &Spawner, pins: MotorDriverPins) {
     ));
 
     // Spawn drive task (high-level drive control)
-    // spawner.must_spawn(task::drive::drive());
+    spawner.must_spawn(task::drive::drive());
 }
 
 // /// Initialize IR obstacle detection
@@ -265,12 +299,12 @@ fn init_motor_driver(spawner: &Spawner, pins: MotorDriverPins) {
 /// Initialize shared I2C bus for display and IMU
 fn init_i2c_bus(
     i2c0: Peri<'static, I2C0>,
-    pin_13: Peri<'static, embassy_rp::peripherals::PIN_13>,
-    pin_12: Peri<'static, embassy_rp::peripherals::PIN_12>,
+    scl: Peri<'static, embassy_rp::peripherals::PIN_13>,
+    sda: Peri<'static, embassy_rp::peripherals::PIN_12>,
 ) -> &'static I2cBusShared {
     let mut i2c_config = I2cConfig::default();
     i2c_config.frequency = 400_000;
-    let i2c = I2c::new_async(i2c0, pin_13, pin_12, Irqs, i2c_config);
+    let i2c = I2c::new_async(i2c0, scl, sda, Irqs, i2c_config);
     static I2C_BUS: StaticCell<I2cBusShared> = StaticCell::new();
     I2C_BUS.init(Mutex::new(i2c))
 }
@@ -284,19 +318,20 @@ fn init_display(spawner: &Spawner, i2c_bus: &'static I2cBusShared) {
 fn init_imu_read(
     spawner: &Spawner,
     i2c_bus: &'static I2cBusShared,
-    pin_18: Peri<'static, embassy_rp::peripherals::PIN_18>,
-    pin_19: Peri<'static, embassy_rp::peripherals::PIN_19>,
+    int: Peri<'static, embassy_rp::peripherals::PIN_18>,
+    add: Peri<'static, embassy_rp::peripherals::PIN_19>,
 ) {
-    spawner.must_spawn(task::imu_read::inertial_measurement_read(i2c_bus, pin_18, pin_19));
+    spawner.must_spawn(task::imu_read::inertial_measurement_read(i2c_bus, int, add));
 }
 
 /// Initialize port expander task with I2C bus and interrupt pin
 fn init_port_expander(
     spawner: &Spawner,
     i2c_bus: &'static I2cBusShared,
-    pin_20: Peri<'static, embassy_rp::peripherals::PIN_20>,
+    int: Peri<'static, embassy_rp::peripherals::PIN_20>,
 ) {
-    spawner.must_spawn(task::port_expander::port_expander(i2c_bus, pin_20));
+    let interrupt = embassy_rp::gpio::Input::new(int, Pull::Up);
+    spawner.must_spawn(task::port_expander::port_expander(i2c_bus, interrupt));
 }
 
 /// Initialize flash storage task for persistent calibration data

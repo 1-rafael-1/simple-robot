@@ -29,11 +29,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 
 use crate::{
     system::state::OperationMode,
-    task::{
-        // drive::DriveAction, encoder_read::EncoderMeasurement,
-        imu_read::ImuMeasurement,
-        // monitor_motion::MotionCorrectionInstruction,
-    },
+    task::{encoder_read::EncoderMeasurement, imu_read::ImuMeasurement},
 };
 
 /// Multi-producer, single-consumer event channel
@@ -42,7 +38,7 @@ use crate::{
 /// - Memory usage
 /// - Event processing latency
 /// - System responsiveness
-pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Events, 10> = Channel::new();
+pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Events, 64> = Channel::new();
 
 /// Sends an event to the system channel
 ///
@@ -63,6 +59,20 @@ pub async fn wait() -> Events {
 /// System-wide events that can occur during robot operation
 #[derive(Debug, Clone)]
 pub enum Events {
+    /// System initialization requested
+    /// - Triggered at startup or after reset
+    /// - Coordinates initial setup across tasks
+    Initialize,
+
+    /// Calibration data loaded from flash storage
+    /// - Triggered when flash storage completes reading calibration data
+    /// - Carries Option: Some(data) if found, None if not found in flash
+    /// - Allows orchestrator to update system state accordingly
+    CalibrationDataLoaded(
+        crate::task::flash_storage::CalibrationKind,
+        Option<crate::task::flash_storage::CalibrationDataKind>,
+    ),
+
     /// Operation mode change requested
     /// - Triggered by button holds or system conditions
     /// - Carries target operation mode
@@ -78,11 +88,11 @@ pub enum Events {
     /// - Used to coordinate next movement decision
     ObstacleAvoidanceAttempted,
 
-    /// New battery level reading
-    /// - Value range: 0-100 percent
-    /// - Triggers LED color updates
-    /// - May affect operation decisions
-    BatteryLevelMeasured(u8),
+    /// Battery measurement (level percentage and raw voltage)
+    /// - level: 0-100 percent, triggers LED color updates
+    /// - voltage: raw voltage in volts, used for motor driver voltage compensation
+    /// - Single event reduces event channel load
+    BatteryMeasured { level: u8, voltage: f32 },
 
     /// Button press detected
     /// - Short press (< 1 second)
@@ -104,15 +114,11 @@ pub enum Events {
     /// - Triggers power saving measures
     InactivityTimeout,
 
-    // /// Drive command was executed
-    // /// - Signals that motor speeds have been set
-    // /// - Triggers encoder measurement
-    // DriveCommandExecuted(DriveAction),
+    /// Encoder measurement completed
+    /// - Contains latest pulse counts and timing
+    /// - Used for speed adjustments and calibration
+    EncoderMeasurementTaken(EncoderMeasurement),
 
-    // /// Encoder measurement completed
-    // /// - Contains latest pulse counts and timing
-    // /// - Used for speed adjustments
-    // EncoderMeasurementTaken(EncoderMeasurement),
     /// Ultrasonic sensor reading received
     /// - Contains distance measurements and servo angle
     /// - used for display and obstacle detection
@@ -139,6 +145,16 @@ pub enum Events {
     /// Start or stop ultrasonic sweep
     /// - Signals that the robot needs to start or stop ultrasonic sweep
     StartStopUltrasonicSweep(bool),
+
+    /// Calibration status update
+    /// - Triggered during calibration procedures to update display
+    /// - Contains optional header (line 0) and up to 3 status lines (lines 1-3)
+    CalibrationStatus {
+        header: Option<heapless::String<20>>,
+        line1: Option<heapless::String<20>>,
+        line2: Option<heapless::String<20>>,
+        line3: Option<heapless::String<20>>,
+    },
 }
 
 /// Remote control button identifiers

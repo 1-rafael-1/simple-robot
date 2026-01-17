@@ -26,7 +26,7 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embedded_graphics::{
     geometry::Size,
-    mono_font::{MonoTextStyleBuilder, ascii::FONT_9X15_BOLD as Font},
+    mono_font::{MonoTextStyleBuilder, ascii::FONT_7X14_BOLD as Font},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::{Arc, Line, PrimitiveStyle, Rectangle},
@@ -49,7 +49,7 @@ pub enum DisplayAction {
 }
 
 /// Control channel to trigger display updates
-pub static DISPLAY_CHANNEL: Channel<CriticalSectionRawMutex, DisplayAction, 4> = Channel::new();
+pub static DISPLAY_CHANNEL: Channel<CriticalSectionRawMutex, DisplayAction, 16> = Channel::new();
 
 /// Requests a display update with the specified action
 pub async fn display_update(display_action: DisplayAction) {
