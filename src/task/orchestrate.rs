@@ -14,11 +14,10 @@ use core::fmt::Write;
 use defmt::info;
 use heapless::String;
 
-use crate::system::state;
-
 use crate::{
     system::{
         event::{Events, wait},
+        state,
         state::{CalibrationStatus, SYSTEM_STATE},
     },
     task::{display, drive, flash_storage, motor_driver},
