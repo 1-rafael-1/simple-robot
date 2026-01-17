@@ -577,9 +577,23 @@ async fn wait_for_encoder_event_timeout(timeout_ms: u64) -> Option<EncoderMeasur
 /// - Actuation (motor_driver): Just runs motors, receives calibration factors
 /// - Control (drive/this): Orchestrates the procedure and calculates factors
 async fn run_motor_calibration() {
-    use crate::task::{encoder_read, flash_storage, motor_driver::MotorCalibration};
+    use heapless::String;
+
+    use crate::{
+        system::event,
+        task::{encoder_read, flash_storage, motor_driver::MotorCalibration},
+    };
 
     info!("=== Starting Motor Calibration ===");
+
+    // Display calibration header
+    event::send_event(event::Events::CalibrationStatus {
+        header: Some(String::try_from("Motor Calibration").unwrap()),
+        line1: Some(String::try_from("Enabling drivers").unwrap()),
+        line2: None,
+        line3: None,
+    })
+    .await;
 
     // Enable both motor driver chips (take out of standby)
     info!("Enabling motor driver chips");
@@ -605,9 +619,23 @@ async fn run_motor_calibration() {
 
     // Step 1: Test left track motors individually
     info!("Step 1: Testing left track motors individually");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Step 1/8").unwrap()),
+        line2: Some(String::try_from("Test left motors").unwrap()),
+        line3: None,
+    })
+    .await;
 
     // Test left front motor alone
     info!("  Testing left front motor");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: None,
+        line2: None,
+        line3: Some(String::try_from("Left front...").unwrap()),
+    })
+    .await;
     motor_driver::send_motor_command(MotorCommand::SetAllMotors {
         left_front: CALIBRATION_SPEED,
         left_rear: 0,
@@ -632,6 +660,13 @@ async fn run_motor_calibration() {
 
     // Test left rear motor alone
     info!("  Testing left rear motor");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: None,
+        line2: None,
+        line3: Some(String::try_from("Left rear...").unwrap()),
+    })
+    .await;
     motor_driver::send_motor_command(MotorCommand::SetAllMotors {
         left_front: 0,
         left_rear: CALIBRATION_SPEED,
@@ -656,8 +691,22 @@ async fn run_motor_calibration() {
 
     // Step 2: Match left track motors
     info!("Step 2: Matching left track motors");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Step 2/8").unwrap()),
+        line2: Some(String::try_from("Match left track").unwrap()),
+        line3: None,
+    })
+    .await;
     let _left_weaker_count = if left_front_count < left_rear_count {
         info!("  Left front is weaker (reference)");
+        event::send_event(event::Events::CalibrationStatus {
+            header: None,
+            line1: None,
+            line2: None,
+            line3: Some(String::try_from("Adj left rear").unwrap()),
+        })
+        .await;
         if left_rear_count > 0 {
             let factor = left_front_count as f32 / left_rear_count as f32;
             calibration.left_rear *= factor;
@@ -672,6 +721,13 @@ async fn run_motor_calibration() {
         left_front_count
     } else {
         info!("  Left rear is weaker (reference)");
+        event::send_event(event::Events::CalibrationStatus {
+            header: None,
+            line1: None,
+            line2: None,
+            line3: Some(String::try_from("Adj left front").unwrap()),
+        })
+        .await;
         if left_front_count > 0 {
             let factor = left_rear_count as f32 / left_front_count as f32;
             calibration.left_front *= factor;
@@ -688,6 +744,13 @@ async fn run_motor_calibration() {
 
     // Step 3: Verify left track match
     info!("Step 3: Verifying left track match");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Step 3/8").unwrap()),
+        line2: Some(String::try_from("Verify left track").unwrap()),
+        line3: Some(String::try_from("Testing...").unwrap()),
+    })
+    .await;
     motor_driver::send_motor_command(MotorCommand::SetAllMotors {
         left_front: CALIBRATION_SPEED,
         left_rear: CALIBRATION_SPEED,
@@ -711,9 +774,23 @@ async fn run_motor_calibration() {
 
     // Step 4: Test right track motors individually (similar to left track)
     info!("Step 4: Testing right track motors individually");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Step 4/8").unwrap()),
+        line2: Some(String::try_from("Test right motors").unwrap()),
+        line3: None,
+    })
+    .await;
 
     // Test right front motor alone
     info!("  Testing right front motor");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: None,
+        line2: None,
+        line3: Some(String::try_from("Right front...").unwrap()),
+    })
+    .await;
     motor_driver::send_motor_command(MotorCommand::SetAllMotors {
         left_front: 0,
         left_rear: 0,
@@ -738,6 +815,13 @@ async fn run_motor_calibration() {
 
     // Test right rear motor alone
     info!("  Testing right rear motor");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: None,
+        line2: None,
+        line3: Some(String::try_from("Right rear...").unwrap()),
+    })
+    .await;
     motor_driver::send_motor_command(MotorCommand::SetAllMotors {
         left_front: 0,
         left_rear: 0,
@@ -762,8 +846,22 @@ async fn run_motor_calibration() {
 
     // Step 5: Match right track motors
     info!("Step 5: Matching right track motors");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Step 5/8").unwrap()),
+        line2: Some(String::try_from("Match right track").unwrap()),
+        line3: None,
+    })
+    .await;
     let _right_weaker_count = if right_front_count < right_rear_count {
         info!("  Right front is weaker (reference)");
+        event::send_event(event::Events::CalibrationStatus {
+            header: None,
+            line1: None,
+            line2: None,
+            line3: Some(String::try_from("Adj right rear").unwrap()),
+        })
+        .await;
         if right_rear_count > 0 {
             let factor = right_front_count as f32 / right_rear_count as f32;
             calibration.right_rear *= factor;
@@ -778,6 +876,13 @@ async fn run_motor_calibration() {
         right_front_count
     } else {
         info!("  Right rear is weaker (reference)");
+        event::send_event(event::Events::CalibrationStatus {
+            header: None,
+            line1: None,
+            line2: None,
+            line3: Some(String::try_from("Adj right front").unwrap()),
+        })
+        .await;
         if right_front_count > 0 {
             let factor = right_rear_count as f32 / right_front_count as f32;
             calibration.right_front *= factor;
@@ -794,6 +899,13 @@ async fn run_motor_calibration() {
 
     // Step 6: Verify right track match
     info!("Step 6: Verifying right track match");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Step 6/8").unwrap()),
+        line2: Some(String::try_from("Verify right trk").unwrap()),
+        line3: Some(String::try_from("Testing...").unwrap()),
+    })
+    .await;
     motor_driver::send_motor_command(MotorCommand::SetAllMotors {
         left_front: 0,
         left_rear: 0,
@@ -817,6 +929,13 @@ async fn run_motor_calibration() {
 
     // Step 7: Final verification with all motors
     info!("Step 7: Final verification with all motors");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Step 7/8").unwrap()),
+        line2: Some(String::try_from("Final verify").unwrap()),
+        line3: Some(String::try_from("All motors...").unwrap()),
+    })
+    .await;
     motor_driver::send_motor_command(MotorCommand::SetAllMotors {
         left_front: CALIBRATION_SPEED,
         left_rear: CALIBRATION_SPEED,
@@ -841,6 +960,13 @@ async fn run_motor_calibration() {
     // Step 8: Save calibration to flash
     info!("Step 8: Saving calibration to flash storage");
     info!("Final calibration factors: {:?}", calibration);
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Step 8/8").unwrap()),
+        line2: Some(String::try_from("Saving to flash").unwrap()),
+        line3: Some(String::try_from("Please wait...").unwrap()),
+    })
+    .await;
 
     flash_storage::send_flash_command(flash_storage::FlashCommand::SaveData(
         flash_storage::CalibrationDataKind::Motor(calibration),
@@ -864,6 +990,26 @@ async fn run_motor_calibration() {
     .await;
 
     info!("=== Calibration Complete ===");
+
+    // Show final results
+    // Format calibration factors for display (abbreviated to fit)
+    let mut line2 = String::<20>::new();
+    let _ = core::fmt::write(
+        &mut line2,
+        format_args!("L:{:.2} {:.2}", calibration.left_front, calibration.left_rear),
+    );
+    let mut line3 = String::<20>::new();
+    let _ = core::fmt::write(
+        &mut line3,
+        format_args!("R:{:.2} {:.2}", calibration.right_front, calibration.right_rear),
+    );
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Complete!").unwrap()),
+        line2: Some(line2),
+        line3: Some(line3),
+    })
+    .await;
 }
 
 /// Drive control task - coordinates motion and sensor feedback

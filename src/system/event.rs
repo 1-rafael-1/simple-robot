@@ -145,6 +145,16 @@ pub enum Events {
     /// Start or stop ultrasonic sweep
     /// - Signals that the robot needs to start or stop ultrasonic sweep
     StartStopUltrasonicSweep(bool),
+
+    /// Calibration status update
+    /// - Triggered during calibration procedures to update display
+    /// - Contains optional header (line 0) and up to 3 status lines (lines 1-3)
+    CalibrationStatus {
+        header: Option<heapless::String<20>>,
+        line1: Option<heapless::String<20>>,
+        line2: Option<heapless::String<20>>,
+        line3: Option<heapless::String<20>>,
+    },
 }
 
 /// Remote control button identifiers

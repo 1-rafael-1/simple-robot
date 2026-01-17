@@ -53,6 +53,12 @@ async fn handle_event(event: Events) {
         Events::RotationCompleted => handle_rotation_completed().await,
         Events::StartStopMotionDataCollection(start) => handle_start_stop_motion_data(start).await,
         Events::StartStopUltrasonicSweep(start) => handle_start_stop_ultrasonic_sweep(start).await,
+        Events::CalibrationStatus {
+            header,
+            line1,
+            line2,
+            line3,
+        } => handle_calibration_status(header, line1, line2, line3).await,
     }
 }
 
@@ -74,6 +80,7 @@ async fn handle_initialize() {
     info!("System initializing");
 
     // Display initialization message
+    display::display_update(display::DisplayAction::Clear).await;
     let mut txt: String<20> = String::new();
     let _ = write!(txt, "Initializing...");
     display::display_update(display::DisplayAction::ShowText(txt, 0)).await;
@@ -257,11 +264,11 @@ async fn handle_encoder_measurement(measurement: crate::task::encoder_read::Enco
 }
 
 /// Handle ultrasonic sensor readings
-async fn handle_ultrasonic_sweep_reading(_distance: f64, _angle: f32) {
-    info!("Ultrasonic sweep reading");
-    // TODO: Implement sensor data processing
-    // - Update display with sweep visualization
-    // - Feed data to obstacle detection
+async fn handle_ultrasonic_sweep_reading(distance: f64, angle: f32) {
+    // Forward sweep data to display for visualization
+    display::display_update(display::DisplayAction::ShowSweep(distance, angle)).await;
+
+    // TODO: Feed data to obstacle detection
 }
 
 /// Handle IMU measurements
@@ -293,4 +300,26 @@ async fn handle_start_stop_ultrasonic_sweep(_start: bool) {
     info!("Ultrasonic sweep control");
     // TODO: Implement ultrasonic sweep control
     // - Start/stop sweep task
+}
+
+/// Handle calibration status updates
+async fn handle_calibration_status(
+    header: Option<heapless::String<20>>,
+    line1: Option<heapless::String<20>>,
+    line2: Option<heapless::String<20>>,
+    line3: Option<heapless::String<20>>,
+) {
+    // Update display lines based on provided status
+    if let Some(text) = header {
+        display::display_update(display::DisplayAction::ShowText(text, 0)).await;
+    }
+    if let Some(text) = line1 {
+        display::display_update(display::DisplayAction::ShowText(text, 1)).await;
+    }
+    if let Some(text) = line2 {
+        display::display_update(display::DisplayAction::ShowText(text, 2)).await;
+    }
+    if let Some(text) = line3 {
+        display::display_update(display::DisplayAction::ShowText(text, 3)).await;
+    }
 }

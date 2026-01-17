@@ -26,7 +26,7 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embedded_graphics::{
     geometry::Size,
-    mono_font::{MonoTextStyleBuilder, ascii::FONT_9X15_BOLD as Font},
+    mono_font::{MonoTextStyleBuilder, ascii::FONT_7X14_BOLD as Font},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::{Arc, Line, PrimitiveStyle, Rectangle},
