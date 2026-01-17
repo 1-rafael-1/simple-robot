@@ -122,7 +122,7 @@ fn try_receive_command() -> Option<EncoderCommand> {
 ///
 /// Contains pulse counts from all four motors and a timestamp.
 /// Counts are 16-bit values (0-65535) that wrap around on overflow.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, defmt::Format)]
 pub struct EncoderMeasurement {
     /// Left front motor encoder count
     pub left_front: u16,

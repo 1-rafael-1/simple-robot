@@ -258,9 +258,9 @@ async fn handle_inactivity_timeout() {
 /// Handle encoder measurements
 async fn handle_encoder_measurement(measurement: crate::task::encoder_read::EncoderMeasurement) {
     // Forward encoder measurements to drive task for calibration and feedback control
-    // Use try_send to avoid blocking orchestrator if drive task is busy during calibration
-    // Dropping occasional encoder measurements is acceptable - they arrive at 50Hz during calibration
-    let _ = drive::try_send_encoder_measurement(measurement);
+    // Store in shared mutex so drive task can read latest measurement on demand
+    // This ensures calibration always gets fresh data without channel overflow issues
+    let _ = drive::try_send_encoder_measurement(measurement).await;
 }
 
 /// Handle ultrasonic sensor readings

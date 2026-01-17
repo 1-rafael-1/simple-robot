@@ -315,18 +315,6 @@ async fn receive_motor_command() -> MotorCommand {
 /// For normal operation, use `SetTrack` or `SetTracks` commands.
 #[derive(Debug, Clone, Copy, Format)]
 pub enum MotorCommand {
-    // === CALIBRATION COMMAND ===
-    /// Run motor calibration procedure
-    ///
-    /// This command performs an automated calibration of all 4 motors at 50% speed.
-    /// The calibration process:
-    /// 1. Tests each motor individually and reads encoder feedback
-    /// 2. Matches motors within each track (left front/rear, right front/rear)
-    /// 3. Matches both tracks to the weakest motor
-    /// 4. Saves the calibration to flash storage
-    ///
-    /// The robot must be elevated (wheels off ground) during calibration.
-
     /// Load calibration data from provided calibration struct
     ///
     /// This command receives calibration data (typically from flash storage)
@@ -334,7 +322,6 @@ pub enum MotorCommand {
     /// or when calibration data is updated.
     LoadCalibration(MotorCalibration),
 
-    // === NORMAL OPERATION COMMANDS (Calibrated) ===
     /// Set speed for an entire track (left or right side)
     ///
     /// **Calibration: APPLIED** ✅
@@ -444,10 +431,13 @@ pub enum MotorCommand {
     SetAllDriversEnable { enabled: bool },
 
     // === CALIBRATION MANAGEMENT COMMANDS ===
-    /// Update calibration factor for a specific motor
+    /// Set the absolute calibration factor for a specific motor
     ///
     /// Calibration factors are multipliers (0.5 to 1.5) applied to commanded speeds
     /// to compensate for manufacturing variations between motors.
+    ///
+    /// Note: This sets the absolute calibration value, not an incremental adjustment.
+    /// The calibration procedure tracks cumulative factors and sends the final absolute value.
     UpdateCalibration { track: Track, motor: Motor, factor: f32 },
 
     /// Update all calibration factors at once
