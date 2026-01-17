@@ -42,8 +42,7 @@ async fn handle_event(event: Events) {
         Events::OperationModeSet(mode) => handle_operation_mode_set(mode).await,
         Events::ObstacleDetected(detected) => handle_obstacle_detected(detected).await,
         Events::ObstacleAvoidanceAttempted => handle_obstacle_avoidance_attempted().await,
-        Events::BatteryLevelMeasured(level) => handle_battery_level_measured(level).await,
-        Events::BatteryVoltageMeasured(voltage) => handle_battery_voltage_measured(voltage).await,
+        Events::BatteryMeasured { level, voltage } => handle_battery_measured(level, voltage).await,
         Events::ButtonPressed(button_id) => handle_button_pressed(button_id).await,
         Events::ButtonHoldStart(button_id) => handle_button_hold_start(button_id).await,
         Events::ButtonHoldEnd(button_id) => handle_button_hold_end(button_id).await,
@@ -57,11 +56,17 @@ async fn handle_event(event: Events) {
     }
 }
 
-/// Handle battery voltage measurement
-async fn handle_battery_voltage_measured(voltage: f32) {
+/// Handle battery measurement (level and voltage)
+async fn handle_battery_measured(level: u8, voltage: f32) {
+    info!("Battery level measured");
+
     // Store battery voltage in system state for motor driver to poll
     let mut state = state::SYSTEM_STATE.lock().await;
     state.battery_voltage = Some(voltage);
+
+    // TODO: Update LED color based on level
+    // TODO: Trigger low battery warnings if level is critical
+    let _ = level; // Suppress unused warning until implemented
 }
 
 /// Handle system initialization
@@ -211,14 +216,6 @@ async fn handle_obstacle_avoidance_attempted() {
     // - Resume normal operation or retry
 }
 
-/// Handle battery level updates
-async fn handle_battery_level_measured(_level: u8) {
-    info!("Battery level measured");
-    // TODO: Implement battery response
-    // - Update LED color
-    // - Trigger low battery warnings
-}
-
 /// Handle button press events
 async fn handle_button_pressed(_button_id: crate::system::event::ButtonId) {
     info!("Button pressed");
@@ -254,7 +251,9 @@ async fn handle_inactivity_timeout() {
 /// Handle encoder measurements
 async fn handle_encoder_measurement(measurement: crate::task::encoder_read::EncoderMeasurement) {
     // Forward encoder measurements to drive task for calibration and feedback control
-    drive::send_encoder_measurement(measurement).await;
+    // Use try_send to avoid blocking orchestrator if drive task is busy during calibration
+    // Dropping occasional encoder measurements is acceptable - they arrive at 50Hz during calibration
+    let _ = drive::try_send_encoder_measurement(measurement);
 }
 
 /// Handle ultrasonic sensor readings
@@ -266,11 +265,11 @@ async fn handle_ultrasonic_sweep_reading(_distance: f64, _angle: f32) {
 }
 
 /// Handle IMU measurements
-async fn handle_imu_measurement(_measurement: crate::task::imu_read::ImuMeasurement) {
-    info!("IMU measurement taken");
-    // TODO: Implement IMU data processing
-    // - Send orientation feedback to drive task
-    // - Update display with orientation data
+async fn handle_imu_measurement(measurement: crate::task::imu_read::ImuMeasurement) {
+    // Forward IMU measurements to drive task for rotation control
+    // Use try_send to avoid blocking orchestrator - IMU data arrives at 100Hz
+    // Dropping occasional measurements is acceptable at this rate
+    let _ = drive::try_send_imu_measurement(measurement);
 }
 
 /// Handle rotation completion

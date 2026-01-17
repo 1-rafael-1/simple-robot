@@ -148,10 +148,10 @@ async fn auto_start_calibration() {
 fn init_battery_monitoring(
     spawner: &Spawner,
     adc: Peri<'static, embassy_rp::peripherals::ADC>,
-    pin_26: Peri<'static, embassy_rp::peripherals::PIN_26>,
+    adc_pin: Peri<'static, embassy_rp::peripherals::PIN_26>,
 ) {
     let adc = Adc::new(adc, Irqs, AdcConfig::default());
-    let battery_channel = Channel::new_pin(pin_26, Pull::None);
+    let battery_channel = Channel::new_pin(adc_pin, Pull::None);
     spawner.must_spawn(task::battery_charge_read::battery_charge_read(adc, battery_channel));
 }
 

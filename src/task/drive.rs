@@ -107,10 +107,15 @@ use crate::task::{
 static DRIVE_CONTROL: Signal<CriticalSectionRawMutex, DriveCommand> = Signal::new();
 
 /// Channel for receiving encoder measurements from orchestrator
-/// Capacity of 5 allows buffering during calibration sequences
-const ENCODER_FEEDBACK_QUEUE_SIZE: usize = 5;
+/// Capacity of 16 allows buffering during calibration sequences
+const ENCODER_FEEDBACK_QUEUE_SIZE: usize = 16;
 static ENCODER_FEEDBACK_CHANNEL: Channel<CriticalSectionRawMutex, EncoderMeasurement, ENCODER_FEEDBACK_QUEUE_SIZE> =
     Channel::new();
+
+/// Channel for receiving IMU measurements from orchestrator
+/// Capacity of 16 allows buffering during calibration sequences (100Hz sampling)
+const IMU_FEEDBACK_QUEUE_SIZE: usize = 16;
+static IMU_FEEDBACK_CHANNEL: Channel<CriticalSectionRawMutex, ImuMeasurement, IMU_FEEDBACK_QUEUE_SIZE> = Channel::new();
 
 /// Send encoder measurement to drive task
 ///
@@ -121,9 +126,31 @@ pub async fn send_encoder_measurement(measurement: EncoderMeasurement) {
     ENCODER_FEEDBACK_CHANNEL.sender().send(measurement).await;
 }
 
+/// Try to send encoder measurement to drive task without blocking
+///
+/// Returns true if sent, false if channel is full.
+/// Used by orchestrator to avoid blocking when drive task is busy during calibration.
+pub fn try_send_encoder_measurement(measurement: EncoderMeasurement) -> bool {
+    ENCODER_FEEDBACK_CHANNEL.sender().try_send(measurement).is_ok()
+}
+
+/// Try to send IMU measurement to drive task without blocking
+///
+/// Returns true if sent, false if channel is full.
+/// Used by orchestrator to avoid blocking when drive task is busy.
+/// IMU measurements arrive at 100Hz, so dropping occasional readings is acceptable.
+pub fn try_send_imu_measurement(measurement: ImuMeasurement) -> bool {
+    IMU_FEEDBACK_CHANNEL.sender().try_send(measurement).is_ok()
+}
+
 /// Receive encoder measurement (internal use by drive task)
 async fn receive_encoder_measurement() -> EncoderMeasurement {
     ENCODER_FEEDBACK_CHANNEL.receive().await
+}
+
+/// Receive IMU measurement (internal use by drive task)
+async fn receive_imu_measurement() -> ImuMeasurement {
+    IMU_FEEDBACK_CHANNEL.receive().await
 }
 
 /// Combined motor control and sensor feedback commands

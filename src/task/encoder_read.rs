@@ -100,7 +100,7 @@ pub enum EncoderCommand {
 }
 
 /// Command channel for encoder control
-const COMMAND_QUEUE_SIZE: usize = 5;
+const COMMAND_QUEUE_SIZE: usize = 16;
 static ENCODER_COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, EncoderCommand, COMMAND_QUEUE_SIZE> = Channel::new();
 
 /// Send a command to the encoder task

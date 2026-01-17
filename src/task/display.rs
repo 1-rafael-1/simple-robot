@@ -49,7 +49,7 @@ pub enum DisplayAction {
 }
 
 /// Control channel to trigger display updates
-pub static DISPLAY_CHANNEL: Channel<CriticalSectionRawMutex, DisplayAction, 4> = Channel::new();
+pub static DISPLAY_CHANNEL: Channel<CriticalSectionRawMutex, DisplayAction, 16> = Channel::new();
 
 /// Requests a display update with the specified action
 pub async fn display_update(display_action: DisplayAction) {

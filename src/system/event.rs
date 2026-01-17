@@ -38,7 +38,7 @@ use crate::{
 /// - Memory usage
 /// - Event processing latency
 /// - System responsiveness
-pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Events, 10> = Channel::new();
+pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Events, 64> = Channel::new();
 
 /// Sends an event to the system channel
 ///
@@ -88,17 +88,11 @@ pub enum Events {
     /// - Used to coordinate next movement decision
     ObstacleAvoidanceAttempted,
 
-    /// New battery level reading
-    /// - Value range: 0-100 percent
-    /// - Triggers LED color updates
-    /// - May affect operation decisions
-    BatteryLevelMeasured(u8),
-
-    /// Battery voltage measurement (raw voltage)
-    /// - Used by motor driver for voltage compensation
-    /// - Ensures consistent 6V output to motors as battery drains
-    /// - Value in volts (f32)
-    BatteryVoltageMeasured(f32),
+    /// Battery measurement (level percentage and raw voltage)
+    /// - level: 0-100 percent, triggers LED color updates
+    /// - voltage: raw voltage in volts, used for motor driver voltage compensation
+    /// - Single event reduces event channel load
+    BatteryMeasured { level: u8, voltage: f32 },
 
     /// Button press detected
     /// - Short press (< 1 second)

@@ -10,7 +10,6 @@
 //! # Measurement Strategy
 //! - Reads voltage through ADC every 5 seconds (faster for motor control responsiveness)
 //! - Uses voltage divider to scale battery voltage to ADC range
-//! - Applies median filtering over 9 samples to reduce noise
 //! - Initial 500ms delay ensures system stabilization
 //!
 //! # Hardware Configuration
@@ -52,7 +51,6 @@
 
 use embassy_rp::adc::{Adc, Async as AdcAsync, Channel};
 use embassy_time::{Duration, Timer};
-use moving_median::MovingMedian;
 
 use crate::system::event;
 
@@ -77,17 +75,10 @@ const V_DIVIDER_RATIO: f32 = 0.333;
 /// ADC resolution (12-bit = 4096 steps)
 const ADC_RANGE: f32 = 4096.0;
 
-/// Median filter window (9 samples provides good noise reduction while
-/// maintaining reasonable memory usage)
-const MEDIAN_WINDOW_SIZE: usize = 9;
-
 /// Battery monitoring task that continuously measures voltage and
 /// reports charge level as a percentage
 #[embassy_executor::task]
 pub async fn battery_charge_read(mut adc: Adc<'static, AdcAsync>, mut channel: Channel<'static>) {
-    // Setup median filter for smoothing voltage readings
-    let mut median_filter = MovingMedian::<f32, MEDIAN_WINDOW_SIZE>::new();
-
     // Initial delay to ensure system stabilization before first reading
     Timer::after(Duration::from_millis(500)).await;
 
@@ -95,30 +86,35 @@ pub async fn battery_charge_read(mut adc: Adc<'static, AdcAsync>, mut channel: C
         // Read ADC value and convert to battery voltage
         // Formula: (adc_value * reference_voltage) / (adc_resolution * voltage_divider_ratio)
         // The voltage divider brings battery voltage down, so we divide by the ratio to get actual voltage
-        let voltage =
-            f32::from(adc.read(&mut channel).await.unwrap_or(0)) * REF_VOLTAGE / (ADC_RANGE * V_DIVIDER_RATIO);
-
-        // Apply median filtering to reduce noise in readings
-        median_filter.add_value(voltage);
-        let filtered_voltage = median_filter.median();
+        let adc_raw = adc.read(&mut channel).await.unwrap_or(0);
+        let voltage = f32::from(adc_raw) * REF_VOLTAGE / (ADC_RANGE * V_DIVIDER_RATIO);
 
         // Calculate battery charge percentage:
         // - 99% if voltage >= max voltage (avoiding 100% to indicate charging might still occur)
         // - 0% if voltage <= min voltage
         // - Linear interpolation between min and max otherwise
-        let battery_level = if filtered_voltage >= BATTERY_VOLTAGE_UPPER {
+        let battery_level = if voltage >= BATTERY_VOLTAGE_UPPER {
             0.99
-        } else if filtered_voltage <= BATTERY_VOLTAGE_LOWER {
+        } else if voltage <= BATTERY_VOLTAGE_LOWER {
             0.0
         } else {
-            (filtered_voltage - BATTERY_VOLTAGE_LOWER) / (BATTERY_VOLTAGE_UPPER - BATTERY_VOLTAGE_LOWER)
+            (voltage - BATTERY_VOLTAGE_LOWER) / (BATTERY_VOLTAGE_UPPER - BATTERY_VOLTAGE_LOWER)
         };
 
-        // Send battery level event (as percentage)
-        event::send_event(event::Events::BatteryLevelMeasured((battery_level * 100.0) as u8)).await;
+        defmt::debug!(
+            "Battery: ADC raw={}, voltage={}V, level={}%",
+            adc_raw,
+            voltage,
+            (battery_level * 100.0) as u8
+        );
 
-        // Send battery voltage to motor driver for voltage compensation
-        event::send_event(event::Events::BatteryVoltageMeasured(filtered_voltage)).await;
+        // Send consolidated battery measurement event (single event instead of two)
+        // Battery monitoring is critical for safety - must not drop events
+        event::send_event(event::Events::BatteryMeasured {
+            level: (battery_level * 100.0) as u8,
+            voltage,
+        })
+        .await;
 
         // Wait for next measurement interval
         Timer::after(MEASUREMENT_INTERVAL).await;
