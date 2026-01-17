@@ -75,6 +75,11 @@ const V_DIVIDER_RATIO: f32 = 0.333;
 /// ADC resolution (12-bit = 4096 steps)
 const ADC_RANGE: f32 = 4096.0;
 
+/// Voltage calibration offset (V)
+/// Empirically determined: measured 8.22V when actual was 8.4V
+/// This corrects for resistor tolerances, wire resistance, and ADC reference variations
+const VOLTAGE_CALIBRATION_OFFSET: f32 = 0.18;
+
 /// Battery monitoring task that continuously measures voltage and
 /// reports charge level as a percentage
 #[embassy_executor::task]
@@ -87,7 +92,7 @@ pub async fn battery_charge_read(mut adc: Adc<'static, AdcAsync>, mut channel: C
         // Formula: (adc_value * reference_voltage) / (adc_resolution * voltage_divider_ratio)
         // The voltage divider brings battery voltage down, so we divide by the ratio to get actual voltage
         let adc_raw = adc.read(&mut channel).await.unwrap_or(0);
-        let voltage = f32::from(adc_raw) * REF_VOLTAGE / (ADC_RANGE * V_DIVIDER_RATIO);
+        let voltage = f32::from(adc_raw) * REF_VOLTAGE / (ADC_RANGE * V_DIVIDER_RATIO) + VOLTAGE_CALIBRATION_OFFSET;
 
         // Calculate battery charge percentage:
         // - 99% if voltage >= max voltage (avoiding 100% to indicate charging might still occur)
