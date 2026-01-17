@@ -15,21 +15,28 @@
 //!
 //! # Hardware Configuration
 //! ```text
-//! Battery+ ----[R1=100kΩ]----+----[R2=56kΩ]---- GND
-//!                            |
-//!                         ADC Input
+//! Battery+ ----[R1=20kΩ]----+----[R2=10kΩ]---- GND
+//!                           |
+//!                     GPIO26 (ADC0)
 //!
-//! Voltage Divider Ratio: R2/(R1+R2) = 56k/(100k+56k) = 0.359
-//! At 8.4V battery: ADC sees 3.02V (within safe range)
-//! At 6.0V battery: ADC sees 2.15V
+//! Voltage Divider Ratio: R2/(R1+R2) = 10k/(20k+10k) = 0.333
+//! Source Impedance: R1||R2 = ~6.7kΩ (suitable for ADC)
+//! At 8.4V battery: ADC sees 2.8V (within safe range)
+//! At 6.0V battery: ADC sees 2.0V
+//! Current draw: ~280µA at 8.4V
 //! ```
+//!
+//! # Pin Connection
+//! - ADC Pin: GPIO26 (ADC0)
+//! - Voltage Source: Battery pack before voltage regulator (6V-8.4V range)
+//! - The voltage divider scales battery voltage to ADC input range (< 3.3V)
 //!
 //! # Voltage Calculations
 //! ```text
-//! Battery Voltage = (ADC Value * 3.3V) / (4096 * 0.359)
+//! Battery Voltage = (ADC Value * 3.3V) / (4096 * 0.333)
 //! Where:
 //! - 3.3V is ADC reference voltage
-//! - 0.359 is voltage divider ratio (R2/(R1+R2))
+//! - 0.333 is voltage divider ratio (R2/(R1+R2))
 //! - 4096 is ADC resolution (12-bit)
 //! ```
 //!
@@ -62,9 +69,10 @@ const BATTERY_VOLTAGE_UPPER: f32 = 8.4;
 const REF_VOLTAGE: f32 = 3.3;
 
 /// Hardware voltage divider ratio
-/// R1 = 100kΩ (high side), R2 = 56kΩ (low side to ADC)
-/// Ratio = R2/(R1+R2) = 56/(100+56) = 0.359
-const V_DIVIDER_RATIO: f32 = 0.359;
+/// R1 = 20kΩ (high side), R2 = 10kΩ (low side to ADC)
+/// Ratio = R2/(R1+R2) = 10/(20+10) = 0.333
+/// Source impedance: ~6.7kΩ (suitable for RP2350 ADC)
+const V_DIVIDER_RATIO: f32 = 0.333;
 
 /// ADC resolution (12-bit = 4096 steps)
 const ADC_RANGE: f32 = 4096.0;

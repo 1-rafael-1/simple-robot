@@ -76,7 +76,7 @@ async fn main(spawner: Spawner) {
     init_port_expander(&spawner, i2c_bus, p.PIN_20);
 
     init_orchestrate(&spawner);
-    init_battery_monitoring(&spawner, p.ADC, p.PIN_29);
+    init_battery_monitoring(&spawner, p.ADC, p.PIN_26);
     // init_rgb_led(&spawner, p.PWM_SLICE1, p.PIN_2, p.PWM_SLICE2, p.PIN_4);
     // init_rc_buttons(&spawner, p.PIN_10, p.PIN_16, p.PIN_11, p.PIN_17);
 
@@ -148,10 +148,10 @@ async fn auto_start_calibration() {
 fn init_battery_monitoring(
     spawner: &Spawner,
     adc: Peri<'static, embassy_rp::peripherals::ADC>,
-    pin_29: Peri<'static, embassy_rp::peripherals::PIN_29>,
+    pin_26: Peri<'static, embassy_rp::peripherals::PIN_26>,
 ) {
     let adc = Adc::new(adc, Irqs, AdcConfig::default());
-    let battery_channel = Channel::new_pin(pin_29, Pull::None);
+    let battery_channel = Channel::new_pin(pin_26, Pull::None);
     spawner.must_spawn(task::battery_charge_read::battery_charge_read(adc, battery_channel));
 }
 

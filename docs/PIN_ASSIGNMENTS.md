@@ -36,10 +36,10 @@ This document maps the Raspberry Pi Pico 2 (RP2350) GPIOs to the peripherals tha
 | 23 | — | ⬜ | Available | UART0 RX only in legacy plan. |
 | 24 | — | ⬜ | Available | Reserved for rotary encoder plan. |
 | 25 | On-board LED (output) | ⬜ | Pico built-in LED | Firmware never toggles it; safe to reuse if you don't need the onboard indicator. |
-| 26 | — | ⬜ | Available | Planned IR or spare ADC. |
+| 26 | Analog input (ADC0) | ✅ | Battery voltage monitor | Connected to battery pack via voltage divider (20kΩ/10kΩ). Measures battery voltage before the voltage regulator. |
 | 27 | Input (PWM slice 5B) | ✅ | Motor encoder 3 | Rising-edge count input. |
 | 28 | — | ⬜ | Available | Reserved for rotary encoder button. |
-| 29 | Analog input (ADC0) | ⬜ | Available | Battery sense task is disabled. |
+| 29 | Analog input (ADC3) | ⬜ | Available | Free for future use. |
 
 Legend: ✅ = actively used by running firmware; 🟡 = reserved in firmware (tasks expect hardware soon); ⬜ = free/available (may be mentioned in comments but not enabled).
 
@@ -108,7 +108,7 @@ These signals remain referenced in comments or helper modules but no task enable
 - **RGB status LED** — planned to move to PIO on GPIO4/5; currently disabled.
 - **IR obstacle sensors** — intended for GPIO16/17.
 - **Rotary encoder (EC11)** — earmarked for GPIO24/26/28.
-- **Battery monitor** — ADC on GPIO29 (VSYS/3) with Embassy ADC task commented out.
+- **Battery monitor** — Active on GPIO26 (ADC0) measuring 2S Li-Ion battery voltage (6V-8.4V) through 20kΩ/10kΩ voltage divider connected to battery pack before the voltage regulator.
 - **Grove Vision UART** — Legacy plan on GPIO11 (TX) / GPIO23 (RX); no active code.
 
 Treat these pins as free until the corresponding tasks are re-enabled.
@@ -129,10 +129,16 @@ Treat these pins as free until the corresponding tasks are re-enabled.
 3. **I²C devices**  
    - Display, IMU, and port expander share GPIO12/13. Keep wires short on the first breadboard mock-up; noise margins are slimmer at 400 kHz.
 
-4. **Port expander interrupt**  
-   - GPIO20 needs a pull-up (external or relying on expander’s INT default). The firmware enables an internal pull-up on the Pico side.
+4. **Battery voltage monitoring**  
+   - GPIO26 measures battery voltage through a voltage divider (R1=20kΩ, R2=10kΩ to GND).  
+   - The voltage divider input connects to the 2S Li-Ion battery pack (6V-8.4V range) before the voltage regulator.  
+   - The divider ratio (0.333) scales 8.4V down to 2.8V for the 3.3V ADC.  
+   - Source impedance is ~6.7kΩ, suitable for the RP2350 ADC.
 
-5. **IMU auxiliary pins**  
+5. **Port expander interrupt**  
+   - GPIO20 needs a pull-up (external or relying on expander's INT default). The firmware enables an internal pull-up on the Pico side.
+
+6. **IMU auxiliary pins**  
    - GPIO18 and GPIO19 are already consumed by the IMU task signature, so keep them free for INT and address-select wiring even though the driver has not consumed them yet.
 
 ---
@@ -141,7 +147,8 @@ Treat these pins as free until the corresponding tasks are re-enabled.
 
 - [ ] Flash the current firmware so the PCA9555 task starts and holds motor drivers in standby.  
 - [ ] Verify I²C pull-ups and device addresses (display, IMU, expander).  
-- [ ] Tie each motor driver’s STBY pin to the matching PCA9555 port bit (1.4 / 1.5).  
+- [ ] Wire battery voltage divider (20kΩ/10kΩ) from battery pack to GPIO26 before the voltage regulator.
+- [ ] Tie each motor driver's STBY pin to the matching PCA9555 port bit (1.4 / 1.5).  
 - [ ] Route encoder outputs with clean ground references to GPIO7/9/21/27.  
 - [ ] Leave unused GPIOs floating only if the connected hardware also floats; otherwise add sensible pull resistors.
 
