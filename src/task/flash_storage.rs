@@ -275,6 +275,11 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
     // Create cache for flash operations
     let mut cache = NoCache::new();
 
+    // Create scratch buffer for serialization/deserialization
+    // Motor calibration needs 16 bytes, IMU calibration needs 36 bytes
+    // Using 128 bytes to be safe and align with common practice
+    let mut data_buffer: [u8; 128] = [0; 128];
+
     // Main command processing loop - wait for orchestrator to request calibration loading
     loop {
         let command = receive_flash_command().await;
@@ -289,7 +294,7 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                         &mut flash,
                         flash_range.clone(),
                         &mut cache,
-                        &mut [],
+                        &mut data_buffer,
                         &StorageKey::MotorCalibration,
                     )
                     .await
@@ -338,7 +343,7 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                         &mut flash,
                         flash_range.clone(),
                         &mut cache,
-                        &mut [],
+                        &mut data_buffer,
                         &StorageKey::ImuCalibration,
                     )
                     .await
@@ -400,7 +405,7 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                             &mut flash,
                             flash_range.clone(),
                             &mut cache,
-                            &mut [],
+                            &mut data_buffer,
                             &StorageKey::MotorCalibration,
                             &motor_cal,
                         )
@@ -433,7 +438,7 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                             &mut flash,
                             flash_range.clone(),
                             &mut cache,
-                            &mut [],
+                            &mut data_buffer,
                             &StorageKey::ImuCalibration,
                             &imu_cal,
                         )
@@ -457,7 +462,7 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                     &mut flash,
                     flash_range.clone(),
                     &mut cache,
-                    &mut [],
+                    &mut data_buffer,
                     &StorageKey::MotorCalibration,
                 )
                 .await
@@ -494,7 +499,7 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                     &mut flash,
                     flash_range.clone(),
                     &mut cache,
-                    &mut [],
+                    &mut data_buffer,
                     &StorageKey::ImuCalibration,
                 )
                 .await
