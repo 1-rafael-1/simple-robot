@@ -130,17 +130,28 @@ async fn send_initialize_event() {
 
 /// Auto-start calibration for testing (TEMPORARY HACK)
 ///
-/// This automatically triggers IMU calibration after a few seconds.
+/// This automatically triggers motor calibration first, then IMU calibration.
+/// Motor calibration must run first because IMU calibration uses calibrated motor
+/// commands to measure interference at actual operational speeds.
 /// Remove this once we have proper UI control (menu, rotary encoder, or remote).
 #[embassy_executor::task]
 async fn auto_start_calibration() {
     // Wait for system to initialize
     embassy_time::Timer::after(embassy_time::Duration::from_secs(3)).await;
 
-    defmt::info!("🤖 AUTO-CALIBRATION: Starting IMU calibration in 2 seconds...");
+    defmt::info!("🤖 AUTO-CALIBRATION: Starting MOTOR calibration in 2 seconds...");
     embassy_time::Timer::after(embassy_time::Duration::from_secs(2)).await;
 
-    defmt::info!("🤖 AUTO-CALIBRATION: Triggering calibration now!");
+    defmt::info!("🤖 AUTO-CALIBRATION: Triggering motor calibration now!");
+    task::drive::send_drive_command(task::drive::DriveCommand::RunMotorCalibration);
+
+    // Wait for motor calibration to complete (~50s) plus delay
+    embassy_time::Timer::after(embassy_time::Duration::from_secs(80)).await;
+
+    defmt::info!("🤖 AUTO-CALIBRATION: Starting IMU calibration in 10 seconds...");
+    embassy_time::Timer::after(embassy_time::Duration::from_secs(10)).await;
+
+    defmt::info!("🤖 AUTO-CALIBRATION: Triggering IMU calibration now!");
     task::drive::send_drive_command(task::drive::DriveCommand::RunImuCalibration);
 }
 

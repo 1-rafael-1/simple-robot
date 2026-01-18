@@ -396,6 +396,37 @@ pub enum MotorCommand {
     /// Speed 0 will coast the motor (both direction pins LOW)
     SetSpeed { track: Track, motor: Motor, speed: i8 },
 
+    /// Set all motors individually with RAW speeds (calibration only)
+    ///
+    /// **No calibration applied** ❌
+    /// **No voltage compensation applied** ❌
+    ///
+    /// This is the efficient version of SetSpeed for use during motor calibration.
+    /// It sets all 4 motors in one command but bypasses all calibration and compensation.
+    ///
+    /// This is ONLY for motor calibration procedure. For normal operation:
+    /// - Use `SetTracks` for typical driving
+    /// - Use `SetAllMotors` for advanced control WITH calibration
+    ///
+    /// Speed range: -100 (full backward) to +100 (full forward)
+    ///
+    /// # Example (Motor Calibration)
+    /// ```rust
+    /// // Test left front motor at 100%, all others off (raw speed)
+    /// motor_driver::send_motor_command(MotorCommand::SetAllMotorsRaw {
+    ///     left_front: 100,
+    ///     left_rear: 0,
+    ///     right_front: 0,
+    ///     right_rear: 0,
+    /// }).await;
+    /// ```
+    SetAllMotorsRaw {
+        left_front: i8,
+        left_rear: i8,
+        right_front: i8,
+        right_rear: i8,
+    },
+
     /// Brake individual motor (testing/safety)
     ///
     /// Actively stops motor using electrical braking (both direction pins HIGH).
@@ -760,6 +791,31 @@ async fn process_command(
         }
 
         // Raw commands (no calibration, no voltage compensation)
+        MotorCommand::SetAllMotorsRaw {
+            left_front,
+            left_rear,
+            right_front,
+            right_rear,
+        } => {
+            // Raw command - no calibration or voltage compensation applied
+            // Used for motor calibration procedures to get true motor performance
+            debug!(
+                "Raw all motors: [{}, {}, {}, {}] (no compensation)",
+                left_front, left_rear, right_front, right_rear
+            );
+
+            // Set all directions via port expander (atomic bulk operation)
+            let cmd = motor_port_mapping::set_all_motor_directions_cmd(
+                speed_to_direction(left_front),
+                speed_to_direction(left_rear),
+                speed_to_direction(right_front),
+                speed_to_direction(right_rear),
+            );
+            port_expander::send_command(cmd).await;
+
+            // Set all PWM duty cycles with raw speeds
+            pwm_channels.set_all_speeds(left_front, left_rear, right_front, right_rear);
+        }
         MotorCommand::SetSpeed { track, motor, speed } => {
             // Raw speed command - no calibration or voltage compensation applied
             // Used for testing and calibration procedures

@@ -671,6 +671,34 @@ async fn wait_for_encoder_event_timeout(timeout_ms: u64) -> Option<EncoderMeasur
 /// - Robot must be elevated (wheels off ground)
 /// - No interference during the ~30 second procedure
 ///
+/// # CRITICAL: Why We Use Raw Commands During Calibration
+///
+/// During calibration measurements (Steps 1-7), we MUST use `MotorCommand::SetAllMotorsRaw`
+/// instead of `MotorCommand::SetAllMotors` (which applies calibration). Here's why:
+///
+/// **The Problem with Calibrated Commands:**
+/// - `SetAllMotors` applies the CURRENT calibration factors to all speeds
+/// - If old calibration data was loaded from flash, it would contaminate our measurements
+/// - This creates a circular dependency: trying to calibrate using already-calibrated commands
+/// - Even with default 1.0 factors, voltage compensation is applied which skews results
+///
+/// **The Solution with Raw Commands:**
+/// - `SetAllMotorsRaw` sends RAW speed commands directly to motors (no calibration/compensation)
+/// - This gives us true, unbiased measurements of motor performance
+/// - We can then calculate correct calibration factors from these raw measurements
+/// - The calculated factors are stored and ONLY applied in normal operation
+///
+/// **Final Verification (Step 8):**
+/// - Step 8 uses `SetAllMotors` (WITH calibration applied) to verify the calibration works
+/// - This is the one place where we WANT calibration applied during the procedure
+/// - It confirms that all motors now run at equal speeds with the new calibration
+///
+/// **Example of the bug this prevents:**
+/// 1. Robot has old calibration: left_front=0.8, left_rear=1.0
+/// 2. Calibration starts and sends "100%" to left_front
+/// 3. If using SetAllMotors: 100 * 0.8 = 80% actual (WRONG!)
+/// 4. If using SetAllMotorsRaw: 100% actual (CORRECT!)
+///
 /// # Architecture Note
 ///
 /// This procedure demonstrates the clean separation of concerns:
@@ -748,7 +776,8 @@ async fn run_motor_calibration() {
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
     Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
 
-    motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+    // Use RAW command (not SetAllMotors) to avoid applying old calibration data
+    motor_driver::send_motor_command(MotorCommand::SetAllMotorsRaw {
         left_front: CALIBRATION_SPEED_INDIVIDUAL,
         left_rear: 0,
         right_front: 0,
@@ -794,7 +823,8 @@ async fn run_motor_calibration() {
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
     Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
 
-    motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+    // Use RAW command (not SetAllMotors) to avoid applying old calibration data
+    motor_driver::send_motor_command(MotorCommand::SetAllMotorsRaw {
         left_front: 0,
         left_rear: CALIBRATION_SPEED_INDIVIDUAL,
         right_front: 0,
@@ -912,7 +942,8 @@ async fn run_motor_calibration() {
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
     Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
 
-    motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+    // Use RAW command (not SetAllMotors) to avoid applying old calibration data
+    motor_driver::send_motor_command(MotorCommand::SetAllMotorsRaw {
         left_front: CALIBRATION_SPEED_TRACK,
         left_rear: CALIBRATION_SPEED_TRACK,
         right_front: 0,
@@ -970,7 +1001,8 @@ async fn run_motor_calibration() {
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
     Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
 
-    motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+    // Use RAW command (not SetAllMotors) to avoid applying old calibration data
+    motor_driver::send_motor_command(MotorCommand::SetAllMotorsRaw {
         left_front: 0,
         left_rear: 0,
         right_front: CALIBRATION_SPEED_INDIVIDUAL,
@@ -1016,7 +1048,8 @@ async fn run_motor_calibration() {
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
     Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
 
-    motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+    // Use RAW command (not SetAllMotors) to avoid applying old calibration data
+    motor_driver::send_motor_command(MotorCommand::SetAllMotorsRaw {
         left_front: 0,
         left_rear: 0,
         right_front: 0,
@@ -1134,7 +1167,8 @@ async fn run_motor_calibration() {
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
     Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
 
-    motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+    // Use RAW command (not SetAllMotors) to avoid applying old calibration data
+    motor_driver::send_motor_command(MotorCommand::SetAllMotorsRaw {
         left_front: 0,
         left_rear: 0,
         right_front: CALIBRATION_SPEED_TRACK,
@@ -1271,6 +1305,8 @@ async fn run_motor_calibration() {
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
     Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
 
+    // Final verification: Use calibrated SetAllMotors to verify the calibration works!
+    // This is the ONLY place in calibration where we want calibration applied.
     motor_driver::send_motor_command(MotorCommand::SetAllMotors {
         left_front: CALIBRATION_SPEED_TRACK,
         left_rear: CALIBRATION_SPEED_TRACK,
@@ -1672,6 +1708,36 @@ pub async fn drive() {
 /// 5. Motor interference at 100% - all motors, left track, right track
 ///
 /// Results are saved to flash and immediately applied to IMU task.
+/// Run the IMU calibration procedure
+///
+/// Measures gyroscope, accelerometer, and magnetometer biases, plus motor interference.
+///
+/// # Why IMU Calibration Uses Calibrated Motor Commands
+///
+/// Unlike motor calibration (which must use raw commands), IMU calibration CORRECTLY
+/// uses calibrated motor commands (`SetTrack`, `SetTracks`). Here's why:
+///
+/// **Goal**: Measure magnetic interference at *actual operational speeds*
+/// - We want to know the interference when motors run at 50% and 100% *actual* speed
+/// - During normal operation, motor calibration is applied
+/// - So we need interference measurements with calibration applied
+///
+/// **Example**:
+/// - If left_front has calibration factor 0.8
+/// - Command "100%" becomes 80% actual (due to calibration)
+/// - IMU needs to know interference at 80% actual, not 100% raw
+/// - This way, interference compensation matches real-world operation
+///
+/// **Ordering requirement**:
+/// - Motor calibration MUST run before IMU calibration
+/// - This ensures IMU measures interference at correctly calibrated speeds
+/// - If motor calibration changes later, IMU calibration should be re-run
+///
+/// # Requirements
+///
+/// - Robot must be stationary and level
+/// - Motors must be free to spin (wheels off ground or robot elevated)
+/// - Motor calibration should be completed first
 async fn run_imu_calibration() {
     use heapless::String;
 
