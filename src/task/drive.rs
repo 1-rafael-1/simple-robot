@@ -94,11 +94,15 @@
 use defmt::info;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::Mutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
+use nalgebra::Vector3;
 
-use crate::task::{
-    encoder_read::EncoderMeasurement,
-    imu_read::ImuMeasurement,
-    motor_driver::{self, MotorCommand, Track},
+use crate::{
+    system::state::SYSTEM_STATE,
+    task::{
+        encoder_read::EncoderMeasurement,
+        imu_read::ImuMeasurement,
+        motor_driver::{self, MotorCommand, Track},
+    },
 };
 
 /// Command signal for drive control
@@ -117,6 +121,12 @@ static LATEST_ENCODER_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<Encoder
 /// Capacity of 16 allows buffering during calibration sequences (100Hz sampling)
 const IMU_FEEDBACK_QUEUE_SIZE: usize = 16;
 static IMU_FEEDBACK_CHANNEL: Channel<CriticalSectionRawMutex, ImuMeasurement, IMU_FEEDBACK_QUEUE_SIZE> = Channel::new();
+
+/// Latest raw magnetometer measurement
+///
+/// Used during IMU calibration to measure motor interference effects.
+/// The IMU task sends raw magnetometer readings here before applying any corrections.
+static LATEST_MAG_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
 
 /// Update the latest encoder measurement
 ///
@@ -167,6 +177,61 @@ async fn receive_imu_measurement() -> ImuMeasurement {
     IMU_FEEDBACK_CHANNEL.receive().await
 }
 
+/// Update the latest magnetometer measurement
+///
+/// Called by IMU task to provide raw magnetometer readings for calibration.
+/// Only used during IMU calibration procedure.
+pub async fn send_mag_measurement(mag: Vector3<f32>) {
+    let mut latest = LATEST_MAG_MEASUREMENT.lock().await;
+    *latest = Some(mag);
+}
+
+/// Get the latest magnetometer measurement (internal use by drive task)
+///
+/// Returns the most recent raw magnetometer reading, or None if no measurement available.
+async fn get_latest_mag_measurement() -> Option<Vector3<f32>> {
+    let latest = LATEST_MAG_MEASUREMENT.lock().await;
+    *latest
+}
+
+/// Clear the latest magnetometer measurement (internal use by drive task)
+///
+/// Used before each calibration measurement to ensure we wait for fresh data.
+async fn clear_mag_measurement() {
+    let mut latest = LATEST_MAG_MEASUREMENT.lock().await;
+    *latest = None;
+}
+
+/// Measure average magnetometer reading over N samples
+///
+/// Used during IMU calibration to get stable baseline and interference measurements.
+/// Waits for fresh magnetometer data from IMU task at 100Hz sampling rate.
+async fn measure_mag_average(samples: u16) -> Vector3<f32> {
+    let mut sum = Vector3::new(0.0, 0.0, 0.0);
+    let mut count = 0;
+
+    for _ in 0..samples {
+        if let Some(mag) = get_latest_mag_measurement().await {
+            sum += mag;
+            count += 1;
+        }
+        Timer::after(Duration::from_millis(10)).await; // 100Hz
+    }
+
+    if count > 0 {
+        sum / count as f32
+    } else {
+        Vector3::new(0.0, 0.0, 0.0)
+    }
+}
+
+/// Subtract two magnetometer vectors
+///
+/// Used to calculate motor interference by subtracting baseline from motor-on measurements.
+fn subtract_mag(a: Vector3<f32>, b: Vector3<f32>) -> Vector3<f32> {
+    Vector3::new(a.x - b.x, a.y - b.y, a.z - b.z)
+}
+
 /// Combined motor control and sensor feedback commands
 #[derive(Debug, Clone)]
 pub enum DriveCommand {
@@ -178,6 +243,8 @@ pub enum DriveCommand {
     ImuFeedback(ImuMeasurement),
     /// Run motor calibration procedure
     RunMotorCalibration,
+    /// Run IMU calibration procedure
+    RunImuCalibration,
 }
 
 /// Motion control commands with associated parameters
@@ -508,6 +575,13 @@ impl MotorState {
         self.forward = speed >= 0;
 
         motor_driver::send_motor_command(MotorCommand::SetTrack { track, speed }).await;
+
+        // Update system state
+        let mut state = SYSTEM_STATE.lock().await;
+        match track {
+            Track::Left => state.left_track_speed = speed,
+            Track::Right => state.right_track_speed = speed,
+        }
     }
 
     /// Sets motor speed with tilt compensation
@@ -1575,6 +1649,358 @@ pub async fn drive() {
                 run_motor_calibration().await;
                 info!("Motor calibration procedure completed");
             }
+
+            DriveCommand::RunImuCalibration => {
+                info!("Starting IMU calibration procedure");
+                run_imu_calibration().await;
+                info!("IMU calibration procedure completed");
+            }
         }
     }
+}
+
+/// Run IMU calibration procedure
+///
+/// Calibrates the IMU (gyroscope, accelerometer, magnetometer) and measures
+/// motor interference effects on the magnetometer for runtime compensation.
+///
+/// Calibration sequence:
+/// 1. Gyro & Accel calibration (robot stationary)
+/// 2. Magnetometer calibration (manual movement pattern)
+/// 3. Motor interference baseline (motors off)
+/// 4. Motor interference at 50% - all motors, left track, right track
+/// 5. Motor interference at 100% - all motors, left track, right track
+///
+/// Results are saved to flash and immediately applied to IMU task.
+async fn run_imu_calibration() {
+    use heapless::String;
+
+    use crate::{
+        system::event,
+        task::{flash_storage, imu_read},
+    };
+
+    info!("=== Starting IMU Calibration ===");
+
+    // Display calibration header
+    event::send_event(event::Events::CalibrationStatus {
+        header: Some(String::try_from("IMU Calibration").unwrap()),
+        line1: Some(String::try_from("Initializing").unwrap()),
+        line2: None,
+        line3: None,
+    })
+    .await;
+
+    // TODO: Step 1 & 2 - Gyro, Accel, and Mag calibration
+    // These require extending the IMU task with calibration commands
+    // For now, use placeholder values (will be implemented later)
+    info!("TODO: Gyro/Accel/Mag calibration (requires IMU task extension)");
+
+    // Placeholder calibration values
+    let gyro_x_bias = 0.0f32;
+    let gyro_y_bias = 0.0f32;
+    let gyro_z_bias = 0.0f32;
+    let accel_x_bias = 0.0f32;
+    let accel_y_bias = 0.0f32;
+    let accel_z_bias = 0.0f32;
+    let mag_x_bias = 0.0f32;
+    let mag_y_bias = 0.0f32;
+    let mag_z_bias = 0.0f32;
+
+    // Enable motor drivers for interference testing
+    info!("Enabling motor driver chips");
+    motor_driver::send_motor_command(MotorCommand::SetDriverEnable {
+        track: Track::Left,
+        enabled: true,
+    })
+    .await;
+    motor_driver::send_motor_command(MotorCommand::SetDriverEnable {
+        track: Track::Right,
+        enabled: true,
+    })
+    .await;
+    Timer::after(Duration::from_millis(100)).await;
+
+    // Step 3: Motor interference baseline (motors off)
+    info!("Step 3: Measuring baseline (motors off)");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Motors OFF").unwrap()),
+        line2: Some(String::try_from("Baseline measure").unwrap()),
+        line3: Some(String::try_from("5 seconds...").unwrap()),
+    })
+    .await;
+
+    clear_mag_measurement().await;
+    Timer::after(Duration::from_millis(500)).await; // Wait for fresh data
+    let baseline_mag = measure_mag_average(500).await; // 500 samples at 100Hz = 5s
+    info!(
+        "Baseline mag: x={} y={} z={}",
+        baseline_mag.x, baseline_mag.y, baseline_mag.z
+    );
+
+    // Step 4: All motors at 50%
+    info!("Step 4: All motors at 50%");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("All motors 50%").unwrap()),
+        line2: Some(String::try_from("Measuring").unwrap()),
+        line3: Some(String::try_from("6 seconds...").unwrap()),
+    })
+    .await;
+
+    motor_driver::send_motor_command(MotorCommand::SetTrack {
+        track: Track::Left,
+        speed: 50,
+    })
+    .await;
+    motor_driver::send_motor_command(MotorCommand::SetTrack {
+        track: Track::Right,
+        speed: 50,
+    })
+    .await;
+    Timer::after(Duration::from_millis(1000)).await; // Let stabilize
+    clear_mag_measurement().await;
+    Timer::after(Duration::from_millis(500)).await; // Wait for fresh data
+    let mag_all_50 = measure_mag_average(500).await;
+    let interference_all_50 = subtract_mag(mag_all_50, baseline_mag);
+    info!(
+        "All 50% interference: x={} y={} z={}",
+        interference_all_50.x, interference_all_50.y, interference_all_50.z
+    );
+
+    motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+    Timer::after(Duration::from_millis(500)).await;
+
+    // Step 5: All motors at 100%
+    info!("Step 5: All motors at 100%");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("All motors 100%").unwrap()),
+        line2: Some(String::try_from("Measuring").unwrap()),
+        line3: Some(String::try_from("6 seconds...").unwrap()),
+    })
+    .await;
+
+    motor_driver::send_motor_command(MotorCommand::SetTrack {
+        track: Track::Left,
+        speed: 100,
+    })
+    .await;
+    motor_driver::send_motor_command(MotorCommand::SetTrack {
+        track: Track::Right,
+        speed: 100,
+    })
+    .await;
+    Timer::after(Duration::from_millis(1000)).await;
+    clear_mag_measurement().await;
+    Timer::after(Duration::from_millis(500)).await;
+    let mag_all_100 = measure_mag_average(500).await;
+    let interference_all_100 = subtract_mag(mag_all_100, baseline_mag);
+    info!(
+        "All 100% interference: x={} y={} z={}",
+        interference_all_100.x, interference_all_100.y, interference_all_100.z
+    );
+
+    motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+    Timer::after(Duration::from_millis(500)).await;
+
+    // Step 6: Left track at 50%
+    info!("Step 6: Left track at 50%");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Left track 50%").unwrap()),
+        line2: Some(String::try_from("Measuring").unwrap()),
+        line3: Some(String::try_from("6 seconds...").unwrap()),
+    })
+    .await;
+
+    motor_driver::send_motor_command(MotorCommand::SetTrack {
+        track: Track::Left,
+        speed: 50,
+    })
+    .await;
+    motor_driver::send_motor_command(MotorCommand::SetTrack {
+        track: Track::Right,
+        speed: 0,
+    })
+    .await;
+    Timer::after(Duration::from_millis(1000)).await;
+    clear_mag_measurement().await;
+    Timer::after(Duration::from_millis(500)).await;
+    let mag_left_50 = measure_mag_average(500).await;
+    let interference_left_50 = subtract_mag(mag_left_50, baseline_mag);
+    info!(
+        "Left 50% interference: x={} y={} z={}",
+        interference_left_50.x, interference_left_50.y, interference_left_50.z
+    );
+
+    motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+    Timer::after(Duration::from_millis(500)).await;
+
+    // Step 7: Left track at 100%
+    info!("Step 7: Left track at 100%");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Left track 100%").unwrap()),
+        line2: Some(String::try_from("Measuring").unwrap()),
+        line3: Some(String::try_from("6 seconds...").unwrap()),
+    })
+    .await;
+
+    motor_driver::send_motor_command(MotorCommand::SetTrack {
+        track: Track::Left,
+        speed: 100,
+    })
+    .await;
+    motor_driver::send_motor_command(MotorCommand::SetTrack {
+        track: Track::Right,
+        speed: 0,
+    })
+    .await;
+    Timer::after(Duration::from_millis(1000)).await;
+    clear_mag_measurement().await;
+    Timer::after(Duration::from_millis(500)).await;
+    let mag_left_100 = measure_mag_average(500).await;
+    let interference_left_100 = subtract_mag(mag_left_100, baseline_mag);
+    info!(
+        "Left 100% interference: x={} y={} z={}",
+        interference_left_100.x, interference_left_100.y, interference_left_100.z
+    );
+
+    motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+    Timer::after(Duration::from_millis(500)).await;
+
+    // Step 8: Right track at 50%
+    info!("Step 8: Right track at 50%");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Right track 50%").unwrap()),
+        line2: Some(String::try_from("Measuring").unwrap()),
+        line3: Some(String::try_from("6 seconds...").unwrap()),
+    })
+    .await;
+
+    motor_driver::send_motor_command(MotorCommand::SetTrack {
+        track: Track::Left,
+        speed: 0,
+    })
+    .await;
+    motor_driver::send_motor_command(MotorCommand::SetTrack {
+        track: Track::Right,
+        speed: 50,
+    })
+    .await;
+    Timer::after(Duration::from_millis(1000)).await;
+    clear_mag_measurement().await;
+    Timer::after(Duration::from_millis(500)).await;
+    let mag_right_50 = measure_mag_average(500).await;
+    let interference_right_50 = subtract_mag(mag_right_50, baseline_mag);
+    info!(
+        "Right 50% interference: x={} y={} z={}",
+        interference_right_50.x, interference_right_50.y, interference_right_50.z
+    );
+
+    motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+    Timer::after(Duration::from_millis(500)).await;
+
+    // Step 9: Right track at 100%
+    info!("Step 9: Right track at 100%");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Right track 100%").unwrap()),
+        line2: Some(String::try_from("Measuring").unwrap()),
+        line3: Some(String::try_from("6 seconds...").unwrap()),
+    })
+    .await;
+
+    motor_driver::send_motor_command(MotorCommand::SetTrack {
+        track: Track::Left,
+        speed: 0,
+    })
+    .await;
+    motor_driver::send_motor_command(MotorCommand::SetTrack {
+        track: Track::Right,
+        speed: 100,
+    })
+    .await;
+    Timer::after(Duration::from_millis(1000)).await;
+    clear_mag_measurement().await;
+    Timer::after(Duration::from_millis(500)).await;
+    let mag_right_100 = measure_mag_average(500).await;
+    let interference_right_100 = subtract_mag(mag_right_100, baseline_mag);
+    info!(
+        "Right 100% interference: x={} y={} z={}",
+        interference_right_100.x, interference_right_100.y, interference_right_100.z
+    );
+
+    motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+    Timer::after(Duration::from_millis(500)).await;
+
+    // Step 10: Build calibration struct
+    info!("Building calibration data structure");
+    let imu_calibration = flash_storage::ImuCalibration {
+        gyro_x_bias,
+        gyro_y_bias,
+        gyro_z_bias,
+        accel_x_bias,
+        accel_y_bias,
+        accel_z_bias,
+        mag_x_bias,
+        mag_y_bias,
+        mag_z_bias,
+        mag_x_interference_50: [interference_all_50.x, interference_left_50.x, interference_right_50.x],
+        mag_y_interference_50: [interference_all_50.y, interference_left_50.y, interference_right_50.y],
+        mag_z_interference_50: [interference_all_50.z, interference_left_50.z, interference_right_50.z],
+        mag_x_interference_100: [
+            interference_all_100.x,
+            interference_left_100.x,
+            interference_right_100.x,
+        ],
+        mag_y_interference_100: [
+            interference_all_100.y,
+            interference_left_100.y,
+            interference_right_100.y,
+        ],
+        mag_z_interference_100: [
+            interference_all_100.z,
+            interference_left_100.z,
+            interference_right_100.z,
+        ],
+    };
+
+    // Step 11: Save to flash
+    info!("Saving calibration to flash");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Saving to flash").unwrap()),
+        line2: Some(String::try_from("Please wait...").unwrap()),
+        line3: None,
+    })
+    .await;
+
+    flash_storage::send_flash_command(flash_storage::FlashCommand::SaveData(
+        flash_storage::CalibrationDataKind::Imu(imu_calibration),
+    ))
+    .await;
+
+    // Brief delay to allow flash operation to complete
+    Timer::after(Duration::from_millis(500)).await;
+
+    // Step 12: Apply to IMU task immediately
+    info!("Applying calibration to IMU task");
+    imu_read::load_imu_calibration(imu_calibration);
+
+    // Display completion
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Complete!").unwrap()),
+        line2: Some(String::try_from("Calibration saved").unwrap()),
+        line3: None,
+    })
+    .await;
+
+    Timer::after(Duration::from_secs(2)).await;
+
+    info!("=== IMU Calibration Complete ===");
 }

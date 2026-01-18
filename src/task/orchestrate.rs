@@ -20,7 +20,7 @@ use crate::{
         state,
         state::{CalibrationStatus, SYSTEM_STATE},
     },
-    task::{display, drive, flash_storage, motor_driver},
+    task::{display, drive, flash_storage, imu_read, motor_driver},
 };
 
 /// Main coordination task that implements the system's event loop
@@ -172,8 +172,8 @@ async fn handle_calibration_data_loaded(
                     state.imu_calibration_status = CalibrationStatus::Loaded;
                 }
 
-                // TODO: Send to IMU task when implemented
-                let _ = imu_cal; // Suppress unused warning
+                // Forward to IMU task
+                imu_read::load_imu_calibration(imu_cal);
 
                 // Update display
                 let mut txt: String<20> = String::new();

@@ -130,18 +130,18 @@ async fn send_initialize_event() {
 
 /// Auto-start calibration for testing (TEMPORARY HACK)
 ///
-/// This automatically triggers motor calibration after a few seconds.
+/// This automatically triggers IMU calibration after a few seconds.
 /// Remove this once we have proper UI control (menu, rotary encoder, or remote).
 #[embassy_executor::task]
 async fn auto_start_calibration() {
     // Wait for system to initialize
     embassy_time::Timer::after(embassy_time::Duration::from_secs(3)).await;
 
-    defmt::info!("🤖 AUTO-CALIBRATION: Starting motor calibration in 2 seconds...");
+    defmt::info!("🤖 AUTO-CALIBRATION: Starting IMU calibration in 2 seconds...");
     embassy_time::Timer::after(embassy_time::Duration::from_secs(2)).await;
 
     defmt::info!("🤖 AUTO-CALIBRATION: Triggering calibration now!");
-    task::drive::send_drive_command(task::drive::DriveCommand::RunMotorCalibration);
+    task::drive::send_drive_command(task::drive::DriveCommand::RunImuCalibration);
 }
 
 /// Initialize battery monitoring task with ADC

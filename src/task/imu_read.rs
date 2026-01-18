@@ -66,6 +66,8 @@ use nalgebra::{UnitQuaternion, Vector3};
 use crate::{
     I2cBusShared,
     system::event::{Events, send_event},
+    system::state::SYSTEM_STATE,
+    task::{drive, flash_storage},
 };
 
 // Sampling configuration
@@ -108,6 +110,8 @@ enum ImuCommand {
     Start,
     /// Stop IMU readings
     Stop,
+    /// Load and apply calibration data
+    LoadCalibration(flash_storage::ImuCalibration),
 }
 
 /// Control signal for IMU reading state
@@ -121,6 +125,11 @@ pub fn start_imu_readings() {
 /// Stop IMU readings
 pub fn stop_imu_readings() {
     IMU_CONTROL.signal(ImuCommand::Stop);
+}
+
+/// Load and apply IMU calibration data
+pub fn load_imu_calibration(calibration: flash_storage::ImuCalibration) {
+    IMU_CONTROL.signal(ImuCommand::LoadCalibration(calibration));
 }
 
 /// Convert nalgebra UnitQuaternion to Euler angles (in degrees)
@@ -140,6 +149,112 @@ fn quaternion_to_euler(q: &UnitQuaternion<f32>) -> Orientation {
         pitch: (pitch * 180.0 / PI * 10.0).round() / 10.0,
         yaw: (yaw * 180.0 / PI * 10.0).round() / 10.0,
     }
+}
+
+/// Interpolate motor interference for a single track (left or right)
+fn interpolate_single_track(calibration: &flash_storage::ImuCalibration, speed: f32, is_left: bool) -> (f32, f32, f32) {
+    let track_idx = if is_left { 1 } else { 2 };
+
+    if speed <= 50.0 {
+        // Scale down from 50% measurement
+        let factor = speed / 50.0;
+        (
+            calibration.mag_x_interference_50[track_idx] * factor,
+            calibration.mag_y_interference_50[track_idx] * factor,
+            calibration.mag_z_interference_50[track_idx] * factor,
+        )
+    } else {
+        // Interpolate between 50% and 100%
+        let factor = (speed - 50.0) / 50.0;
+        (
+            calibration.mag_x_interference_50[track_idx]
+                + (calibration.mag_x_interference_100[track_idx] - calibration.mag_x_interference_50[track_idx])
+                    * factor,
+            calibration.mag_y_interference_50[track_idx]
+                + (calibration.mag_y_interference_100[track_idx] - calibration.mag_y_interference_50[track_idx])
+                    * factor,
+            calibration.mag_z_interference_50[track_idx]
+                + (calibration.mag_z_interference_100[track_idx] - calibration.mag_z_interference_50[track_idx])
+                    * factor,
+        )
+    }
+}
+
+/// Interpolate motor interference for equal motor speeds (both tracks same speed)
+fn interpolate_equal_motors(calibration: &flash_storage::ImuCalibration, speed: f32) -> (f32, f32, f32) {
+    let all_idx = 0;
+
+    if speed <= 50.0 {
+        let factor = speed / 50.0;
+        (
+            calibration.mag_x_interference_50[all_idx] * factor,
+            calibration.mag_y_interference_50[all_idx] * factor,
+            calibration.mag_z_interference_50[all_idx] * factor,
+        )
+    } else {
+        let factor = (speed - 50.0) / 50.0;
+        (
+            calibration.mag_x_interference_50[all_idx]
+                + (calibration.mag_x_interference_100[all_idx] - calibration.mag_x_interference_50[all_idx]) * factor,
+            calibration.mag_y_interference_50[all_idx]
+                + (calibration.mag_y_interference_100[all_idx] - calibration.mag_y_interference_50[all_idx]) * factor,
+            calibration.mag_z_interference_50[all_idx]
+                + (calibration.mag_z_interference_100[all_idx] - calibration.mag_z_interference_50[all_idx]) * factor,
+        )
+    }
+}
+
+/// Calculate motor interference correction based on current motor speeds
+/// Uses interpolation for speeds between calibration points (50% and 100%)
+/// and superposition for mixed left/right speeds
+fn interpolate_interference(
+    calibration: &flash_storage::ImuCalibration,
+    left_speed: i8,
+    right_speed: i8,
+) -> (f32, f32, f32) {
+    let left_abs = left_speed.abs() as f32;
+    let right_abs = right_speed.abs() as f32;
+
+    // Determine dominant pattern
+    if left_abs == 0.0 && right_abs == 0.0 {
+        // Motors off - no correction needed
+        return (0.0, 0.0, 0.0);
+    } else if (left_abs - right_abs).abs() < 10.0 {
+        // Both tracks approximately equal - use all_motors pattern
+        let avg_speed = (left_abs + right_abs) / 2.0;
+        return interpolate_equal_motors(calibration, avg_speed);
+    } else {
+        // Mixed speeds - superposition
+        let left_contrib = interpolate_single_track(calibration, left_abs, true);
+        let right_contrib = interpolate_single_track(calibration, right_abs, false);
+
+        // Weight by relative speed
+        let total_speed = left_abs + right_abs;
+        let left_weight = left_abs / total_speed;
+        let right_weight = right_abs / total_speed;
+
+        return (
+            left_contrib.0 * left_weight + right_contrib.0 * right_weight,
+            left_contrib.1 * left_weight + right_contrib.1 * right_weight,
+            left_contrib.2 * left_weight + right_contrib.2 * right_weight,
+        );
+    }
+}
+
+/// Apply motor interference correction to magnetometer data
+fn apply_motor_interference_correction(
+    mag_data: &mut Vector3<f32>,
+    calibration: &flash_storage::ImuCalibration,
+    left_speed: i8,
+    right_speed: i8,
+) {
+    // Calculate interference based on current motor speeds
+    let interference = interpolate_interference(calibration, left_speed, right_speed);
+
+    // Apply correction (subtract interference from reading)
+    mag_data.x -= interference.0;
+    mag_data.y -= interference.1;
+    mag_data.z -= interference.2;
 }
 
 /// Embassy task that handles IMU measurements with 9-axis AHRS fusion
@@ -261,6 +376,11 @@ pub async fn inertial_measurement_read(
 
     info!("Starting AHRS processing at {} Hz", SAMPLE_RATE_HZ);
 
+    // Store current calibration data
+    // Calibration will be loaded by orchestrator during initialization
+    // and sent via LoadCalibration command
+    let mut current_calibration: Option<flash_storage::ImuCalibration> = None;
+
     'command: loop {
         // Wait for a command, consuming it
         match IMU_CONTROL.wait().await {
@@ -330,7 +450,7 @@ pub async fn inertial_measurement_read(
                             let gyro_rad = Vector3::new(gyro_x * PI / 180.0, gyro_y * PI / 180.0, gyro_z * PI / 180.0);
 
                             // Read magnetometer (in μT)
-                            let mag_data = match sensor.read_magnetometer().await {
+                            let mut mag_data = match sensor.read_magnetometer().await {
                                 Ok(data) => {
                                     mag_consecutive_failures = 0;
                                     Vector3::new(data.x, data.y, data.z)
@@ -348,6 +468,21 @@ pub async fn inertial_measurement_read(
                                     continue;
                                 }
                             };
+
+                            // Send raw magnetometer reading to drive task for calibration purposes
+                            // (before applying interference correction)
+                            drive::send_mag_measurement(mag_data).await;
+
+                            // Apply motor interference correction if calibrated
+                            if let Some(cal) = &current_calibration {
+                                let state = SYSTEM_STATE.lock().await;
+                                apply_motor_interference_correction(
+                                    &mut mag_data,
+                                    cal,
+                                    state.left_track_speed,
+                                    state.right_track_speed,
+                                );
+                            }
 
                             // Check if magnetometer reading is reasonable
                             // Typical Earth's magnetic field: 25-65 μT
@@ -384,6 +519,12 @@ pub async fn inertial_measurement_read(
             ImuCommand::Stop => {
                 info!("IMU stopped. Waiting for next command.");
                 // Return to waiting for next command
+                continue 'command;
+            }
+            ImuCommand::LoadCalibration(cal) => {
+                current_calibration = Some(cal);
+                info!("IMU calibration loaded and applied");
+                // Stay in current state (continue waiting for commands)
                 continue 'command;
             }
         }
