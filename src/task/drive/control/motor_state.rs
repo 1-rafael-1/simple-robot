@@ -1,11 +1,10 @@
 //! Track state tracking and control interface
 
+use super::tilt::TiltCompensation;
 use crate::{
     system::state::SYSTEM_STATE,
     task::motor_driver::{self, MotorCommand, Track},
 };
-
-use super::tilt::TiltCompensation;
 
 /// Track state tracking (simplified - actual control via motor_driver task)
 pub(crate) struct TrackState {

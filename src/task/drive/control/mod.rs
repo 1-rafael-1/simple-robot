@@ -11,6 +11,4 @@ pub(crate) mod tilt;
 
 // Re-export commonly used types for convenience
 pub(crate) use motor_state::TrackState;
-pub(crate) use rotation::{RotationState, is_turning_in_place};
-pub(crate) use straight_line::StraightLineState;
-pub(crate) use tilt::TiltCompensation;
+pub(crate) use rotation::RotationState;

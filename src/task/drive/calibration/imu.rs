@@ -6,18 +6,12 @@
 use defmt::info;
 use embassy_time::{Duration, Timer};
 
-use crate::{
-    system::event,
-    task::{
-        drive::feedback::{
-            clear_accel_measurement, clear_gyro_measurement, clear_mag_measurement,
-            get_latest_accel_measurement, get_latest_gyro_measurement, measure_mag_average,
-            subtract_mag, wait_for_mag_event_timeout,
-        },
-        flash_storage,
-        imu_read,
-        motor_driver::{self, MotorCommand, Track},
+use crate::task::{
+    drive::feedback::{
+        clear_accel_measurement, clear_gyro_measurement, clear_mag_measurement, get_latest_accel_measurement,
+        get_latest_gyro_measurement, measure_mag_average, subtract_mag, wait_for_mag_event_timeout,
     },
+    motor_driver::{self, MotorCommand, Track},
 };
 
 /// Run the IMU calibration procedure

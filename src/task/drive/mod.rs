@@ -104,15 +104,14 @@ pub mod feedback;
 pub mod types;
 
 // Re-export public API
-pub use feedback::{
-    send_accel_measurement, send_encoder_measurement, send_gyro_measurement, send_mag_measurement,
-    try_send_encoder_measurement, try_send_imu_measurement,
-};
-pub use types::{DriveAction, DriveCommand, RotationDirection, RotationMotion};
-
 // Internal imports
 use calibration::{run_imu_calibration, run_motor_calibration};
 use control::{RotationState, TrackState};
+pub use feedback::{
+    send_accel_measurement, send_gyro_measurement, send_mag_measurement, try_send_encoder_measurement,
+    try_send_imu_measurement,
+};
+pub use types::{DriveAction, DriveCommand};
 
 /// Command signal for drive control
 ///

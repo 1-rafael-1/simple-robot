@@ -65,8 +65,10 @@ use nalgebra::{UnitQuaternion, Vector3};
 
 use crate::{
     I2cBusShared,
-    system::event::{Events, send_event},
-    system::state::SYSTEM_STATE,
+    system::{
+        event::{Events, send_event},
+        state::SYSTEM_STATE,
+    },
     task::{drive, flash_storage},
 };
 

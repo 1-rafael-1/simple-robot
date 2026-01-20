@@ -6,17 +6,15 @@
 use defmt::info;
 use embassy_time::{Duration, Timer};
 
-use crate::{
-    system::event,
-    task::{
-        drive::{
-            feedback::{clear_encoder_measurement, wait_for_encoder_event_timeout},
-            types::{CALIBRATION_COAST_DURATION_MS, CALIBRATION_SAMPLE_DURATION_MS, CALIBRATION_SPEED_INDIVIDUAL, CALIBRATION_SPEED_TRACK},
+use crate::task::{
+    drive::{
+        feedback::{clear_encoder_measurement, wait_for_encoder_event_timeout},
+        types::{
+            CALIBRATION_COAST_DURATION_MS, CALIBRATION_SAMPLE_DURATION_MS, CALIBRATION_SPEED_INDIVIDUAL,
+            CALIBRATION_SPEED_TRACK,
         },
-        encoder_read,
-        flash_storage,
-        motor_driver::{self, MotorCalibration, MotorCommand, Track},
     },
+    motor_driver::{self, MotorCommand, Track},
 };
 
 /// Run the motor calibration procedure
