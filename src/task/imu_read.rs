@@ -446,6 +446,13 @@ pub async fn inertial_measurement_read(
                             let gyro_y = gyro_data.y - gyro_bias_y;
                             let gyro_z = gyro_data.z - gyro_bias_z;
 
+                            // Send raw gyroscope reading to drive task for calibration purposes
+                            // (before bias correction is applied)
+                            drive::send_gyro_measurement(Vector3::new(gyro_data.x, gyro_data.y, gyro_data.z)).await;
+
+                            // Send raw accelerometer reading to drive task for calibration purposes
+                            drive::send_accel_measurement(accel_data).await;
+
                             // Convert gyroscope from degrees/s to radians/s for AHRS
                             let gyro_rad = Vector3::new(gyro_x * PI / 180.0, gyro_y * PI / 180.0, gyro_z * PI / 180.0);
 

@@ -128,6 +128,18 @@ static IMU_FEEDBACK_CHANNEL: Channel<CriticalSectionRawMutex, ImuMeasurement, IM
 /// The IMU task sends raw magnetometer readings here before applying any corrections.
 static LATEST_MAG_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
 
+/// Latest raw gyroscope measurement
+///
+/// Used during IMU calibration to measure gyroscope bias.
+/// The IMU task sends raw gyroscope readings here before applying bias correction.
+static LATEST_GYRO_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
+
+/// Latest raw accelerometer measurement
+///
+/// Used during IMU calibration to measure accelerometer bias.
+/// The IMU task sends raw accelerometer readings here before applying any corrections.
+static LATEST_ACCEL_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
+
 /// Update the latest encoder measurement
 ///
 /// Called by orchestrator to forward encoder events from the encoder_read task.
@@ -186,6 +198,24 @@ pub async fn send_mag_measurement(mag: Vector3<f32>) {
     *latest = Some(mag);
 }
 
+/// Update the latest gyroscope measurement
+///
+/// Called by IMU task to provide raw gyroscope readings for calibration.
+/// Only used during IMU calibration procedure.
+pub async fn send_gyro_measurement(gyro: Vector3<f32>) {
+    let mut latest = LATEST_GYRO_MEASUREMENT.lock().await;
+    *latest = Some(gyro);
+}
+
+/// Update the latest accelerometer measurement
+///
+/// Called by IMU task to provide raw accelerometer readings for calibration.
+/// Only used during IMU calibration procedure.
+pub async fn send_accel_measurement(accel: Vector3<f32>) {
+    let mut latest = LATEST_ACCEL_MEASUREMENT.lock().await;
+    *latest = Some(accel);
+}
+
 /// Get the latest magnetometer measurement (internal use by drive task)
 ///
 /// Returns the most recent raw magnetometer reading, or None if no measurement available.
@@ -194,11 +224,43 @@ async fn get_latest_mag_measurement() -> Option<Vector3<f32>> {
     *latest
 }
 
+/// Get the latest gyroscope measurement (internal use by drive task)
+///
+/// Returns the most recent raw gyroscope reading, or None if no measurement available.
+async fn get_latest_gyro_measurement() -> Option<Vector3<f32>> {
+    let latest = LATEST_GYRO_MEASUREMENT.lock().await;
+    *latest
+}
+
+/// Get the latest accelerometer measurement (internal use by drive task)
+///
+/// Returns the most recent raw accelerometer reading, or None if no measurement available.
+async fn get_latest_accel_measurement() -> Option<Vector3<f32>> {
+    let latest = LATEST_ACCEL_MEASUREMENT.lock().await;
+    *latest
+}
+
 /// Clear the latest magnetometer measurement (internal use by drive task)
 ///
 /// Used before each calibration measurement to ensure we wait for fresh data.
 async fn clear_mag_measurement() {
     let mut latest = LATEST_MAG_MEASUREMENT.lock().await;
+    *latest = None;
+}
+
+/// Clear the latest gyroscope measurement (internal use by drive task)
+///
+/// Used before each calibration measurement to ensure we wait for fresh data.
+async fn clear_gyro_measurement() {
+    let mut latest = LATEST_GYRO_MEASUREMENT.lock().await;
+    *latest = None;
+}
+
+/// Clear the latest accelerometer measurement (internal use by drive task)
+///
+/// Used before each calibration measurement to ensure we wait for fresh data.
+async fn clear_accel_measurement() {
+    let mut latest = LATEST_ACCEL_MEASUREMENT.lock().await;
     *latest = None;
 }
 
@@ -223,6 +285,30 @@ async fn measure_mag_average(samples: u16) -> Vector3<f32> {
     } else {
         Vector3::new(0.0, 0.0, 0.0)
     }
+}
+
+/// Wait for IMU measurement with timeout
+///
+/// Used during IMU calibration to collect gyro/accel samples.
+async fn wait_for_imu_event_timeout(timeout_ms: u64) -> Option<ImuMeasurement> {
+    match embassy_time::with_timeout(Duration::from_millis(timeout_ms), receive_imu_measurement()).await {
+        Ok(measurement) => Some(measurement),
+        Err(_) => None,
+    }
+}
+
+/// Wait for magnetometer measurement with timeout
+///
+/// Used during magnetometer calibration to collect samples.
+async fn wait_for_mag_event_timeout(timeout_ms: u64) -> Option<Vector3<f32>> {
+    let start = embassy_time::Instant::now();
+    while embassy_time::Instant::now().duration_since(start).as_millis() < timeout_ms {
+        if let Some(mag) = get_latest_mag_measurement().await {
+            return Some(mag);
+        }
+        Timer::after(Duration::from_millis(10)).await;
+    }
+    None
 }
 
 /// Subtract two magnetometer vectors
@@ -1757,21 +1843,181 @@ async fn run_imu_calibration() {
     })
     .await;
 
-    // TODO: Step 1 & 2 - Gyro, Accel, and Mag calibration
-    // These require extending the IMU task with calibration commands
-    // For now, use placeholder values (will be implemented later)
-    info!("TODO: Gyro/Accel/Mag calibration (requires IMU task extension)");
+    // Step 1: Gyroscope and Accelerometer Calibration (stationary)
+    info!("Step 1: Gyroscope and Accelerometer Calibration");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Step 1/9").unwrap()),
+        line2: Some(String::try_from("Gyro/Accel cal").unwrap()),
+        line3: Some(String::try_from("Keep still 10s").unwrap()),
+    })
+    .await;
 
-    // Placeholder calibration values
-    let gyro_x_bias = 0.0f32;
-    let gyro_y_bias = 0.0f32;
-    let gyro_z_bias = 0.0f32;
-    let accel_x_bias = 0.0f32;
-    let accel_y_bias = 0.0f32;
-    let accel_z_bias = 0.0f32;
-    let mag_x_bias = 0.0f32;
-    let mag_y_bias = 0.0f32;
-    let mag_z_bias = 0.0f32;
+    // Start IMU readings for calibration
+    use core::fmt::Write;
+    imu_read::start_imu_readings();
+    Timer::after(Duration::from_millis(500)).await; // Wait for IMU to start
+
+    // Collect gyro and accel samples while stationary
+    info!("  Collecting gyro/accel samples (stationary)...");
+    let mut gyro_x_sum = 0.0f32;
+    let mut gyro_y_sum = 0.0f32;
+    let mut gyro_z_sum = 0.0f32;
+    let mut accel_x_sum = 0.0f32;
+    let mut accel_y_sum = 0.0f32;
+    let mut accel_z_sum = 0.0f32;
+    let num_samples = 1000; // 1000 samples at 100Hz = 10 seconds
+
+    clear_gyro_measurement().await;
+    clear_accel_measurement().await;
+    Timer::after(Duration::from_millis(100)).await; // Wait for fresh data
+
+    for i in 0..num_samples {
+        // Wait for fresh gyro data
+        let start = embassy_time::Instant::now();
+        while embassy_time::Instant::now().duration_since(start).as_millis() < 20 {
+            if let Some(gyro_data) = get_latest_gyro_measurement().await {
+                gyro_x_sum += gyro_data.x;
+                gyro_y_sum += gyro_data.y;
+                gyro_z_sum += gyro_data.z;
+                break;
+            }
+            Timer::after(Duration::from_millis(1)).await;
+        }
+
+        // Wait for fresh accel data
+        let start = embassy_time::Instant::now();
+        while embassy_time::Instant::now().duration_since(start).as_millis() < 20 {
+            if let Some(accel_data) = get_latest_accel_measurement().await {
+                accel_x_sum += accel_data.x;
+                accel_y_sum += accel_data.y;
+                accel_z_sum += accel_data.z;
+                break;
+            }
+            Timer::after(Duration::from_millis(1)).await;
+        }
+
+        // Update progress every 100 samples
+        if i % 100 == 0 {
+            let progress = (i * 100) / num_samples;
+            let mut line = String::new();
+            let _ = write!(line, "Progress: {}%", progress);
+            event::send_event(event::Events::CalibrationStatus {
+                header: None,
+                line1: None,
+                line2: None,
+                line3: Some(line),
+            })
+            .await;
+        }
+    }
+
+    let gyro_x_bias = gyro_x_sum / num_samples as f32;
+    let gyro_y_bias = gyro_y_sum / num_samples as f32;
+    let gyro_z_bias = gyro_z_sum / num_samples as f32;
+    let accel_x_bias = accel_x_sum / num_samples as f32;
+    let accel_y_bias = accel_y_sum / num_samples as f32;
+    let accel_z_bias = (accel_z_sum / num_samples as f32) - 1.0; // Subtract 1g for gravity
+
+    info!("  ✓ Gyro bias calculated:");
+    info!("    X: {} deg/s", gyro_x_bias);
+    info!("    Y: {} deg/s", gyro_y_bias);
+    info!("    Z: {} deg/s", gyro_z_bias);
+    info!("  ✓ Accel bias calculated:");
+    info!("    X: {} g", accel_x_bias);
+    info!("    Y: {} g", accel_y_bias);
+    info!("    Z: {} g (gravity removed)", accel_z_bias);
+
+    // Step 2: Magnetometer Calibration (moving through all axes)
+    info!("Step 2: Magnetometer Calibration (CRITICAL - Manual Rotation Required)");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Step 2/9").unwrap()),
+        line2: Some(String::try_from("MAG CALIBRATION").unwrap()),
+        line3: Some(String::try_from("Prepare to move").unwrap()),
+    })
+    .await;
+    Timer::after(Duration::from_secs(3)).await;
+
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Step 2/9").unwrap()),
+        line2: Some(String::try_from("ROTATE SLOWLY").unwrap()),
+        line3: Some(String::try_from("All axes 60s").unwrap()),
+    })
+    .await;
+
+    info!("╔═══════════════════════════════════════════════════╗");
+    info!("║  CRITICAL: MAGNETOMETER CALIBRATION REQUIRED     ║");
+    info!("╠═══════════════════════════════════════════════════╣");
+    info!("║  Slowly rotate robot through ALL axes for 60s:   ║");
+    info!("║  • PITCH: Tilt forward/backward                  ║");
+    info!("║  • ROLL: Tilt left/right                         ║");
+    info!("║  • YAW: Spin clockwise/counterclockwise          ║");
+    info!("║                                                   ║");
+    info!("║  Goal: Robot must experience full 3D rotation    ║");
+    info!("║  to map Earth's magnetic field in all            ║");
+    info!("║  orientations. Move slowly and smoothly.         ║");
+    info!("╚═══════════════════════════════════════════════════╝");
+
+    // Collect magnetometer samples to find min/max for hard iron calibration
+    let mut mag_x_min = f32::MAX;
+    let mut mag_x_max = f32::MIN;
+    let mut mag_y_min = f32::MAX;
+    let mut mag_y_max = f32::MIN;
+    let mut mag_z_min = f32::MAX;
+    let mut mag_z_max = f32::MIN;
+    let mag_samples = 6000; // 6000 samples at 100Hz = 60 seconds
+
+    for i in 0..mag_samples {
+        if let Some(mag_data) = wait_for_mag_event_timeout(200).await {
+            // Track min/max for each axis
+            if mag_data.x < mag_x_min {
+                mag_x_min = mag_data.x;
+            }
+            if mag_data.x > mag_x_max {
+                mag_x_max = mag_data.x;
+            }
+            if mag_data.y < mag_y_min {
+                mag_y_min = mag_data.y;
+            }
+            if mag_data.y > mag_y_max {
+                mag_y_max = mag_data.y;
+            }
+            if mag_data.z < mag_z_min {
+                mag_z_min = mag_data.z;
+            }
+            if mag_data.z > mag_z_max {
+                mag_z_max = mag_data.z;
+            }
+
+            // Update progress every 600 samples (every 6 seconds)
+            if i % 600 == 0 {
+                let seconds_left = (mag_samples - i) / 100;
+                let mut line = String::new();
+                let _ = write!(line, "{}s left", seconds_left);
+                event::send_event(event::Events::CalibrationStatus {
+                    header: None,
+                    line1: None,
+                    line2: None,
+                    line3: Some(line),
+                })
+                .await;
+                info!("  Progress: {} seconds remaining...", seconds_left);
+            }
+        }
+    }
+
+    // Calculate hard iron bias (center of min/max sphere)
+    let mag_x_bias = (mag_x_max + mag_x_min) / 2.0;
+    let mag_y_bias = (mag_y_max + mag_y_min) / 2.0;
+    let mag_z_bias = (mag_z_max + mag_z_min) / 2.0;
+
+    info!("  ✓ Magnetometer calibration complete!");
+    info!("  Hard iron bias (offset to center):");
+    info!("    X: min={} max={} → bias={}", mag_x_min, mag_x_max, mag_x_bias);
+    info!("    Y: min={} max={} → bias={}", mag_y_min, mag_y_max, mag_y_bias);
+    info!("    Z: min={} max={} → bias={}", mag_z_min, mag_z_max, mag_z_bias);
 
     // Enable motor drivers for interference testing
     info!("Enabling motor driver chips");
@@ -1788,11 +2034,11 @@ async fn run_imu_calibration() {
     Timer::after(Duration::from_millis(100)).await;
 
     // Step 3: Motor interference baseline (motors off)
-    info!("Step 3: Measuring baseline (motors off)");
+    info!("Step 3: Measuring magnetic baseline (motors OFF)");
     event::send_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Motors OFF").unwrap()),
-        line2: Some(String::try_from("Baseline measure").unwrap()),
+        line1: Some(String::try_from("Step 3/9").unwrap()),
+        line2: Some(String::try_from("Baseline (OFF)").unwrap()),
         line3: Some(String::try_from("5 seconds...").unwrap()),
     })
     .await;
@@ -1801,17 +2047,17 @@ async fn run_imu_calibration() {
     Timer::after(Duration::from_millis(500)).await; // Wait for fresh data
     let baseline_mag = measure_mag_average(500).await; // 500 samples at 100Hz = 5s
     info!(
-        "Baseline mag: x={} y={} z={}",
+        "  Baseline mag: x={} y={} z={}",
         baseline_mag.x, baseline_mag.y, baseline_mag.z
     );
 
     // Step 4: All motors at 50%
-    info!("Step 4: All motors at 50%");
+    info!("Step 4: Motor interference at 50% (all motors)");
     event::send_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("All motors 50%").unwrap()),
-        line2: Some(String::try_from("Measuring").unwrap()),
-        line3: Some(String::try_from("6 seconds...").unwrap()),
+        line1: Some(String::try_from("Step 4/9").unwrap()),
+        line2: Some(String::try_from("All motors 50%").unwrap()),
+        line3: Some(String::try_from("Measuring 6s...").unwrap()),
     })
     .await;
 
@@ -1831,7 +2077,7 @@ async fn run_imu_calibration() {
     let mag_all_50 = measure_mag_average(500).await;
     let interference_all_50 = subtract_mag(mag_all_50, baseline_mag);
     info!(
-        "All 50% interference: x={} y={} z={}",
+        "  All 50% interference: x={} y={} z={}",
         interference_all_50.x, interference_all_50.y, interference_all_50.z
     );
 
@@ -1839,12 +2085,12 @@ async fn run_imu_calibration() {
     Timer::after(Duration::from_millis(500)).await;
 
     // Step 5: All motors at 100%
-    info!("Step 5: All motors at 100%");
+    info!("Step 5: Motor interference at 100% (all motors)");
     event::send_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("All motors 100%").unwrap()),
-        line2: Some(String::try_from("Measuring").unwrap()),
-        line3: Some(String::try_from("6 seconds...").unwrap()),
+        line1: Some(String::try_from("Step 4/9").unwrap()),
+        line2: Some(String::try_from("All motors 100%").unwrap()),
+        line3: Some(String::try_from("Measuring 6s...").unwrap()),
     })
     .await;
 
@@ -1864,7 +2110,7 @@ async fn run_imu_calibration() {
     let mag_all_100 = measure_mag_average(500).await;
     let interference_all_100 = subtract_mag(mag_all_100, baseline_mag);
     info!(
-        "All 100% interference: x={} y={} z={}",
+        "  All 100% interference: x={} y={} z={}",
         interference_all_100.x, interference_all_100.y, interference_all_100.z
     );
 
@@ -1872,12 +2118,12 @@ async fn run_imu_calibration() {
     Timer::after(Duration::from_millis(500)).await;
 
     // Step 6: Left track at 50%
-    info!("Step 6: Left track at 50%");
+    info!("Step 6: Motor interference at 50% (left track only)");
     event::send_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Left track 50%").unwrap()),
-        line2: Some(String::try_from("Measuring").unwrap()),
-        line3: Some(String::try_from("6 seconds...").unwrap()),
+        line1: Some(String::try_from("Step 5/9").unwrap()),
+        line2: Some(String::try_from("Left track 50%").unwrap()),
+        line3: Some(String::try_from("Measuring 6s...").unwrap()),
     })
     .await;
 
@@ -1897,7 +2143,7 @@ async fn run_imu_calibration() {
     let mag_left_50 = measure_mag_average(500).await;
     let interference_left_50 = subtract_mag(mag_left_50, baseline_mag);
     info!(
-        "Left 50% interference: x={} y={} z={}",
+        "  Left 50% interference: x={} y={} z={}",
         interference_left_50.x, interference_left_50.y, interference_left_50.z
     );
 
@@ -1905,12 +2151,12 @@ async fn run_imu_calibration() {
     Timer::after(Duration::from_millis(500)).await;
 
     // Step 7: Left track at 100%
-    info!("Step 7: Left track at 100%");
+    info!("Step 7: Motor interference at 100% (left track only)");
     event::send_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Left track 100%").unwrap()),
-        line2: Some(String::try_from("Measuring").unwrap()),
-        line3: Some(String::try_from("6 seconds...").unwrap()),
+        line1: Some(String::try_from("Step 6/9").unwrap()),
+        line2: Some(String::try_from("Left track 100%").unwrap()),
+        line3: Some(String::try_from("Measuring 6s...").unwrap()),
     })
     .await;
 
@@ -1930,7 +2176,7 @@ async fn run_imu_calibration() {
     let mag_left_100 = measure_mag_average(500).await;
     let interference_left_100 = subtract_mag(mag_left_100, baseline_mag);
     info!(
-        "Left 100% interference: x={} y={} z={}",
+        "  Left 100% interference: x={} y={} z={}",
         interference_left_100.x, interference_left_100.y, interference_left_100.z
     );
 
@@ -1938,12 +2184,12 @@ async fn run_imu_calibration() {
     Timer::after(Duration::from_millis(500)).await;
 
     // Step 8: Right track at 50%
-    info!("Step 8: Right track at 50%");
+    info!("Step 8: Motor interference at 50% (right track only)");
     event::send_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Right track 50%").unwrap()),
-        line2: Some(String::try_from("Measuring").unwrap()),
-        line3: Some(String::try_from("6 seconds...").unwrap()),
+        line1: Some(String::try_from("Step 7/9").unwrap()),
+        line2: Some(String::try_from("Right track 50%").unwrap()),
+        line3: Some(String::try_from("Measuring 6s...").unwrap()),
     })
     .await;
 
@@ -1963,7 +2209,7 @@ async fn run_imu_calibration() {
     let mag_right_50 = measure_mag_average(500).await;
     let interference_right_50 = subtract_mag(mag_right_50, baseline_mag);
     info!(
-        "Right 50% interference: x={} y={} z={}",
+        "  Right 50% interference: x={} y={} z={}",
         interference_right_50.x, interference_right_50.y, interference_right_50.z
     );
 
@@ -1971,12 +2217,12 @@ async fn run_imu_calibration() {
     Timer::after(Duration::from_millis(500)).await;
 
     // Step 9: Right track at 100%
-    info!("Step 9: Right track at 100%");
+    info!("Step 9: Motor interference at 100% (right track only)");
     event::send_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Right track 100%").unwrap()),
-        line2: Some(String::try_from("Measuring").unwrap()),
-        line3: Some(String::try_from("6 seconds...").unwrap()),
+        line1: Some(String::try_from("Step 8/9").unwrap()),
+        line2: Some(String::try_from("Right track 100%").unwrap()),
+        line3: Some(String::try_from("Measuring 6s...").unwrap()),
     })
     .await;
 
@@ -1996,7 +2242,7 @@ async fn run_imu_calibration() {
     let mag_right_100 = measure_mag_average(500).await;
     let interference_right_100 = subtract_mag(mag_right_100, baseline_mag);
     info!(
-        "Right 100% interference: x={} y={} z={}",
+        "  Right 100% interference: x={} y={} z={}",
         interference_right_100.x, interference_right_100.y, interference_right_100.z
     );
 
@@ -2004,7 +2250,14 @@ async fn run_imu_calibration() {
     Timer::after(Duration::from_millis(500)).await;
 
     // Step 10: Build calibration struct
-    info!("Building calibration data structure");
+    info!("Step 10: Building complete calibration data structure");
+    event::send_event(event::Events::CalibrationStatus {
+        header: None,
+        line1: Some(String::try_from("Step 9/9").unwrap()),
+        line2: Some(String::try_from("Finalizing...").unwrap()),
+        line3: None,
+    })
+    .await;
     let imu_calibration = flash_storage::ImuCalibration {
         gyro_x_bias,
         gyro_y_bias,
@@ -2036,12 +2289,23 @@ async fn run_imu_calibration() {
     };
 
     // Step 11: Save to flash
-    info!("Saving calibration to flash");
+    info!("Step 11: Saving complete calibration to flash");
+    info!("╔═══════════════════════════════════════════════════╗");
+    info!("║        FINAL CALIBRATION SUMMARY                 ║");
+    info!("╠═══════════════════════════════════════════════════╣");
+    info!("║  Gyro bias (deg/s):                              ║");
+    info!("║    X: {} Y: {} Z: {}", gyro_x_bias, gyro_y_bias, gyro_z_bias);
+    info!("║  Accel bias (g):                                 ║");
+    info!("║    X: {} Y: {} Z: {}", accel_x_bias, accel_y_bias, accel_z_bias);
+    info!("║  Magnetometer hard iron bias (μT):               ║");
+    info!("║    X: {} Y: {} Z: {}", mag_x_bias, mag_y_bias, mag_z_bias);
+    info!("║  Motor interference patterns captured ✓          ║");
+    info!("╚═══════════════════════════════════════════════════╝");
     event::send_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Saving to flash").unwrap()),
-        line2: Some(String::try_from("Please wait...").unwrap()),
-        line3: None,
+        line1: Some(String::try_from("Complete!").unwrap()),
+        line2: Some(String::try_from("Saving...").unwrap()),
+        line3: Some(String::try_from("Please wait").unwrap()),
     })
     .await;
 
