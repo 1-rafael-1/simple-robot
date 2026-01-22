@@ -95,7 +95,10 @@ use defmt::info;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 
-use crate::task::motor_driver::{self, MotorCommand, Track};
+use crate::{
+    system::state::SYSTEM_STATE,
+    task::motor_driver::{self, MotorCommand},
+};
 
 // Submodules
 mod calibration;
@@ -106,7 +109,7 @@ pub mod types;
 // Re-export public API
 // Internal imports
 use calibration::{run_imu_calibration, run_motor_calibration};
-use control::{RotationState, TrackState};
+use control::RotationState;
 pub use feedback::{
     send_accel_measurement, send_gyro_measurement, send_mag_measurement, try_send_encoder_measurement,
     try_send_imu_measurement,
@@ -149,15 +152,11 @@ async fn wait() -> DriveCommand {
 /// channels rather than having this task consume system events directly.
 #[embassy_executor::task]
 pub async fn drive() {
-    // Initialize track state tracking
-    let mut left_track = TrackState::new();
-    let mut right_track = TrackState::new();
-
     // Motor driver standby control - now handled by port_expander task via motor_driver
     let mut standby_enabled = true;
 
     // Rotation state tracking
-    let mut rotation_state: Option<RotationState>;
+    let mut rotation_state: Option<RotationState> = None;
 
     // Add straight-line tracking state
     // let straight_line_state: Option<StraightLineState> = None;
@@ -192,8 +191,17 @@ pub async fn drive() {
                         let left_clamped = left.clamp(-100, 100);
                         let right_clamped = right.clamp(-100, 100);
 
-                        left_state.set_speed(Track::Left, left_clamped).await;
-                        right_state.set_speed(Track::Right, right_clamped).await;
+                        // Send single optimized command for both tracks
+                        motor_driver::send_motor_command(MotorCommand::SetTracks {
+                            left_speed: left_clamped,
+                            right_speed: right_clamped,
+                        })
+                        .await;
+
+                        // Update system state directly
+                        let mut state = SYSTEM_STATE.lock().await;
+                        state.left_track_speed = left_clamped;
+                        state.right_track_speed = right_clamped;
                     }
                     DriveAction::RotateExact {
                         degrees,
@@ -206,30 +214,50 @@ pub async fn drive() {
                         // Apply initial motor speeds for rotation
                         let (left_speed, right_speed) = rotation_state.as_ref().unwrap().calculate_motor_speeds();
 
-                        left_state.set_speed(Track::Left, left_speed).await;
-                        right_state.set_speed(Track::Right, right_speed).await;
+                        // Use SetTracks for atomic update
+                        motor_driver::send_motor_command(MotorCommand::SetTracks {
+                            left_speed,
+                            right_speed,
+                        })
+                        .await;
+
+                        // Update system state
+                        let mut state = SYSTEM_STATE.lock().await;
+                        state.left_track_speed = left_speed;
+                        state.right_track_speed = right_speed;
                     }
                     DriveAction::Coast => {
                         info!("coast");
-                        left_state.coast(Track::Left).await;
-                        right_state.coast(Track::Right).await;
+                        motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+
+                        // Update system state
+                        let mut state = SYSTEM_STATE.lock().await;
+                        state.left_track_speed = 0;
+                        state.right_track_speed = 0;
                     }
                     DriveAction::Brake => {
                         info!("brake");
-                        left_state.brake(Track::Left).await;
-                        right_state.brake(Track::Right).await;
+                        motor_driver::send_motor_command(MotorCommand::BrakeAll).await;
+
+                        // Update system state
+                        let mut state = SYSTEM_STATE.lock().await;
+                        state.left_track_speed = 0;
+                        state.right_track_speed = 0;
                     }
                     DriveAction::Standby => {
                         if !standby_enabled {
-                            left_state.brake(Track::Left).await;
-                            right_state.brake(Track::Right).await;
+                            motor_driver::send_motor_command(MotorCommand::BrakeAll).await;
                             Timer::after(Duration::from_millis(100)).await;
-                            left_state.coast(Track::Left).await;
-                            right_state.coast(Track::Right).await;
+                            motor_driver::send_motor_command(MotorCommand::CoastAll).await;
                             Timer::after(Duration::from_millis(100)).await;
                             motor_driver::send_motor_command(MotorCommand::SetAllDriversEnable { enabled: false })
                                 .await;
                             standby_enabled = true;
+
+                            // Update system state
+                            let mut state = SYSTEM_STATE.lock().await;
+                            state.left_track_speed = 0;
+                            state.right_track_speed = 0;
                         }
                     }
                 }

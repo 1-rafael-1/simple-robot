@@ -10,5 +10,4 @@ pub(crate) mod straight_line;
 pub(crate) mod tilt;
 
 // Re-export commonly used types for convenience
-pub(crate) use motor_state::TrackState;
 pub(crate) use rotation::RotationState;

@@ -52,7 +52,7 @@ async fn testing_sequence() {
 
     // Drive straight ahead at speed 60 for 10 seconds
     defmt::info!("🧪 TEST: Driving straight at speed 60 for 40 seconds");
-    send_drive_command(DriveCommand::Drive(DriveAction::SetSpeed { left: 60, right: 60 }));
+    send_drive_command(DriveCommand::Drive(DriveAction::SetSpeed { left: 100, right: 100 }));
 
     // Let it drive for 10 seconds
     Timer::after(Duration::from_secs(20)).await;
