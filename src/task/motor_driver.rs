@@ -968,15 +968,56 @@ pub async fn motor_driver(pwm_driver_left: Pwm<'static>, pwm_driver_right: Pwm<'
         initial_voltage, voltage_compensation
     );
 
+    // Track whether motors are currently active (any motor speed != 0)
+    let mut motors_active = false;
+
     // Main command processing loop
     loop {
         let command = receive_motor_command().await;
 
-        // Try to get fresh battery voltage reading non-blocking
-        // If available and mutex not busy, update compensation; otherwise keep using previous value
-        if let Some(current_voltage) = try_get_battery_voltage() {
-            voltage_compensation = calculate_voltage_compensation(current_voltage);
+        // Only update voltage compensation when motors are idle to avoid measuring voltage sag under load
+        // Voltage sag during motor operation gives false readings that cause calibration instability
+        if !motors_active {
+            if let Some(current_voltage) = try_get_battery_voltage() {
+                let new_compensation = calculate_voltage_compensation(current_voltage);
+                if (new_compensation - voltage_compensation).abs() > 0.01 {
+                    info!(
+                        "Voltage compensation updated: {} -> {} (motors idle, voltage: {}V)",
+                        voltage_compensation, new_compensation, current_voltage
+                    );
+                    voltage_compensation = new_compensation;
+                }
+            }
         }
+
+        // Track motor activity state for next iteration
+        motors_active = match &command {
+            MotorCommand::SetTrack { speed, .. } => *speed != 0,
+            MotorCommand::SetSpeed { speed, .. } => *speed != 0,
+            MotorCommand::SetTracks {
+                left_speed,
+                right_speed,
+            } => *left_speed != 0 || *right_speed != 0,
+            MotorCommand::SetAllMotors {
+                left_front,
+                left_rear,
+                right_front,
+                right_rear,
+            } => *left_front != 0 || *left_rear != 0 || *right_front != 0 || *right_rear != 0,
+            MotorCommand::SetAllMotorsRaw {
+                left_front,
+                left_rear,
+                right_front,
+                right_rear,
+            } => *left_front != 0 || *left_rear != 0 || *right_front != 0 || *right_rear != 0,
+            MotorCommand::Brake { .. } | MotorCommand::BrakeAll => false, // Braking = motors stopping
+            MotorCommand::Coast { .. } | MotorCommand::CoastAll => false, // Coasting = motors idle
+            MotorCommand::SetDriverEnable { .. }
+            | MotorCommand::SetAllDriversEnable { .. }
+            | MotorCommand::UpdateCalibration { .. }
+            | MotorCommand::UpdateAllCalibration { .. }
+            | MotorCommand::LoadCalibration(_) => motors_active, // Keep previous state
+        };
 
         process_command(&mut pwm_channels, &mut calibration, voltage_compensation, command).await;
     }
