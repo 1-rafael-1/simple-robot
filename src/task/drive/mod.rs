@@ -150,8 +150,8 @@ async fn wait() -> DriveCommand {
 #[embassy_executor::task]
 pub async fn drive() {
     // Initialize track state tracking
-    let mut left_state = TrackState::new();
-    let mut right_state = TrackState::new();
+    let mut left_track = TrackState::new();
+    let mut right_track = TrackState::new();
 
     // Motor driver standby control - now handled by port_expander task via motor_driver
     let mut standby_enabled = true;

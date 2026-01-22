@@ -110,49 +110,15 @@ async fn main(spawner: Spawner) {
     // init_motion_correction(&spawner);
     // init_inactivity_tracker(&spawner);
 
+    // Initialize testing task for development
+    task::testing::init_testing(&spawner);
+
     // main wishes you a great day
 }
 
 /// Initialize orchestrator task
 fn init_orchestrate(spawner: &Spawner) {
     spawner.must_spawn(task::orchestrate::orchestrate());
-    spawner.must_spawn(send_initialize_event());
-    spawner.must_spawn(auto_start_calibration());
-}
-
-/// Send initialization event to orchestrator
-#[embassy_executor::task]
-async fn send_initialize_event() {
-    // Small delay to ensure orchestrator is ready
-    embassy_time::Timer::after(embassy_time::Duration::from_millis(100)).await;
-    system::event::send_event(system::event::Events::Initialize).await;
-}
-
-/// Auto-start calibration for testing (TEMPORARY HACK)
-///
-/// This automatically triggers motor calibration first, then IMU calibration.
-/// Motor calibration must run first because IMU calibration uses calibrated motor
-/// commands to measure interference at actual operational speeds.
-/// Remove this once we have proper UI control (menu, rotary encoder, or remote).
-#[embassy_executor::task]
-async fn auto_start_calibration() {
-    // Wait for system to initialize
-    embassy_time::Timer::after(embassy_time::Duration::from_secs(3)).await;
-
-    defmt::info!("🤖 AUTO-CALIBRATION: Starting MOTOR calibration in 2 seconds...");
-    embassy_time::Timer::after(embassy_time::Duration::from_secs(2)).await;
-
-    defmt::info!("🤖 AUTO-CALIBRATION: Triggering motor calibration now!");
-    task::drive::send_drive_command(task::drive::DriveCommand::RunMotorCalibration);
-
-    // Wait for motor calibration to complete (~50s) plus delay
-    embassy_time::Timer::after(embassy_time::Duration::from_secs(80)).await;
-
-    defmt::info!("🤖 AUTO-CALIBRATION: Starting IMU calibration in 10 seconds...");
-    embassy_time::Timer::after(embassy_time::Duration::from_secs(10)).await;
-
-    defmt::info!("🤖 AUTO-CALIBRATION: Triggering IMU calibration now!");
-    task::drive::send_drive_command(task::drive::DriveCommand::RunImuCalibration);
 }
 
 /// Initialize battery monitoring task with ADC

@@ -2,6 +2,9 @@
 //!
 //! Coordinates encoder measurements with motor commands to calculate calibration
 //! factors that match individual motor speeds within each track and between tracks.
+//!
+//! The calibration procedure includes an iterative refinement loop that continues
+//! adjusting calibration factors until tracks match within 1% tolerance.
 
 use defmt::info;
 use embassy_time::{Duration, Timer};
@@ -16,6 +19,12 @@ use crate::task::{
     },
     motor_driver::{self, MotorCommand, Track},
 };
+
+/// Maximum track matching tolerance (1% difference between left and right tracks)
+const TRACK_MATCH_TOLERANCE: f32 = 0.01;
+
+/// Maximum iterations for track matching refinement
+const MAX_REFINEMENT_ITERATIONS: u8 = 5;
 
 /// Run the motor calibration procedure
 ///
@@ -88,11 +97,12 @@ pub(crate) async fn run_motor_calibration() {
 
     // Stop sampling, reset, clear, then restart for clean measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
-    Timer::after(Duration::from_millis(50)).await; // Let stop take effect
+    Timer::after(Duration::from_millis(200)).await; // Let stop take effect
     encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(100)).await; // Wait for reset
     clear_encoder_measurement().await; // Clear stale measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
-    Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
+    Timer::after(Duration::from_millis(200)).await; // Wait for first fresh sample
 
     // Use RAW command (not SetAllMotors) to avoid applying old calibration data
     motor_driver::send_motor_command(MotorCommand::SetAllMotorsRaw {
@@ -135,11 +145,12 @@ pub(crate) async fn run_motor_calibration() {
 
     // Stop sampling, reset, clear, then restart for clean measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
-    Timer::after(Duration::from_millis(50)).await; // Let stop take effect
+    Timer::after(Duration::from_millis(200)).await; // Let stop take effect
     encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(100)).await; // Wait for reset
     clear_encoder_measurement().await; // Clear stale measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
-    Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
+    Timer::after(Duration::from_millis(200)).await; // Wait for first fresh sample
 
     // Use RAW command (not SetAllMotors) to avoid applying old calibration data
     motor_driver::send_motor_command(MotorCommand::SetAllMotorsRaw {
@@ -254,11 +265,12 @@ pub(crate) async fn run_motor_calibration() {
 
     // Stop sampling, reset, clear, then restart for clean measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
-    Timer::after(Duration::from_millis(50)).await; // Let stop take effect
+    Timer::after(Duration::from_millis(200)).await; // Let stop take effect
     encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(100)).await; // Wait for reset
     clear_encoder_measurement().await; // Clear stale measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
-    Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
+    Timer::after(Duration::from_millis(200)).await; // Wait for first fresh sample
 
     // Use RAW command (not SetAllMotors) to avoid applying old calibration data
     motor_driver::send_motor_command(MotorCommand::SetAllMotorsRaw {
@@ -313,11 +325,12 @@ pub(crate) async fn run_motor_calibration() {
 
     // Stop sampling, reset, clear, then restart for clean measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
-    Timer::after(Duration::from_millis(50)).await; // Let stop take effect
+    Timer::after(Duration::from_millis(200)).await; // Let stop take effect
     encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(100)).await; // Wait for reset
     clear_encoder_measurement().await; // Clear stale measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
-    Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
+    Timer::after(Duration::from_millis(200)).await; // Wait for first fresh sample
 
     // Use RAW command (not SetAllMotors) to avoid applying old calibration data
     motor_driver::send_motor_command(MotorCommand::SetAllMotorsRaw {
@@ -360,11 +373,12 @@ pub(crate) async fn run_motor_calibration() {
 
     // Stop sampling, reset, clear, then restart for clean measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
-    Timer::after(Duration::from_millis(50)).await; // Let stop take effect
+    Timer::after(Duration::from_millis(200)).await; // Let stop take effect
     encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(100)).await; // Wait for reset
     clear_encoder_measurement().await; // Clear stale measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
-    Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
+    Timer::after(Duration::from_millis(200)).await; // Wait for first fresh sample
 
     // Use RAW command (not SetAllMotors) to avoid applying old calibration data
     motor_driver::send_motor_command(MotorCommand::SetAllMotorsRaw {
@@ -479,11 +493,12 @@ pub(crate) async fn run_motor_calibration() {
 
     // Stop sampling, reset, clear, then restart for clean measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
-    Timer::after(Duration::from_millis(50)).await; // Let stop take effect
+    Timer::after(Duration::from_millis(200)).await; // Let stop take effect
     encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(100)).await; // Wait for reset
     clear_encoder_measurement().await; // Clear stale measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
-    Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
+    Timer::after(Duration::from_millis(200)).await; // Wait for first fresh sample
 
     // Use RAW command (not SetAllMotors) to avoid applying old calibration data
     motor_driver::send_motor_command(MotorCommand::SetAllMotorsRaw {
@@ -514,8 +529,16 @@ pub(crate) async fn run_motor_calibration() {
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
     Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
 
-    // Step 7: Match tracks (scale stronger track down to weaker track)
-    info!("Step 7: Matching tracks (between-track calibration)");
+    // Step 7: Iterative track matching with 1% tolerance
+    //
+    // IMPORTANT: Steps 1-6 use SetAllMotorsRaw to measure the raw physical motor characteristics.
+    // Step 7 uses SetAllMotors (calibrated) to iteratively test and refine the calibration.
+    // This is correct because:
+    // - Steps 1-6: Measure raw motor performance to compute initial calibration factors
+    // - Step 7: Test the calibration by applying it, measure remaining error, adjust, repeat
+    //
+    // Each iteration applies the updated calibration and measures whether tracks now match.
+    info!("Step 7: Iterative track matching (targeting 1% tolerance)");
     event::send_event(event::Events::CalibrationStatus {
         header: None,
         line1: Some(String::try_from("Step 7/8").unwrap()),
@@ -524,85 +547,183 @@ pub(crate) async fn run_motor_calibration() {
     })
     .await;
 
-    if left_track_count > 0 && right_track_count > 0 {
-        if left_track_count > right_track_count {
-            // Left track is stronger, scale it down to match right
-            let factor = right_track_count as f32 / left_track_count as f32;
-            if factor > 0.0 && factor <= 1.0 {
-                info!("  Left track stronger, scaling down by factor: {}", factor);
-                event::send_event(event::Events::CalibrationStatus {
-                    header: None,
-                    line1: None,
-                    line2: None,
-                    line3: Some(String::try_from("Scale left down").unwrap()),
-                })
-                .await;
+    let mut iteration = 0;
+    let mut tracks_matched = false;
 
-                calibration.left_front *= factor;
-                calibration.left_rear *= factor;
-                motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
-                    track: Track::Left,
-                    motor: motor_driver::Motor::Front,
-                    factor: calibration.left_front,
-                })
-                .await;
-                motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
-                    track: Track::Left,
-                    motor: motor_driver::Motor::Rear,
-                    factor: calibration.left_rear,
-                })
-                .await;
-            } else {
-                info!(
-                    "  ERROR: Invalid track factor {} - skipping between-track adjustment",
-                    factor
-                );
-            }
-        } else if right_track_count > left_track_count {
-            // Right track is stronger, scale it down to match left
-            let factor = left_track_count as f32 / right_track_count as f32;
-            if factor > 0.0 && factor <= 1.0 {
-                info!("  Right track stronger, scaling down by factor: {}", factor);
-                event::send_event(event::Events::CalibrationStatus {
-                    header: None,
-                    line1: None,
-                    line2: None,
-                    line3: Some(String::try_from("Scale right down").unwrap()),
-                })
-                .await;
+    while iteration < MAX_REFINEMENT_ITERATIONS && !tracks_matched {
+        iteration += 1;
+        info!("  Iteration {}/{}", iteration, MAX_REFINEMENT_ITERATIONS);
 
-                calibration.right_front *= factor;
-                calibration.right_rear *= factor;
-                motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
-                    track: Track::Right,
-                    motor: motor_driver::Motor::Front,
-                    factor: calibration.right_front,
-                })
-                .await;
-                motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
-                    track: Track::Right,
-                    motor: motor_driver::Motor::Rear,
-                    factor: calibration.right_rear,
-                })
-                .await;
+        // Test both tracks at the same time - ensure clean encoder state
+        encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
+        Timer::after(Duration::from_millis(200)).await; // Longer wait for stop to complete
+        encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+        Timer::after(Duration::from_millis(100)).await; // Wait for reset to complete
+        clear_encoder_measurement().await;
+
+        // Verify reset by reading encoders (should be near zero)
+        encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
+        Timer::after(Duration::from_millis(500)).await; // Wait longer for first stable reading
+
+        if let Some(verification) = wait_for_encoder_event_timeout(500).await {
+            info!(
+                "  Pre-test encoder verification: LF={}, RF={}",
+                verification.left_front, verification.right_front
+            );
+        }
+
+        // Reset again and wait to ensure we start clean
+        encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
+        Timer::after(Duration::from_millis(100)).await;
+        encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+        Timer::after(Duration::from_millis(100)).await;
+        clear_encoder_measurement().await;
+        encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
+        Timer::after(Duration::from_millis(200)).await;
+
+        // CRITICAL: Use SetAllMotors (calibrated) not SetAllMotorsRaw during iterations!
+        // We need to test the cumulative effect of our calibration adjustments.
+        // Each iteration applies the updated calibration factors to see if tracks match.
+        motor_driver::send_motor_command(MotorCommand::SetAllMotors {
+            left_front: CALIBRATION_SPEED_TRACK,
+            left_rear: CALIBRATION_SPEED_TRACK,
+            right_front: CALIBRATION_SPEED_TRACK,
+            right_rear: CALIBRATION_SPEED_TRACK,
+        })
+        .await;
+
+        Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
+
+        if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
+            // Use only front encoders for track comparison (tracks mechanically link front/rear)
+            let left_count = measurement.left_front;
+            let right_count = measurement.right_front;
+
+            info!(
+                "  Track encoder counts: Left={}, Right={} (using front encoders only)",
+                left_count, right_count
+            );
+
+            if left_count > 0 && right_count > 0 {
+                // Calculate percentage difference
+                let max_count = left_count.max(right_count) as f32;
+                let diff = (left_count as i32 - right_count as i32).abs() as f32;
+                let percent_diff = diff / max_count;
+
+                info!("  Difference: {}%", percent_diff * 100.0);
+
+                if percent_diff <= TRACK_MATCH_TOLERANCE {
+                    info!("  ✓ Tracks matched within tolerance!");
+                    tracks_matched = true;
+                    event::send_event(event::Events::CalibrationStatus {
+                        header: None,
+                        line1: None,
+                        line2: None,
+                        line3: Some(String::try_from("Tracks matched!").unwrap()),
+                    })
+                    .await;
+                } else {
+                    // Apply correction and send to motor driver for next iteration
+                    if left_count > right_count {
+                        let factor = right_count as f32 / left_count as f32;
+                        info!(
+                            "  Adjusting left track down by factor: {} (cumulative: {} -> {})",
+                            factor,
+                            calibration.left_front,
+                            calibration.left_front * factor
+                        );
+                        event::send_event(event::Events::CalibrationStatus {
+                            header: None,
+                            line1: None,
+                            line2: None,
+                            line3: Some(String::try_from("Adj left track").unwrap()),
+                        })
+                        .await;
+
+                        calibration.left_front *= factor;
+                        calibration.left_rear *= factor;
+                        // Update motor driver immediately so next iteration tests with new calibration
+                        motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
+                            track: Track::Left,
+                            motor: motor_driver::Motor::Front,
+                            factor: calibration.left_front,
+                        })
+                        .await;
+                        motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
+                            track: Track::Left,
+                            motor: motor_driver::Motor::Rear,
+                            factor: calibration.left_rear,
+                        })
+                        .await;
+                    } else {
+                        let factor = left_count as f32 / right_count as f32;
+                        info!(
+                            "  Adjusting right track down by factor: {} (cumulative: {} -> {})",
+                            factor,
+                            calibration.right_front,
+                            calibration.right_front * factor
+                        );
+                        event::send_event(event::Events::CalibrationStatus {
+                            header: None,
+                            line1: None,
+                            line2: None,
+                            line3: Some(String::try_from("Adj right track").unwrap()),
+                        })
+                        .await;
+
+                        calibration.right_front *= factor;
+                        calibration.right_rear *= factor;
+                        // Update motor driver immediately so next iteration tests with new calibration
+                        motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
+                            track: Track::Right,
+                            motor: motor_driver::Motor::Front,
+                            factor: calibration.right_front,
+                        })
+                        .await;
+                        motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
+                            track: Track::Right,
+                            motor: motor_driver::Motor::Rear,
+                            factor: calibration.right_rear,
+                        })
+                        .await;
+                    }
+                }
             } else {
-                info!(
-                    "  ERROR: Invalid track factor {} - skipping between-track adjustment",
-                    factor
-                );
+                info!("  ERROR: Zero encoder counts detected - cannot continue refinement");
+                break;
             }
         } else {
-            info!("  Tracks already matched");
-            event::send_event(event::Events::CalibrationStatus {
-                header: None,
-                line1: None,
-                line2: None,
-                line3: Some(String::try_from("Tracks matched!").unwrap()),
-            })
-            .await;
+            info!("  ERROR: No encoder measurement received");
+            break;
         }
-    } else {
-        info!("  ERROR: Cannot match tracks - one or both tracks have zero counts");
+
+        motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+        info!("  Coasting motors for 1 second...");
+        Timer::after(Duration::from_millis(1000)).await; // Longer coast to let motors fully stop
+
+        // Verify motors have stopped by checking encoder counts don't change
+        encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
+        Timer::after(Duration::from_millis(100)).await;
+        encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
+        Timer::after(Duration::from_millis(200)).await;
+
+        if let Some(stopped_check) = wait_for_encoder_event_timeout(500).await {
+            info!(
+                "  Post-coast encoder check: LF={}, RF={}",
+                stopped_check.left_front, stopped_check.right_front
+            );
+        }
+    }
+
+    if !tracks_matched {
+        info!("  WARNING: Maximum iterations reached without achieving 1% tolerance");
+        event::send_event(event::Events::CalibrationStatus {
+            header: None,
+            line1: None,
+            line2: None,
+            line3: Some(String::try_from("Partial match").unwrap()),
+        })
+        .await;
     }
 
     // Step 8: Final verification with all motors
@@ -617,11 +738,12 @@ pub(crate) async fn run_motor_calibration() {
 
     // Stop sampling, reset, clear, then restart for clean measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
-    Timer::after(Duration::from_millis(50)).await; // Let stop take effect
+    Timer::after(Duration::from_millis(200)).await; // Let stop take effect
     encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    Timer::after(Duration::from_millis(100)).await; // Wait for reset
     clear_encoder_measurement().await; // Clear stale measurement
     encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms: 20 }).await;
-    Timer::after(Duration::from_millis(100)).await; // Wait for first fresh sample
+    Timer::after(Duration::from_millis(200)).await; // Wait for first fresh sample
 
     // Final verification: Use calibrated SetAllMotors to verify the calibration works!
     // This is the ONLY place in calibration where we want calibration applied.
@@ -651,6 +773,7 @@ pub(crate) async fn run_motor_calibration() {
 
     // Step 9: Validate and save calibration to flash
     info!("Step 9: Validating and saving calibration to flash storage");
+    info!("Calibration achieved track matching: {}", tracks_matched);
     info!("Final calibration factors: {:?}", calibration);
 
     // Validate that all factors are reasonable (non-zero and not too extreme)
