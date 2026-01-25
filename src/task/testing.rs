@@ -38,7 +38,7 @@ async fn testing_sequence() {
     defmt::info!("🧪 TEST: Waiting for system initialization and calibration loading...");
     Timer::after(Duration::from_secs(3)).await;
 
-    // Perform motor calibration first to fix broken calibration data
+    // Optionally run motor calibration first
     // defmt::info!("🧪 TEST: Running motor calibration...");
     // send_drive_command(DriveCommand::RunMotorCalibration);
 

@@ -237,9 +237,26 @@ pub async fn drive() {
 
             // Only send motor update if anything actually changes.
             if new_left != drift.adjusted_left || new_right != drift.adjusted_right {
+                let prev_left = drift.adjusted_left;
+                let prev_right = drift.adjusted_right;
+
                 drift.adjusted_left = new_left;
                 drift.adjusted_right = new_right;
                 drift.last_applied_ms = data.timestamp_ms;
+
+                info!(
+                    "drift_comp: diff={}% action={:?} speeds L:{}->{} R:{}->{} (ctrs lf:{} lr:{} rf:{} rr:{})",
+                    diff_percent,
+                    action,
+                    prev_left,
+                    drift.adjusted_left,
+                    prev_right,
+                    drift.adjusted_right,
+                    data.left_front,
+                    data.left_rear,
+                    data.right_front,
+                    data.right_rear
+                );
 
                 motor_driver::send_motor_command(MotorCommand::SetTracks {
                     left_speed: drift.adjusted_left,

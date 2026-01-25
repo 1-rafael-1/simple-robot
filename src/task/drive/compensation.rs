@@ -56,7 +56,7 @@ impl TrackSpeedData {
 ///
 /// Note: Your plan prefers decreasing the faster track if you can't increase the slower one.
 /// This enum supports both, but the policy is implemented by `determine_compensation()`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 pub enum CompensationAction {
     /// Within tolerance; do nothing.
     None,
