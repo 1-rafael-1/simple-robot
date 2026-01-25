@@ -220,11 +220,11 @@ fn interpolate_interference(
     // Determine dominant pattern
     if left_abs == 0.0 && right_abs == 0.0 {
         // Motors off - no correction needed
-        return (0.0, 0.0, 0.0);
+        (0.0, 0.0, 0.0)
     } else if (left_abs - right_abs).abs() < 10.0 {
         // Both tracks approximately equal - use all_motors pattern
         let avg_speed = (left_abs + right_abs) / 2.0;
-        return interpolate_equal_motors(calibration, avg_speed);
+        interpolate_equal_motors(calibration, avg_speed)
     } else {
         // Mixed speeds - superposition
         let left_contrib = interpolate_single_track(calibration, left_abs, true);
@@ -235,11 +235,11 @@ fn interpolate_interference(
         let left_weight = left_abs / total_speed;
         let right_weight = right_abs / total_speed;
 
-        return (
+        (
             left_contrib.0 * left_weight + right_contrib.0 * right_weight,
             left_contrib.1 * left_weight + right_contrib.1 * right_weight,
             left_contrib.2 * left_weight + right_contrib.2 * right_weight,
-        );
+        )
     }
 }
 

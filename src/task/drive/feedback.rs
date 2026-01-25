@@ -192,10 +192,9 @@ pub(super) async fn measure_mag_average(samples: u16) -> Vector3<f32> {
 ///
 /// Used during IMU calibration to collect gyro/accel samples.
 pub(super) async fn wait_for_imu_event_timeout(timeout_ms: u64) -> Option<ImuMeasurement> {
-    match embassy_time::with_timeout(Duration::from_millis(timeout_ms), receive_imu_measurement()).await {
-        Ok(measurement) => Some(measurement),
-        Err(_) => None,
-    }
+    embassy_time::with_timeout(Duration::from_millis(timeout_ms), receive_imu_measurement())
+        .await
+        .ok()
 }
 
 /// Wait for magnetometer measurement with timeout

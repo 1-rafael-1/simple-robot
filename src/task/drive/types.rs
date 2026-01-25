@@ -1,16 +1,22 @@
 //! Type definitions and constants for drive control
 
-use crate::task::{encoder_read::EncoderMeasurement, imu_read::ImuMeasurement};
+/// Drift compensation sample interval in milliseconds
+pub const DRIFT_COMPENSATION_INTERVAL_MS: u64 = 200;
+
+/// Speed difference tolerance (percent)
+pub const DRIFT_TOLERANCE_PERCENT: f32 = 1.0;
+
+/// Compensation adjustment gain (0.0-1.0)
+pub const DRIFT_COMPENSATION_GAIN: f32 = 0.5;
+
+/// Maximum compensation per adjustment (percent points of speed command)
+pub const DRIFT_COMPENSATION_MAX: i8 = 5;
 
 /// Combined motor control and sensor feedback commands
 #[derive(Debug, Clone)]
 pub enum DriveCommand {
     /// Movement and control commands
     Drive(DriveAction),
-    /// Encoder feedback for speed adjustment
-    EncoderFeedback(EncoderMeasurement),
-    /// Gyroscope feedback for rotation control
-    ImuFeedback(ImuMeasurement),
     /// Run motor calibration procedure
     RunMotorCalibration,
     /// Run IMU calibration procedure

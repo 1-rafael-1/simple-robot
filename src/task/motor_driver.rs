@@ -977,16 +977,14 @@ pub async fn motor_driver(pwm_driver_left: Pwm<'static>, pwm_driver_right: Pwm<'
 
         // Only update voltage compensation when motors are idle to avoid measuring voltage sag under load
         // Voltage sag during motor operation gives false readings that cause calibration instability
-        if !motors_active {
-            if let Some(current_voltage) = try_get_battery_voltage() {
-                let new_compensation = calculate_voltage_compensation(current_voltage);
-                if (new_compensation - voltage_compensation).abs() > 0.01 {
-                    info!(
-                        "Voltage compensation updated: {} -> {} (motors idle, voltage: {}V)",
-                        voltage_compensation, new_compensation, current_voltage
-                    );
-                    voltage_compensation = new_compensation;
-                }
+        if !motors_active && let Some(current_voltage) = try_get_battery_voltage() {
+            let new_compensation = calculate_voltage_compensation(current_voltage);
+            if (new_compensation - voltage_compensation).abs() > 0.01 {
+                info!(
+                    "Voltage compensation updated: {} -> {} (motors idle, voltage: {}V)",
+                    voltage_compensation, new_compensation, current_voltage
+                );
+                voltage_compensation = new_compensation;
             }
         }
 

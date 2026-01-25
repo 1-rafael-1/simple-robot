@@ -71,8 +71,8 @@
 //! // Encoder measurements (forwarded by orchestrator from encoder_read events)
 //! drive::send_encoder_measurement(measurement).await;
 //!
-//! // IMU measurements (forwarded by orchestrator from imu_read events)
-//! drive::send_drive_command(DriveCommand::ImuFeedback(measurement)).await;
+//! // IMU measurements are forwarded by orchestrator into the drive feedback subsystem.
+//! // The drive task can poll them on a timer tick when implementing rotation/tilt control.
 //! ```
 //!
 //! # Important: Event Channel Usage
@@ -92,16 +92,21 @@
 #![allow(clippy::too_many_arguments)]
 
 use defmt::info;
+use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 
 use crate::{
     system::state::SYSTEM_STATE,
-    task::motor_driver::{self, MotorCommand},
+    task::{
+        encoder_read,
+        motor_driver::{self, MotorCommand},
+    },
 };
 
 // Submodules
 mod calibration;
+mod compensation;
 mod control;
 pub mod feedback;
 pub mod types;
@@ -158,284 +163,257 @@ pub async fn drive() {
     // Rotation state tracking
     let mut rotation_state: Option<RotationState> = None;
 
-    // Add straight-line tracking state
-    // let straight_line_state: Option<StraightLineState> = None;
+    // Drift compensation state (encoder-based straight-line correction)
+    #[derive(Clone, Copy)]
+    struct DriftCompensationState {
+        enabled: bool,
+        base_left: i8,
+        base_right: i8,
+        adjusted_left: i8,
+        adjusted_right: i8,
+        last_applied_ms: u32,
+        last_encoder_timestamp_ms: u32,
+    }
+
+    impl DriftCompensationState {
+        fn new() -> Self {
+            Self {
+                enabled: false,
+                base_left: 0,
+                base_right: 0,
+                adjusted_left: 0,
+                adjusted_right: 0,
+                last_applied_ms: 0,
+                last_encoder_timestamp_ms: 0,
+            }
+        }
+    }
+
+    async fn drift_tick_ms() {
+        // Keep this modest; encoder sampling is 200ms, so 20ms is plenty to pick up new samples
+        // without busy-waiting.
+        Timer::after(Duration::from_millis(20)).await;
+    }
+
+    async fn run_drift_compensation_step(drift: &mut DriftCompensationState, rotation_state: &Option<RotationState>) {
+        if !drift.enabled || rotation_state.is_some() {
+            return;
+        }
+
+        if let Some(measurement) = feedback::get_latest_encoder_measurement().await {
+            // Only process each encoder sample once
+            if measurement.timestamp_ms == 0 || measurement.timestamp_ms == drift.last_encoder_timestamp_ms {
+                return;
+            }
+            drift.last_encoder_timestamp_ms = measurement.timestamp_ms;
+
+            let data = crate::task::drive::compensation::calculate_track_averages(measurement);
+
+            // If nothing moved (very low speed or stopped), ignore the sample.
+            if data.all_zero() {
+                return;
+            }
+
+            // If we detect an anomaly (e.g., one encoder stuck at zero), disable compensation.
+            if data.has_single_motor_zero_anomaly() {
+                drift.enabled = false;
+                encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
+                return;
+            }
+
+            let diff_percent = crate::task::drive::compensation::calculate_speed_difference(&data);
+
+            let action = crate::task::drive::compensation::determine_compensation(
+                diff_percent,
+                drift.adjusted_left,
+                drift.adjusted_right,
+            );
+
+            let (new_left, new_right) = crate::task::drive::compensation::apply_compensation_action(
+                action,
+                drift.adjusted_left,
+                drift.adjusted_right,
+            );
+
+            // Only send motor update if anything actually changes.
+            if new_left != drift.adjusted_left || new_right != drift.adjusted_right {
+                drift.adjusted_left = new_left;
+                drift.adjusted_right = new_right;
+                drift.last_applied_ms = data.timestamp_ms;
+
+                motor_driver::send_motor_command(MotorCommand::SetTracks {
+                    left_speed: drift.adjusted_left,
+                    right_speed: drift.adjusted_right,
+                })
+                .await;
+
+                let mut state = SYSTEM_STATE.lock().await;
+                state.left_track_speed = drift.adjusted_left;
+                state.right_track_speed = drift.adjusted_right;
+            }
+        }
+    }
+
+    let mut drift = DriftCompensationState::new();
 
     loop {
-        // Process any pending commands
-        let command = wait().await;
+        let command_or_tick = select(wait(), drift_tick_ms()).await;
 
-        match command {
-            DriveCommand::Drive(action) => {
-                // Wake from standby if movement requested
-                if standby_enabled {
-                    match action {
-                        DriveAction::SetSpeed { .. } | DriveAction::RotateExact { .. } => {
-                            motor_driver::send_motor_command(MotorCommand::SetAllDriversEnable { enabled: true }).await;
-                            standby_enabled = false;
-                            Timer::after(Duration::from_millis(100)).await;
+        match command_or_tick {
+            Either::First(command) => match command {
+                DriveCommand::Drive(action) => {
+                    // Wake from standby if movement requested
+                    if standby_enabled {
+                        match action {
+                            DriveAction::SetSpeed { .. } | DriveAction::RotateExact { .. } => {
+                                motor_driver::send_motor_command(MotorCommand::SetAllDriversEnable { enabled: true })
+                                    .await;
+                                standby_enabled = false;
+                                Timer::after(Duration::from_millis(100)).await;
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
-                }
 
-                // Clear rotation state unless this is a rotation command
-                if !matches!(action, DriveAction::RotateExact { .. }) {
-                    // rotation_state = None;
-                }
-
-                // Execute drive action
-                match action {
-                    DriveAction::SetSpeed { left, right } => {
-                        // Clamp speeds to valid range
-                        let left_clamped = left.clamp(-100, 100);
-                        let right_clamped = right.clamp(-100, 100);
-
-                        // Send single optimized command for both tracks
-                        motor_driver::send_motor_command(MotorCommand::SetTracks {
-                            left_speed: left_clamped,
-                            right_speed: right_clamped,
-                        })
-                        .await;
-
-                        // Update system state directly
-                        let mut state = SYSTEM_STATE.lock().await;
-                        state.left_track_speed = left_clamped;
-                        state.right_track_speed = right_clamped;
+                    // Clear rotation state unless this is a rotation command
+                    if !matches!(action, DriveAction::RotateExact { .. }) {
+                        // rotation_state = None;
                     }
-                    DriveAction::RotateExact {
-                        degrees,
-                        direction,
-                        motion,
-                    } => {
-                        // Initialize new rotation state
-                        rotation_state = Some(RotationState::new(degrees, direction, motion));
 
-                        // Apply initial motor speeds for rotation
-                        let (left_speed, right_speed) = rotation_state.as_ref().unwrap().calculate_motor_speeds();
+                    // Execute drive action
+                    match action {
+                        DriveAction::SetSpeed { left, right } => {
+                            // Clamp speeds to valid range
+                            let left_clamped = left.clamp(-100, 100);
+                            let right_clamped = right.clamp(-100, 100);
 
-                        // Use SetTracks for atomic update
-                        motor_driver::send_motor_command(MotorCommand::SetTracks {
-                            left_speed,
-                            right_speed,
-                        })
-                        .await;
+                            // Detect straight-line driving (speeds equal or very close)
+                            // Enable drift compensation only in that mode.
+                            if (left_clamped - right_clamped).abs() <= 2 && left_clamped != 0 {
+                                drift.enabled = true;
+                                drift.base_left = left_clamped;
+                                drift.base_right = right_clamped;
+                                drift.adjusted_left = left_clamped;
+                                drift.adjusted_right = right_clamped;
 
-                        // Update system state
-                        let mut state = SYSTEM_STATE.lock().await;
-                        state.left_track_speed = left_speed;
-                        state.right_track_speed = right_speed;
-                    }
-                    DriveAction::Coast => {
-                        info!("coast");
-                        motor_driver::send_motor_command(MotorCommand::CoastAll).await;
-
-                        // Update system state
-                        let mut state = SYSTEM_STATE.lock().await;
-                        state.left_track_speed = 0;
-                        state.right_track_speed = 0;
-                    }
-                    DriveAction::Brake => {
-                        info!("brake");
-                        motor_driver::send_motor_command(MotorCommand::BrakeAll).await;
-
-                        // Update system state
-                        let mut state = SYSTEM_STATE.lock().await;
-                        state.left_track_speed = 0;
-                        state.right_track_speed = 0;
-                    }
-                    DriveAction::Standby => {
-                        if !standby_enabled {
-                            motor_driver::send_motor_command(MotorCommand::BrakeAll).await;
-                            Timer::after(Duration::from_millis(100)).await;
-                            motor_driver::send_motor_command(MotorCommand::CoastAll).await;
-                            Timer::after(Duration::from_millis(100)).await;
-                            motor_driver::send_motor_command(MotorCommand::SetAllDriversEnable { enabled: false })
+                                // Start encoder sampling at configured interval and reset counters so
+                                // measurements represent per-window deltas.
+                                encoder_read::send_command(encoder_read::EncoderCommand::Start {
+                                    interval_ms: crate::task::drive::types::DRIFT_COMPENSATION_INTERVAL_MS,
+                                })
                                 .await;
-                            standby_enabled = true;
+                                encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+                            } else {
+                                // Turning/differential or stop: disable compensation and stop encoder sampling
+                                drift.enabled = false;
+                                encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
+                            }
+
+                            // Apply command (initially base, then adjusted as feedback arrives)
+                            motor_driver::send_motor_command(MotorCommand::SetTracks {
+                                left_speed: drift.adjusted_left,
+                                right_speed: drift.adjusted_right,
+                            })
+                            .await;
+
+                            // Update system state directly
+                            let mut state = SYSTEM_STATE.lock().await;
+                            state.left_track_speed = drift.adjusted_left;
+                            state.right_track_speed = drift.adjusted_right;
+                        }
+                        DriveAction::RotateExact {
+                            degrees,
+                            direction,
+                            motion,
+                        } => {
+                            // Initialize new rotation state
+                            rotation_state = Some(RotationState::new(degrees, direction, motion));
+
+                            // Apply initial motor speeds for rotation
+                            let (left_speed, right_speed) = rotation_state.as_ref().unwrap().calculate_motor_speeds();
+
+                            // Use SetTracks for atomic update
+                            motor_driver::send_motor_command(MotorCommand::SetTracks {
+                                left_speed,
+                                right_speed,
+                            })
+                            .await;
+
+                            // Update system state
+                            let mut state = SYSTEM_STATE.lock().await;
+                            state.left_track_speed = left_speed;
+                            state.right_track_speed = right_speed;
+                        }
+                        DriveAction::Coast => {
+                            info!("coast");
+
+                            // Disable compensation on stop/coast and stop encoder sampling
+                            drift.enabled = false;
+                            encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
+
+                            motor_driver::send_motor_command(MotorCommand::CoastAll).await;
 
                             // Update system state
                             let mut state = SYSTEM_STATE.lock().await;
                             state.left_track_speed = 0;
                             state.right_track_speed = 0;
                         }
+                        DriveAction::Brake => {
+                            info!("brake");
+
+                            // Disable compensation on brake and stop encoder sampling
+                            drift.enabled = false;
+                            encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
+
+                            motor_driver::send_motor_command(MotorCommand::BrakeAll).await;
+
+                            // Update system state
+                            let mut state = SYSTEM_STATE.lock().await;
+                            state.left_track_speed = 0;
+                            state.right_track_speed = 0;
+                        }
+                        DriveAction::Standby => {
+                            // Disable compensation in standby and stop encoder sampling
+                            drift.enabled = false;
+                            encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
+
+                            if !standby_enabled {
+                                motor_driver::send_motor_command(MotorCommand::BrakeAll).await;
+                                Timer::after(Duration::from_millis(100)).await;
+                                motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+                                Timer::after(Duration::from_millis(100)).await;
+                                motor_driver::send_motor_command(MotorCommand::SetAllDriversEnable { enabled: false })
+                                    .await;
+                                standby_enabled = true;
+
+                                // Update system state
+                                let mut state = SYSTEM_STATE.lock().await;
+                                state.left_track_speed = 0;
+                                state.right_track_speed = 0;
+                            }
+                        }
                     }
+
+                    // Drive command executed
                 }
 
-                // Drive command executed
-            }
+                // IMU feedback is no longer delivered as a DriveCommand.
+                // When implementing rotation/tilt control, poll IMU measurements from the
+                // drive feedback subsystem on a timer tick (similar to drift compensation).
+                DriveCommand::RunMotorCalibration => {
+                    info!("Starting motor calibration procedure");
+                    run_motor_calibration().await;
+                    info!("Motor calibration procedure completed");
+                }
 
-            DriveCommand::EncoderFeedback(_measurement) => {
-                // // Skip encoder feedback during precise rotation
-                // if rotation_state.is_some() {
-                //     continue;
-                // }
-
-                // // Calculate motor RPMs
-                // let left_rpm = left.calculate_rpm(measurement.left.pulse_count, measurement.left.elapsed_ms);
-                // let right_rpm = right.calculate_rpm(measurement.right.pulse_count, measurement.right.elapsed_ms);
-
-                // // Apply speed adjustments if motors are running
-                // let left_speed = left.current_speed();
-                // let right_speed = right.current_speed();
-
-                // if left_speed != 0 || right_speed != 0 {
-                //     // Compare raw motor RPMs since encoders are on motor shaft
-                //     let rpm_ratio = if left_rpm != 0.0 { right_rpm / left_rpm } else { 1.0 };
-
-                //     // Calculate how far we are from perfect ratio
-                //     let ratio_error = (1.0 - rpm_ratio).abs();
-
-                //     // Only adjust if error is above threshold
-                //     if ratio_error > 0.05 {
-                //         // 5% tolerance
-                //         // Variable correction factor based on error magnitude
-                //         let correction_factor = if ratio_error > 0.2 {
-                //             0.8 // Aggressive correction when far off
-                //         } else {
-                //             0.4 // Fine adjustment when closer
-                //         };
-
-                //         let adjustment = 1.0 + ((1.0 - rpm_ratio) * correction_factor);
-                //         let adjusted_speed = (right_speed as f32 * adjustment).clamp(-100.0, 100.0) as i8;
-                //         right.set_speed(adjusted_speed).unwrap();
-
-                //         // Signal that we're still adjusting
-                //         event::send_event(Events::DriveCommandExecuted).await;
-                //     }
-                // }
-            }
-
-            DriveCommand::ImuFeedback(_measurement) => {
-                // // Part 1: Tilt Compensation for Forward/Backward Motion
-                // // --------------------------------------------------
-                // // Only apply tilt compensation when:
-                // // - Not in a rotation maneuver
-                // // - Motors are running
-                // // - Both motors at same speed (pure forward/backward motion)
-                // //
-                // // Example scenario:
-                // // Robot driving forward at 50% speed encounters a 10° incline
-                // // - Base speed: 50
-                // // - Tilt: +10° (positive = climbing)
-                // // - Adjustment factor: ~0.067 (10° / 45° * 0.3)
-                // // - New speed: 50 * (1 + 0.067) = 53
-                // // This increases power to maintain speed while climbing
-                // if !rotation_state.is_some() && (left.current_speed() != 0 || right.current_speed() != 0) {
-                //     if left.current_speed() == right.current_speed() {
-                //         left.set_speed_with_tilt(left.current_speed(), measurement.orientation.pitch)
-                //             .unwrap();
-                //         right
-                //             .set_speed_with_tilt(right.current_speed(), measurement.orientation.pitch)
-                //             .unwrap();
-                //     }
-                // }
-
-                // // Part 2: Rotation Control
-                // // -----------------------
-                // // Handle active rotation maneuvers using yaw measurements
-                // if let Some(rot_state) = rotation_state.as_mut() {
-                //     // Check if target angle reached using yaw tracking
-                //     // Example: 90° clockwise turn
-                //     // - Target: 90°
-                //     // - Current accumulated: 88°
-                //     // - Tolerance: ±2°
-                //     // - Status: Almost complete, using reduced speed
-                //     if rot_state.update(&measurement) {
-                //         // Target angle reached
-                //         info!("rotation complete");
-
-                //         // Handle post-rotation motion:
-                //         // 1. For combined movements (e.g., "rotate while moving forward")
-                //         //    continue with the base motion including tilt compensation
-                //         // 2. For stationary rotations, stop completely
-                //         //
-                //         // Example: After 90° turn while moving forward at 30%
-                //         // - continue_speed returns Some(30)
-                //         // - Apply tilt compensation to maintain 30% on any incline
-                //         if let Some(continue_speed) = rot_state.continuation_speed() {
-                //             left.set_speed_with_tilt(continue_speed, measurement.orientation.pitch)
-                //                 .unwrap();
-                //             right
-                //                 .set_speed_with_tilt(continue_speed, measurement.orientation.pitch)
-                //                 .unwrap();
-                //         } else {
-                //             // Stationary rotation complete - brake both motors
-                //             left.brake().unwrap();
-                //             right.brake().unwrap();
-                //         }
-
-                //         rotation_state = None;
-                //         event::send_event(Events::RotationCompleted).await;
-                //     } else {
-                //         // Rotation still in progress
-                //         // Calculate differential speeds based on:
-                //         // - Remaining angle
-                //         // - Current motion type (stationary or moving)
-                //         // - Direction of rotation
-                //         //
-                //         // Example: Mid-way through 90° clockwise turn
-                //         // - Accumulated: 45°
-                //         // - Remaining: 45°
-                //         // - Speed: ROTATION_SPEED_MAX (50%)
-                //         // - Results in: Left=+50%, Right=-50% for stationary turn
-                //         let (left_speed, right_speed) = rot_state.calculate_motor_speeds();
-                //         left.set_speed(left_speed).unwrap();
-                //         right.set_speed(right_speed).unwrap();
-                //     }
-                // }
-
-                // // Part 3: Straight-Line Motion Correction
-                // // --------------------------------------
-                // // Adjust motor speeds to maintain straight line motion
-
-                // // Check if we should initialize straight-line tracking
-                // if straight_line_state.is_none()
-                //     && left.current_speed() == right.current_speed()
-                //     && left.current_speed() != 0
-                // {
-                //     // Starting new straight-line motion
-                //     info!("Starting straight line control at yaw: {}", measurement.orientation.yaw);
-                //     straight_line_state = Some(StraightLineState::new(measurement.orientation.yaw));
-                // }
-
-                // // Apply straight-line correction if active
-                // if let Some(straight_state) = straight_line_state.as_mut() {
-                //     if left.current_speed() == right.current_speed() && left.current_speed() != 0 {
-                //         let (left_adj, right_adj) =
-                //             straight_state.calculate_correction(measurement.orientation.yaw, measurement.timestamp_ms);
-
-                //         let base_speed = left.current_speed();
-                //         let left_corrected = (base_speed as f32 * left_adj) as i8;
-                //         let right_corrected = (base_speed as f32 * right_adj) as i8;
-
-                //         info!(
-                //             "Straight correction L:{} R:{} (base:{})",
-                //             left_corrected, right_corrected, base_speed
-                //         );
-
-                //         left.set_speed_with_tilt(left_corrected, measurement.orientation.pitch)
-                //             .unwrap();
-                //         right
-                //             .set_speed_with_tilt(right_corrected, measurement.orientation.pitch)
-                //             .unwrap();
-                //     } else {
-                //         // No longer in straight-line motion
-                //         straight_line_state = None;
-                //     }
-                // }
-            }
-
-            DriveCommand::RunMotorCalibration => {
-                info!("Starting motor calibration procedure");
-                run_motor_calibration().await;
-                info!("Motor calibration procedure completed");
-            }
-
-            DriveCommand::RunImuCalibration => {
-                info!("Starting IMU calibration procedure");
-                run_imu_calibration().await;
-                info!("IMU calibration procedure completed");
+                DriveCommand::RunImuCalibration => {
+                    info!("Starting IMU calibration procedure");
+                    run_imu_calibration().await;
+                    info!("IMU calibration procedure completed");
+                }
+            },
+            Either::Second(()) => {
+                run_drift_compensation_step(&mut drift, &rotation_state).await;
             }
         }
     }
