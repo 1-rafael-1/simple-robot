@@ -6,8 +6,8 @@
 	(paper "A4")
 	(title_block
 		(title "simple-robot")
-		(date "2026-01-14")
-		(rev "3")
+		(date "2026-01-26")
+		(rev "4")
 		(company "Rafael Koch")
 	)
 	(lib_symbols
@@ -12212,7 +12212,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "common-hobby-things:LM2596_Module"
 			(at 38.1 99.06 0)
 			(effects
 				(font
