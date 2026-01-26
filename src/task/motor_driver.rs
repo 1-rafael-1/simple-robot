@@ -698,18 +698,18 @@ async fn process_set_all_motors(
     let final_right_rear =
         calibration.apply_with_voltage_compensation(Track::Right, Motor::Rear, right_rear, voltage_compensation);
 
-    debug!(
-        "All motors: [{}, {}, {}, {}] -> final [{}, {}, {}, {}] (voltage comp: {})",
-        left_front,
-        left_rear,
-        right_front,
-        right_rear,
-        final_left_front,
-        final_left_rear,
-        final_right_front,
-        final_right_rear,
-        voltage_compensation
-    );
+    // debug!(
+    //     "All motors: [{}, {}, {}, {}] -> final [{}, {}, {}, {}] (voltage comp: {})",
+    //     left_front,
+    //     left_rear,
+    //     right_front,
+    //     right_rear,
+    //     final_left_front,
+    //     final_left_rear,
+    //     final_right_front,
+    //     final_right_rear,
+    //     voltage_compensation
+    // );
 
     // Set all directions via port expander (atomic bulk operation)
     let cmd = motor_port_mapping::set_all_motor_directions_cmd(

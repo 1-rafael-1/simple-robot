@@ -288,11 +288,19 @@ async fn handle_rotation_completed() {
 }
 
 /// Handle motion data collection control
-async fn handle_start_stop_motion_data(_start: bool) {
+async fn handle_start_stop_motion_data(start: bool) {
     info!("Motion data collection control");
-    // TODO: Implement sensor control
-    // - Start/stop IMU readings
-    // - Start/stop encoder readings
+
+    // For now, "motion data collection" means IMU orientation streaming for control loops.
+    // Encoders are started/stopped by the drive task depending on control mode (e.g., drift compensation),
+    // so we only manage the IMU here.
+    if start {
+        info!("Starting IMU readings");
+        imu_read::start_imu_readings();
+    } else {
+        info!("Stopping IMU readings");
+        imu_read::stop_imu_readings();
+    }
 }
 
 /// Handle ultrasonic sweep control

@@ -96,8 +96,13 @@ use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 
+use crate::task::{drive::feedback::IMU_FEEDBACK_CHANNEL, imu_read::ImuMeasurement};
+
 use crate::{
-    system::state::SYSTEM_STATE,
+    system::{
+        event::{Events, send_event},
+        state::SYSTEM_STATE,
+    },
     task::{
         encoder_read,
         motor_driver::{self, MotorCommand},
@@ -126,11 +131,51 @@ pub use types::{DriveAction, DriveCommand};
 /// Used by orchestrator and other high-level tasks to send drive commands
 static DRIVE_CONTROL: Signal<CriticalSectionRawMutex, DriveCommand> = Signal::new();
 
+/// Rotation completion notification
+///
+/// Dedicated notification for clients (e.g. testing sequences) that need to await rotation completion
+/// without consuming the system-wide event channel.
+///
+/// We use a bounded channel (queue) rather than a signal so callers can safely await
+/// multiple back-to-back rotations without losing intermediate completions.
+#[derive(Debug, Clone, Copy)]
+pub struct RotationCompletedInfo {
+    /// IMU yaw at completion (degrees, as reported by `ImuMeasurement`)
+    pub final_yaw_deg: f32,
+    /// Normalized signed angle error (degrees) at completion:
+    ///
+    /// - **Positive**  => overshoot (turned too far)
+    /// - **Negative**  => undershoot (didn't turn enough)
+    /// - **Zero**      => exact (within tolerance)
+    ///
+    /// This is computed as: `accumulated_angle - target_angle` where:
+    /// - `accumulated_angle` is the **magnitude** of rotation achieved so far (always ≥ 0)
+    /// - `target_angle` is the requested magnitude (always ≥ 0)
+    pub angle_error_deg: f32,
+}
+
+const ROTATION_COMPLETED_QUEUE_SIZE: usize = 8;
+static ROTATION_COMPLETED_CHANNEL: embassy_sync::channel::Channel<
+    CriticalSectionRawMutex,
+    RotationCompletedInfo,
+    ROTATION_COMPLETED_QUEUE_SIZE,
+> = embassy_sync::channel::Channel::new();
+
 /// Send a drive command for execution
 ///
 /// Non-blocking signal delivery for drive commands
 pub fn send_drive_command(command: DriveCommand) {
     DRIVE_CONTROL.signal(command);
+}
+
+/// Wait for the next RotateExact completion notification.
+///
+/// This does not consume the global event stream; it is delivered via a dedicated channel
+/// emitted by the drive task.
+///
+/// Returns final yaw and angle error at the moment the controller declared completion.
+pub async fn wait_for_rotation_completed() -> RotationCompletedInfo {
+    ROTATION_COMPLETED_CHANNEL.receiver().receive().await
 }
 
 /// Wait for next drive command (internal use)
@@ -193,6 +238,141 @@ pub async fn drive() {
         // Keep this modest; encoder sampling is 200ms, so 20ms is plenty to pick up new samples
         // without busy-waiting.
         Timer::after(Duration::from_millis(20)).await;
+    }
+
+    async fn rotation_tick_ms() {
+        // 50Hz rotation control loop tick to align with 50Hz IMU sampling.
+        Timer::after(Duration::from_millis(20)).await;
+    }
+
+    async fn run_rotation_control_step(rotation_state: &mut Option<RotationState>) {
+        let Some(state) = rotation_state.as_mut() else {
+            return;
+        };
+
+        // Consume as many queued IMU samples as available; keep the newest one for control.
+        let mut latest: Option<ImuMeasurement> = None;
+
+        while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
+            latest = Some(m);
+        }
+
+        // Simple watchdog: if we haven't seen any IMU data for 300ms while rotating, abort.
+        let Some(measurement) = latest else {
+            defmt::warn!("rotate_exact: no IMU data available (will abort after 300ms without updates)");
+            Timer::after(Duration::from_millis(300)).await;
+
+            // Drain again after waiting; if still empty, abort rotation.
+            let mut latest_after_wait: Option<ImuMeasurement> = None;
+            while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
+                latest_after_wait = Some(m);
+            }
+
+            if latest_after_wait.is_none() {
+                defmt::warn!("rotate_exact: aborting rotation due to missing IMU data (>= 300ms)");
+
+                motor_driver::send_motor_command(MotorCommand::SetTracks {
+                    left_speed: 0,
+                    right_speed: 0,
+                })
+                .await;
+
+                {
+                    let mut sys = SYSTEM_STATE.lock().await;
+                    sys.left_track_speed = 0;
+                    sys.right_track_speed = 0;
+                }
+
+                // Clear rotation state and notify completion waiters (error will reflect undershoot).
+                let accumulated = state.accumulated_angle.abs();
+                let target = state.target_angle.abs();
+
+                // Prefer the last known yaw we saw (if any). If the IMU channel has been empty the
+                // entire time, fall back to 0.0 (unknown).
+                let last_yaw_deg = state.last_yaw.unwrap_or(0.0);
+
+                let info = RotationCompletedInfo {
+                    final_yaw_deg: last_yaw_deg,
+                    angle_error_deg: accumulated - target,
+                };
+
+                if ROTATION_COMPLETED_CHANNEL.sender().try_send(info).is_err() {
+                    let _ = ROTATION_COMPLETED_CHANNEL.receiver().try_receive();
+                    let _ = ROTATION_COMPLETED_CHANNEL.sender().try_send(info);
+                }
+
+                *rotation_state = None;
+                return;
+            }
+
+            return;
+        };
+
+        // Periodic debug (gated): log to confirm IMU flow + accumulation.
+        // IMPORTANT: keep this behind a feature flag so we don't pay formatting/queuing costs
+        // when running without an active log consumer.
+        #[cfg(feature = "telemetry_logs")]
+        {
+            if (measurement.timestamp_ms % 100) < 25 {
+                defmt::info!(
+                    "rotate_exact: yaw={=f32}°, acc={=f32}°, target={=f32}°",
+                    measurement.orientation.yaw,
+                    state.accumulated_angle.abs(),
+                    state.target_angle.abs()
+                );
+            }
+        }
+
+        // Update rotation progress. When done, stop motors and emit completion event + details.
+        let done = state.update(&measurement);
+        if done {
+            motor_driver::send_motor_command(MotorCommand::SetTracks {
+                left_speed: 0,
+                right_speed: 0,
+            })
+            .await;
+
+            {
+                let mut sys = SYSTEM_STATE.lock().await;
+                sys.left_track_speed = 0;
+                sys.right_track_speed = 0;
+            }
+
+            // Notify system (orchestrator) and any local waiters.
+            send_event(Events::RotationCompleted).await;
+
+            // Provide completion details to anyone awaiting rotation completion.
+            // Normalize error as magnitude-only:
+            // Positive => overshoot, Negative => undershoot (independent of rotation direction).
+            let accumulated = state.accumulated_angle.abs();
+            let target = state.target_angle.abs();
+
+            let info = RotationCompletedInfo {
+                final_yaw_deg: measurement.orientation.yaw,
+                angle_error_deg: accumulated - target,
+            };
+
+            // Best-effort: if queue is full, drop the oldest completion by receiving one and retrying.
+            if ROTATION_COMPLETED_CHANNEL.sender().try_send(info).is_err() {
+                let _ = ROTATION_COMPLETED_CHANNEL.receiver().try_receive();
+                let _ = ROTATION_COMPLETED_CHANNEL.sender().try_send(info);
+            }
+
+            *rotation_state = None;
+            return;
+        }
+
+        // Apply updated motor speeds for this step
+        let (left_speed, right_speed) = state.calculate_motor_speeds();
+        motor_driver::send_motor_command(MotorCommand::SetTracks {
+            left_speed,
+            right_speed,
+        })
+        .await;
+
+        let mut sys = SYSTEM_STATE.lock().await;
+        sys.left_track_speed = left_speed;
+        sys.right_track_speed = right_speed;
     }
 
     async fn run_drift_compensation_step(drift: &mut DriftCompensationState, rotation_state: &Option<RotationState>) {
@@ -274,9 +454,10 @@ pub async fn drive() {
     let mut drift = DriftCompensationState::new();
 
     loop {
-        let command_or_tick = select(wait(), drift_tick_ms()).await;
+        // Prioritize drive commands; otherwise tick rotation control at 30Hz; otherwise run drift tick.
+        let command_or_rotation_tick = select(wait(), rotation_tick_ms()).await;
 
-        match command_or_tick {
+        match command_or_rotation_tick {
             Either::First(command) => match command {
                 DriveCommand::Drive(action) => {
                     // Wake from standby if movement requested
@@ -343,6 +524,10 @@ pub async fn drive() {
                             direction,
                             motion,
                         } => {
+                            // Request IMU start for closed-loop rotation control.
+                            // The orchestrator handles this event and starts IMU streaming.
+                            send_event(Events::StartStopMotionDataCollection(true)).await;
+
                             // Initialize new rotation state
                             rotation_state = Some(RotationState::new(degrees, direction, motion));
 
@@ -430,6 +615,10 @@ pub async fn drive() {
                 }
             },
             Either::Second(()) => {
+                run_rotation_control_step(&mut rotation_state).await;
+
+                // Drift compensation runs only when enabled and not rotating; keep its own cadence.
+                drift_tick_ms().await;
                 run_drift_compensation_step(&mut drift, &rotation_state).await;
             }
         }

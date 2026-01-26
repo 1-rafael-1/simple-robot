@@ -69,8 +69,13 @@ pub enum RotationDirection {
 /// Combined motion options during rotation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RotationMotion {
-    /// Rotate in place
-    Stationary,
+    /// Rotate in place at the given rotation speed (0-100)
+    ///
+    /// This is the "speed differential" input for turns-in-place:
+    /// the controller will command left/right tracks as equal-and-opposite
+    /// using this value as the magnitude.
+    Stationary { speed: u8 },
+
     /// Rotate while moving at specified speed (-100 to +100)
     /// Positive = forward, Negative = backward
     WhileMoving(i8),
@@ -84,7 +89,9 @@ pub const ROTATION_SPEED_MAX: u8 = 50;
 /// Minimum rotation speed to overcome friction
 pub const ROTATION_SPEED_MIN: u8 = 20;
 /// Acceptable angle error in degrees
-pub const ROTATION_TOLERANCE_DEG: f32 = 2.0;
+///
+/// Target: ~0.5° for higher-precision turns-in-place.
+pub const ROTATION_TOLERANCE_DEG: f32 = 0.5;
 /// Maximum speed differential during combined motion
 pub const SPEED_DIFF_MAX: i8 = 30;
 

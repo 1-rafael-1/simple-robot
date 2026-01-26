@@ -1,5 +1,9 @@
 //! IMU (Inertial Measurement Unit) reading functionality using the ICM20948 sensor.
 //!
+//! Note: High-frequency diagnostics (IMU loop dt, magnetometer vector logs) should be gated
+//! behind the `telemetry_logs` feature so production-like runs without a log consumer don't
+//! spend time formatting/queuing logs.
+//!
 //! This module provides an asynchronous task that handles reading IMU data
 //! from an ICM20948 9-axis sensor over I2C for motion control.
 //!
@@ -7,7 +11,7 @@
 //!
 //! The module operates in two modes:
 //! 1. Standby - not reading
-//! 2. Active - continuous IMU readings at 100Hz with AHRS fusion
+//! 2. Active - continuous IMU readings at 50Hz with AHRS fusion
 //!
 //! # Orientation Reference Frame
 //!
@@ -47,7 +51,7 @@
 use core::f32::consts::PI;
 
 use ahrs::{Ahrs, Madgwick};
-use defmt::info;
+use defmt::{info, warn};
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_futures::select::{Either, select};
 use embassy_rp::{
@@ -73,7 +77,19 @@ use crate::{
 };
 
 // Sampling configuration
-const SAMPLE_INTERVAL: Duration = Duration::from_millis(10); // 100Hz sampling
+// We run the IMU + AHRS fusion at 50Hz to match a commonly supported magnetometer continuous mode,
+// while still keeping CPU + I2C load reasonable.
+const SAMPLE_INTERVAL: Duration = Duration::from_millis(20); // 50Hz sampling
+
+// Magnetometer diagnostics logging
+// Log at low rate to avoid spamming RTT/defmt while still giving enough signal to debug yaw issues.
+#[cfg(feature = "telemetry_logs")]
+const MAG_DIAG_LOG_INTERVAL_MS: u32 = 500;
+
+// IMU loop diagnostics logging
+// Used to debug timing/cadence differences with/without debugger attached.
+#[cfg(feature = "telemetry_logs")]
+const IMU_LOOP_DIAG_LOG_INTERVAL_MS: u32 = 500;
 
 /// Complete IMU measurement data
 #[derive(Debug, Clone, Copy)]
@@ -96,7 +112,8 @@ pub struct ImuMeasurement {
 pub struct Orientation {
     /// Absolute rotation around vertical axis (compass heading) in degrees
     /// Range: -180 to +180, or normalized to 0-360
-    /// **Note**: This is absolute heading from magnetometer, NOT relative to startup position
+    /// **Note**: This is absolute heading from magnetometer when using 9-axis fusion. In 6-axis
+    /// mode it becomes a *relative* yaw that will drift over time (but is great for short turns).
     pub yaw: f32,
     /// Absolute forward/backward tilt relative to gravity in degrees
     /// Positive = nose up, Negative = nose down
@@ -107,6 +124,16 @@ pub struct Orientation {
 }
 
 /// Commands for IMU reading control
+#[derive(Debug, Clone, Copy, PartialEq, defmt::Format)]
+pub enum AhrsFusionMode {
+    /// 6-axis fusion (gyro + accel). Yaw is relative and will drift, but is robust
+    /// in magnetically noisy environments and ideal for short precise turns.
+    Axis6,
+    /// 9-axis fusion (gyro + accel + mag). Yaw is stabilized to magnetic north (after calibration)
+    /// and does not drift, but can be disturbed by motor/steel interference.
+    Axis9,
+}
+
 enum ImuCommand {
     /// Start IMU readings
     Start,
@@ -114,6 +141,8 @@ enum ImuCommand {
     Stop,
     /// Load and apply calibration data
     LoadCalibration(flash_storage::ImuCalibration),
+    /// Select which AHRS fusion mode to use when producing Euler angles.
+    SetFusionMode(AhrsFusionMode),
 }
 
 /// Control signal for IMU reading state
@@ -122,6 +151,14 @@ static IMU_CONTROL: Signal<CriticalSectionRawMutex, ImuCommand> = Signal::new();
 /// Start continuous IMU readings
 pub fn start_imu_readings() {
     IMU_CONTROL.signal(ImuCommand::Start);
+}
+
+/// Select AHRS fusion mode (6-axis vs 9-axis)
+///
+/// - `Axis6`: uses gyro+accel (yaw drifts, but robust for turn control)
+/// - `Axis9`: uses gyro+accel+mag when magnetometer is considered valid
+pub fn set_ahrs_fusion_mode(mode: AhrsFusionMode) {
+    IMU_CONTROL.signal(ImuCommand::SetFusionMode(mode));
 }
 
 /// Stop IMU readings
@@ -266,31 +303,64 @@ pub async fn inertial_measurement_read(
     _imu_int: Peri<'static, PIN_18>,
     _imu_add: Peri<'static, PIN_19>,
 ) {
-    let i2c = I2cDevice::new(i2c_bus);
+    // On battery power-up, the IMU can still be in POR / internal regulator startup when
+    // this task begins. Under a debugger, the extra attach/flash/reset time often masks
+    // this. Add a deterministic startup delay and retry init for robustness.
+    const IMU_BOOT_DELAY_MS: u64 = 200;
+    const IMU_INIT_RETRY_DELAY_MS: u64 = 50;
+    const IMU_INIT_MAX_ATTEMPTS: u32 = 60; // ~3s total
 
-    // Initialize ICM20948
-    info!("Initializing ICM20948...");
-    let i2c_interface = I2cInterface::default(i2c);
-    let mut sensor = match Icm20948Driver::new(i2c_interface).await {
-        Ok(imu) => {
-            info!("ICM20948 detected!");
-            imu
+    info!("Waiting {}ms for IMU power-up...", IMU_BOOT_DELAY_MS);
+    Timer::after(Duration::from_millis(IMU_BOOT_DELAY_MS)).await;
+
+    let mut delay = Delay;
+
+    // Initialize ICM20948 with retries
+    let mut attempt: u32 = 0;
+    let mut sensor = loop {
+        attempt += 1;
+
+        info!(
+            "Initializing ICM20948 (attempt {}/{})...",
+            attempt, IMU_INIT_MAX_ATTEMPTS
+        );
+
+        match Icm20948Driver::new(I2cInterface::default(I2cDevice::new(i2c_bus))).await {
+            Ok(mut imu) => {
+                // Detected at I2C level; now do full init.
+                match imu.init(&mut delay).await {
+                    Ok(()) => {
+                        info!("ICM20948 detected + initialized!");
+                        break imu;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "ICM20948 init failed (attempt {}/{}): {:?}",
+                            attempt, IMU_INIT_MAX_ATTEMPTS, e
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "ICM20948 detect failed (attempt {}/{}): {:?}",
+                    attempt, IMU_INIT_MAX_ATTEMPTS, e
+                );
+            }
         }
-        Err(e) => {
-            info!("Failed to detect ICM20948: {:?}", e);
+
+        if attempt >= IMU_INIT_MAX_ATTEMPTS {
+            info!(
+                "Failed to detect/initialize ICM20948 after {} attempts",
+                IMU_INIT_MAX_ATTEMPTS
+            );
             loop {
                 Timer::after(Duration::from_secs(1)).await;
             }
         }
-    };
 
-    let mut delay = Delay;
-    if let Err(e) = sensor.init(&mut delay).await {
-        info!("Failed to initialize ICM20948: {:?}", e);
-        loop {
-            Timer::after(Duration::from_secs(1)).await;
-        }
-    }
+        Timer::after(Duration::from_millis(IMU_INIT_RETRY_DELAY_MS)).await;
+    };
 
     Timer::after(Duration::from_millis(100)).await;
     info!("ICM20948 initialized successfully!");
@@ -298,12 +368,12 @@ pub async fn inertial_measurement_read(
     // Configure accelerometer for tracked robot:
     // ±4g range: Handles bumps and shocks from tracked drive
     // 111 Hz DLPF: Good vibration filtering for brushed motors
-    // ~100 Hz sample rate: Fast enough for motion control
+    // ~50 Hz internal sample rate: Matches the 50 Hz readout loop (reduced CPU + I2C load)
     let accel_config = AccelConfig {
         full_scale: AccelFullScale::G4,
         dlpf: AccelDlpf::Hz111,
         dlpf_enable: true,
-        sample_rate_div: 10, // (1125 Hz / (1 + 10)) = ~102 Hz
+        sample_rate_div: 22, // (1125 Hz / (1 + 22)) = ~48.9 Hz
     };
 
     if let Err(e) = sensor.configure_accelerometer(accel_config).await {
@@ -311,17 +381,17 @@ pub async fn inertial_measurement_read(
         info!("Sensor configuration failed - IMU task terminating");
         return;
     }
-    info!("Accelerometer: ±4g, 111Hz DLPF, ~102Hz sample rate");
+    info!("Accelerometer: ±4g, 111Hz DLPF, ~49Hz sample rate");
 
     // Configure gyroscope for tracked robot:
     // ±500°/s range: Captures fast rotations (tracks can spin quickly)
     // 51 Hz DLPF: Good vibration filtering for brushed motors
-    // ~100 Hz sample rate: Matches accelerometer
+    // ~50 Hz internal sample rate: Matches the 50 Hz readout loop (reduced CPU + I2C load)
     let gyro_config = GyroConfig {
         full_scale: GyroFullScale::Dps500,
         dlpf: GyroDlpf::Hz51,
         dlpf_enable: true,
-        sample_rate_div: 10, // (1125 Hz / (1 + 10)) = ~102 Hz
+        sample_rate_div: 22, // (1125 Hz / (1 + 22)) = ~48.9 Hz
     };
 
     if let Err(e) = sensor.configure_gyroscope(gyro_config).await {
@@ -329,13 +399,13 @@ pub async fn inertial_measurement_read(
         info!("Sensor configuration failed - IMU task terminating");
         return;
     }
-    info!("Gyroscope: ±500°/s, 51Hz DLPF, ~102Hz sample rate");
+    info!("Gyroscope: ±500°/s, 51Hz DLPF, ~49Hz sample rate");
 
     // Configure magnetometer for absolute heading:
-    // Continuous 100Hz mode for smooth compass data
+    // Continuous 50Hz mode for smooth compass data
     // Provides absolute yaw reference (no drift)
     let mag_config = MagConfig {
-        mode: MagMode::Continuous100Hz,
+        mode: MagMode::Continuous50Hz,
     };
 
     if let Err(e) = sensor.init_magnetometer(mag_config, &mut delay).await {
@@ -343,25 +413,21 @@ pub async fn inertial_measurement_read(
         info!("Sensor configuration failed - IMU task terminating");
         return;
     }
-    info!("Magnetometer: Continuous 100Hz mode");
+    info!("Magnetometer: Continuous 50Hz mode");
 
     Timer::after(Duration::from_millis(100)).await;
     info!("All sensors configured!");
 
     // Initialize Madgwick filter for AHRS sensor fusion
     //
-    // For a small indoor tracked robot with brushed motors:
-    // - Beta = 0.15: Balanced setting
-    //   * Higher than 0.1 = more responsive to changes
-    //   * Lower than 0.3 = good vibration rejection
-    //   * Good for tracked robots that make sudden direction changes
-    // - 100 Hz sample rate: Standard for motion control
+    // We align the filter timestep to the sampling interval. 50Hz is a good middle ground:
+    // responsive enough for precise turns, but lower noise + load than 100Hz.
     //
     // The Madgwick filter fuses:
     // - Gyroscope: Fast response, accurate short-term, but drifts
     // - Accelerometer: Stable long-term gravity reference, but noisy
     // - Magnetometer: Absolute heading reference, prevents yaw drift
-    const SAMPLE_RATE_HZ: f32 = 100.0;
+    const SAMPLE_RATE_HZ: f32 = 50.0;
     const BETA: f32 = 0.15; // Balanced for indoor tracked robot with motor vibrations
     let mut madgwick = Madgwick::new(1.0 / SAMPLE_RATE_HZ, BETA);
 
@@ -383,6 +449,10 @@ pub async fn inertial_measurement_read(
     // and sent via LoadCalibration command
     let mut current_calibration: Option<flash_storage::ImuCalibration> = None;
 
+    // Selectable AHRS fusion mode (default to 9-axis for normal operation).
+    // Testing can switch this to Axis6 to avoid magnetometer issues while validating control flow.
+    let mut fusion_mode = AhrsFusionMode::Axis9;
+
     'command: loop {
         // Wait for a command, consuming it
         match IMU_CONTROL.wait().await {
@@ -396,11 +466,22 @@ pub async fn inertial_measurement_read(
                 let mut mag_consecutive_failures = 0u32;
                 const MAX_CONSECUTIVE_FAILURES: u32 = 10;
 
+                // IMU loop timing diagnostics (rate-limited)
+                #[cfg(feature = "telemetry_logs")]
+                let mut last_loop_ts_ms: Option<u32> = None;
+                #[cfg(feature = "telemetry_logs")]
+                let mut last_loop_diag_ts_ms: u32 = 0;
+
                 loop {
                     match select(IMU_CONTROL.wait(), Timer::after(SAMPLE_INTERVAL)).await {
                         Either::First(ImuCommand::Stop) => {
                             info!("IMU stopped. Waiting for next command.");
                             continue 'command;
+                        }
+                        Either::First(ImuCommand::SetFusionMode(mode)) => {
+                            fusion_mode = mode;
+                            info!("IMU AHRS fusion mode set to {:?}", fusion_mode);
+                            continue;
                         }
                         Either::First(_) => continue,
                         Either::Second(_) => {
@@ -458,61 +539,104 @@ pub async fn inertial_measurement_read(
                             // Convert gyroscope from degrees/s to radians/s for AHRS
                             let gyro_rad = Vector3::new(gyro_x * PI / 180.0, gyro_y * PI / 180.0, gyro_z * PI / 180.0);
 
-                            // Read magnetometer (in μT)
-                            let mut mag_data = match sensor.read_magnetometer().await {
-                                Ok(data) => {
-                                    mag_consecutive_failures = 0;
-                                    Vector3::new(data.x, data.y, data.z)
+                            // NOTE: In 6-axis mode we must NOT read the magnetometer at all.
+                            // This avoids I2C/mag failures from stalling IMU output during turns.
+                            let result = match fusion_mode {
+                                AhrsFusionMode::Axis6 => {
+                                    // 6-axis fusion: gyro + accel (yaw will drift over time)
+                                    madgwick.update_imu(&gyro_rad, &accel_data)
                                 }
-                                Err(e) => {
-                                    mag_consecutive_failures += 1;
-                                    info!(
-                                        "Failed to read magnetometer: {:?} (failure {} of {})",
-                                        e, mag_consecutive_failures, MAX_CONSECUTIVE_FAILURES
-                                    );
-                                    if mag_consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                                        info!("Max consecutive magnetometer failures reached - IMU task terminating");
-                                        return;
+                                AhrsFusionMode::Axis9 => {
+                                    // Read magnetometer (in μT)
+                                    let mut mag_data = match sensor.read_magnetometer().await {
+                                        Ok(data) => {
+                                            mag_consecutive_failures = 0;
+                                            Vector3::new(data.x, data.y, data.z)
+                                        }
+                                        Err(e) => {
+                                            mag_consecutive_failures += 1;
+                                            info!(
+                                                "Failed to read magnetometer: {:?} (failure {} of {})",
+                                                e, mag_consecutive_failures, MAX_CONSECUTIVE_FAILURES
+                                            );
+                                            if mag_consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                                                info!(
+                                                    "Max consecutive magnetometer failures reached - IMU task terminating"
+                                                );
+                                                return;
+                                            }
+                                            continue;
+                                        }
+                                    };
+
+                                    // Send raw magnetometer reading to drive task for calibration purposes
+                                    // (before applying interference correction)
+                                    drive::send_mag_measurement(mag_data).await;
+
+                                    // Apply motor interference correction if calibrated
+                                    if let Some(cal) = &current_calibration {
+                                        let state = SYSTEM_STATE.lock().await;
+                                        apply_motor_interference_correction(
+                                            &mut mag_data,
+                                            cal,
+                                            state.left_track_speed,
+                                            state.right_track_speed,
+                                        );
                                     }
-                                    continue;
+
+                                    // Check if magnetometer reading is reasonable
+                                    // Typical Earth's magnetic field: 25-65 μT
+                                    // Lower bound: 20.0 μT rejects clearly invalid readings (below Earth's minimum)
+                                    // Upper bound: 200.0 μT allows for magnetic interference while rejecting sensor errors
+                                    let mag_magnitude = mag_data.norm();
+                                    let use_magnetometer = mag_magnitude > 20.0 && mag_magnitude < 200.0;
+
+                                    // Low-rate magnetometer diagnostics to debug yaw "sticking" / magnetic issues.
+                                    // This is especially useful before hard/soft-iron calibration is implemented.
+                                    #[cfg(feature = "telemetry_logs")]
+                                    {
+                                        let timestamp_ms = Instant::now().as_millis() as u32;
+                                        if timestamp_ms % MAG_DIAG_LOG_INTERVAL_MS < 25 {
+                                            info!(
+                                                "MAG diag: mag=({=f32},{=f32},{=f32}) uT | |mag|={=f32} uT | use_mag={}",
+                                                mag_data.x, mag_data.y, mag_data.z, mag_magnitude, use_magnetometer
+                                            );
+                                            if !use_magnetometer {
+                                                warn!(
+                                                    "MAG diag: rejecting magnetometer due to magnitude out of bounds"
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    if use_magnetometer {
+                                        // 9-axis fusion: gyro + accel + mag (absolute heading, no yaw drift)
+                                        madgwick.update(&gyro_rad, &accel_data, &mag_data)
+                                    } else {
+                                        // 6-axis fallback when mag is not trustworthy
+                                        madgwick.update_imu(&gyro_rad, &accel_data)
+                                    }
                                 }
-                            };
-
-                            // Send raw magnetometer reading to drive task for calibration purposes
-                            // (before applying interference correction)
-                            drive::send_mag_measurement(mag_data).await;
-
-                            // Apply motor interference correction if calibrated
-                            if let Some(cal) = &current_calibration {
-                                let state = SYSTEM_STATE.lock().await;
-                                apply_motor_interference_correction(
-                                    &mut mag_data,
-                                    cal,
-                                    state.left_track_speed,
-                                    state.right_track_speed,
-                                );
-                            }
-
-                            // Check if magnetometer reading is reasonable
-                            // Typical Earth's magnetic field: 25-65 μT
-                            // Lower bound: 20.0 μT rejects clearly invalid readings (below Earth's minimum)
-                            // Upper bound: 200.0 μT allows for magnetic interference while rejecting sensor errors
-                            let mag_magnitude = mag_data.norm();
-                            let use_magnetometer = mag_magnitude > 20.0 && mag_magnitude < 200.0;
-
-                            // Update Madgwick filter
-                            let result = if use_magnetometer {
-                                // 9-axis fusion: gyro + accel + mag (absolute heading, no yaw drift)
-                                madgwick.update(&gyro_rad, &accel_data, &mag_data)
-                            } else {
-                                // 6-axis IMU only: gyro + accel (yaw will drift over time)
-                                madgwick.update_imu(&gyro_rad, &accel_data)
                             };
 
                             if let Ok(quat) = result {
                                 // Convert quaternion to Euler angles
                                 let orientation = quaternion_to_euler(quat);
                                 let timestamp_ms = Instant::now().as_millis() as u32;
+
+                                // IMU loop timing diagnostics (rate-limited):
+                                // - Logs dt between produced IMU measurements
+                                // - Logs current fusion mode, so we can confirm Axis6 is active in testing
+                                #[cfg(feature = "telemetry_logs")]
+                                {
+                                    if timestamp_ms.wrapping_sub(last_loop_diag_ts_ms) >= IMU_LOOP_DIAG_LOG_INTERVAL_MS
+                                    {
+                                        let dt_ms = last_loop_ts_ms.map(|last| timestamp_ms.wrapping_sub(last));
+                                        defmt::info!("IMU diag: mode={:?} dt_ms={:?}", fusion_mode, dt_ms);
+                                        last_loop_diag_ts_ms = timestamp_ms;
+                                    }
+                                    last_loop_ts_ms = Some(timestamp_ms);
+                                }
 
                                 let imu_measurement = ImuMeasurement {
                                     orientation,
@@ -534,6 +658,11 @@ pub async fn inertial_measurement_read(
                 current_calibration = Some(cal);
                 info!("IMU calibration loaded and applied");
                 // Stay in current state (continue waiting for commands)
+                continue 'command;
+            }
+            ImuCommand::SetFusionMode(mode) => {
+                fusion_mode = mode;
+                info!("IMU AHRS fusion mode set to {:?}", fusion_mode);
                 continue 'command;
             }
         }

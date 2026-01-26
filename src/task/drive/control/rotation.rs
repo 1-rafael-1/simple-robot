@@ -14,11 +14,11 @@ use crate::task::{
 /// needed to achieve the target rotation angle using IMU feedback.
 pub(crate) struct RotationState {
     /// Target rotation angle in degrees
-    target_angle: f32,
+    pub(crate) target_angle: f32,
     /// Accumulated rotation so far (in degrees)
-    accumulated_angle: f32,
+    pub(crate) accumulated_angle: f32,
     /// Last measured yaw angle (in degrees)
-    last_yaw: Option<f32>,
+    pub(crate) last_yaw: Option<f32>,
     /// Last update timestamp
     last_update_ms: u32,
     /// Direction of rotation
@@ -33,7 +33,7 @@ impl RotationState {
     /// Creates new rotation tracking state
     pub fn new(target_angle: f32, direction: RotationDirection, motion: RotationMotion) -> Self {
         let base_speed = match motion {
-            RotationMotion::Stationary => 0,
+            RotationMotion::Stationary { speed: _ } => 0,
             RotationMotion::WhileMoving(speed) => speed,
         };
 
@@ -73,27 +73,63 @@ impl RotationState {
         self.last_update_ms = measurement.timestamp_ms;
 
         // Check if we've reached target angle within tolerance
+        //
+        // NOTE: ROTATION_TOLERANCE_DEG is used as the "tight" tolerance; set this to ~0.5°
+        // for higher-precision turns.
         (self.accumulated_angle - self.target_angle).abs() <= ROTATION_TOLERANCE_DEG
     }
 
     /// Calculates appropriate motor speeds for current rotation state
     /// Returns (left_speed, right_speed)
     pub fn calculate_motor_speeds(&self) -> (i8, i8) {
-        // Calculate rotation component based on remaining angle
-        let remaining_degrees = (self.target_angle - self.accumulated_angle).abs();
-        let rotation_speed = if remaining_degrees < 10.0 {
-            // Linear interpolation between min and max speed
-            let speed_range = ROTATION_SPEED_MAX - ROTATION_SPEED_MIN;
-            let speed_factor = remaining_degrees / 10.0;
-            (ROTATION_SPEED_MIN as f32 + (speed_range as f32 * speed_factor)) as u8
+        // Signed error: positive => undershoot (need more rotation), negative => overshoot.
+        let error_deg = self.target_angle - self.accumulated_angle;
+        let remaining_degrees = error_deg.abs();
+
+        // Overshoot correction:
+        // If we overshot (error < 0), reverse motor directions to "turn back" until within tolerance.
+        // This keeps the bot hunting around the setpoint rather than spinning forever past it.
+        let effective_direction = if error_deg < 0.0 {
+            match self.direction {
+                RotationDirection::Clockwise => RotationDirection::CounterClockwise,
+                RotationDirection::CounterClockwise => RotationDirection::Clockwise,
+            }
         } else {
-            ROTATION_SPEED_MAX
+            self.direction
+        };
+
+        let rotation_speed = match self.motion {
+            RotationMotion::Stationary { speed } => {
+                // For high precision turns, avoid tapering too low near the target; keep a floor.
+                // We still reduce speed near the target to limit oscillation, but never below ROTATION_SPEED_MIN.
+                let requested = speed.clamp(0, 100);
+                if remaining_degrees < 10.0 {
+                    let min = ROTATION_SPEED_MIN.min(requested.max(ROTATION_SPEED_MIN));
+                    let max = requested.max(min);
+                    let speed_range = max - min;
+                    let speed_factor = remaining_degrees / 10.0;
+                    (min as f32 + (speed_range as f32 * speed_factor)) as u8
+                } else {
+                    requested
+                }
+            }
+            RotationMotion::WhileMoving(_) => {
+                // Default profile for combined motion rotations
+                if remaining_degrees < 10.0 {
+                    // Linear interpolation between min and max speed
+                    let speed_range = ROTATION_SPEED_MAX - ROTATION_SPEED_MIN;
+                    let speed_factor = remaining_degrees / 10.0;
+                    (ROTATION_SPEED_MIN as f32 + (speed_range as f32 * speed_factor)) as u8
+                } else {
+                    ROTATION_SPEED_MAX
+                }
+            }
         };
 
         match self.motion {
-            RotationMotion::Stationary => {
-                // Simple differential drive for in-place rotation
-                match self.direction {
+            RotationMotion::Stationary { speed: _ } => {
+                // Simple differential drive for in-place rotation (with overshoot reversal)
+                match effective_direction {
                     RotationDirection::Clockwise => (rotation_speed as i8, -(rotation_speed as i8)),
                     RotationDirection::CounterClockwise => (-(rotation_speed as i8), rotation_speed as i8),
                 }
@@ -102,7 +138,7 @@ impl RotationState {
                 // Combine base motion with rotation
                 let rotation_diff = rotation_speed.min(SPEED_DIFF_MAX as u8) as i8;
 
-                match self.direction {
+                match effective_direction {
                     RotationDirection::Clockwise => {
                         (self.base_speed, (self.base_speed - rotation_diff).clamp(-100, 100))
                     }
@@ -117,7 +153,7 @@ impl RotationState {
     /// Returns the base speed for maintaining motion after rotation
     pub fn continuation_speed(&self) -> Option<i8> {
         match self.motion {
-            RotationMotion::Stationary => None,
+            RotationMotion::Stationary { speed: _ } => None,
             RotationMotion::WhileMoving(_) => Some(self.base_speed),
         }
     }
