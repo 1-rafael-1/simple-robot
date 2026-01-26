@@ -26,10 +26,14 @@
 use embassy_time::{Duration, Timer};
 use heapless::String;
 
-use crate::system::event::{Events, send_event};
-use crate::task::display::{DisplayAction, display_update};
-use crate::task::drive::{DriveAction, DriveCommand, send_drive_command};
-use crate::task::imu_read::{AhrsFusionMode, set_ahrs_fusion_mode};
+use crate::{
+    system::event::{Events, send_event},
+    task::{
+        display::{DisplayAction, display_update},
+        drive::{DriveAction, DriveCommand, send_drive_command},
+        imu_read::{AhrsFusionMode, set_ahrs_fusion_mode},
+    },
+};
 
 /// Initialize testing task
 pub fn init_testing(spawner: &embassy_executor::Spawner) {

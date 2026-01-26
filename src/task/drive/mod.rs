@@ -96,15 +96,15 @@ use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 
-use crate::task::{drive::feedback::IMU_FEEDBACK_CHANNEL, imu_read::ImuMeasurement};
-
 use crate::{
     system::{
         event::{Events, send_event},
         state::SYSTEM_STATE,
     },
     task::{
+        drive::feedback::IMU_FEEDBACK_CHANNEL,
         encoder_read,
+        imu_read::ImuMeasurement,
         motor_driver::{self, MotorCommand},
     },
 };

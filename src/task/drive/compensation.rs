@@ -12,8 +12,10 @@
 //! - If your encoder task ever changes to publish cumulative counts, you can use
 //!   `calculate_delta_u16()` with stored previous readings.
 
-use crate::task::drive::types::{DRIFT_COMPENSATION_GAIN, DRIFT_COMPENSATION_MAX, DRIFT_TOLERANCE_PERCENT};
-use crate::task::encoder_read::EncoderMeasurement;
+use crate::task::{
+    drive::types::{DRIFT_COMPENSATION_GAIN, DRIFT_COMPENSATION_MAX, DRIFT_TOLERANCE_PERCENT},
+    encoder_read::EncoderMeasurement,
+};
 
 /// Which track (left/right) we are referring to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
