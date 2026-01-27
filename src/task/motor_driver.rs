@@ -975,21 +975,8 @@ pub async fn motor_driver(pwm_driver_left: Pwm<'static>, pwm_driver_right: Pwm<'
     loop {
         let command = receive_motor_command().await;
 
-        // Only update voltage compensation when motors are idle to avoid measuring voltage sag under load
-        // Voltage sag during motor operation gives false readings that cause calibration instability
-        if !motors_active && let Some(current_voltage) = try_get_battery_voltage() {
-            let new_compensation = calculate_voltage_compensation(current_voltage);
-            if (new_compensation - voltage_compensation).abs() > 0.01 {
-                info!(
-                    "Voltage compensation updated: {} -> {} (motors idle, voltage: {}V)",
-                    voltage_compensation, new_compensation, current_voltage
-                );
-                voltage_compensation = new_compensation;
-            }
-        }
-
-        // Track motor activity state for next iteration
-        motors_active = match &command {
+        let was_motors_active = motors_active;
+        let next_motors_active = match &command {
             MotorCommand::SetTrack { speed, .. } => *speed != 0,
             MotorCommand::SetSpeed { speed, .. } => *speed != 0,
             MotorCommand::SetTracks {
@@ -1014,9 +1001,26 @@ pub async fn motor_driver(pwm_driver_left: Pwm<'static>, pwm_driver_right: Pwm<'
             | MotorCommand::SetAllDriversEnable { .. }
             | MotorCommand::UpdateCalibration { .. }
             | MotorCommand::UpdateAllCalibration { .. }
-            | MotorCommand::LoadCalibration(_) => motors_active, // Keep previous state
+            | MotorCommand::LoadCalibration(_) => was_motors_active, // Keep previous state
         };
 
+        // Only update voltage compensation when motors are idle before and after this command
+        // Voltage sag during motor operation gives false readings that cause calibration instability
+        if !was_motors_active
+            && !next_motors_active
+            && let Some(current_voltage) = try_get_battery_voltage()
+        {
+            let new_compensation = calculate_voltage_compensation(current_voltage);
+            if (new_compensation - voltage_compensation).abs() > 0.01 {
+                info!(
+                    "Voltage compensation updated: {} -> {} (motors idle, voltage: {}V)",
+                    voltage_compensation, new_compensation, current_voltage
+                );
+                voltage_compensation = new_compensation;
+            }
+        }
+
+        motors_active = next_motors_active;
         process_command(&mut pwm_channels, &mut calibration, voltage_compensation, command).await;
     }
 }

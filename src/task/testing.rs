@@ -84,10 +84,6 @@ async fn testing_sequence() {
     show_line(2, "").await;
     show_line(3, "").await;
 
-    // Force 6-axis fusion (gyro + accel) for turn testing.
-    // This avoids magnetometer-related yaw issues while validating the control flow.
-    set_ahrs_fusion_mode(AhrsFusionMode::Axis6);
-
     // Send initialization event to orchestrator
     Timer::after(Duration::from_millis(100)).await;
     send_event(Events::Initialize).await;

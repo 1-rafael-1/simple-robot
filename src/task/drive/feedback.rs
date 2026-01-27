@@ -168,7 +168,7 @@ pub(super) async fn clear_accel_measurement() {
 /// Measure average magnetometer reading over N samples
 ///
 /// Used during IMU calibration to get stable baseline and interference measurements.
-/// Waits for fresh magnetometer data from IMU task at 100Hz sampling rate.
+/// Waits for fresh magnetometer data from IMU task at 50Hz sampling rate.
 pub(super) async fn measure_mag_average(samples: u16) -> Vector3<f32> {
     let mut sum = Vector3::new(0.0, 0.0, 0.0);
     let mut count = 0;
@@ -178,7 +178,7 @@ pub(super) async fn measure_mag_average(samples: u16) -> Vector3<f32> {
             sum += mag;
             count += 1;
         }
-        Timer::after(Duration::from_millis(10)).await; // 100Hz
+        Timer::after(Duration::from_millis(20)).await; // 50Hz
     }
 
     if count > 0 {
@@ -206,7 +206,7 @@ pub(super) async fn wait_for_mag_event_timeout(timeout_ms: u64) -> Option<Vector
         if let Some(mag) = get_latest_mag_measurement().await {
             return Some(mag);
         }
-        Timer::after(Duration::from_millis(10)).await;
+        Timer::after(Duration::from_millis(20)).await;
     }
     None
 }
