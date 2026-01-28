@@ -20,7 +20,7 @@ use crate::{
         state,
         state::{CalibrationStatus, SYSTEM_STATE},
     },
-    task::{display, drive, flash_storage, motor_driver},
+    task::{display, drive, flash_storage, imu_read, motor_driver},
 };
 
 /// Main coordination task that implements the system's event loop
@@ -172,8 +172,8 @@ async fn handle_calibration_data_loaded(
                     state.imu_calibration_status = CalibrationStatus::Loaded;
                 }
 
-                // TODO: Send to IMU task when implemented
-                let _ = imu_cal; // Suppress unused warning
+                // Forward to IMU task
+                imu_read::load_imu_calibration(imu_cal);
 
                 // Update display
                 let mut txt: String<20> = String::new();
@@ -288,11 +288,19 @@ async fn handle_rotation_completed() {
 }
 
 /// Handle motion data collection control
-async fn handle_start_stop_motion_data(_start: bool) {
+async fn handle_start_stop_motion_data(start: bool) {
     info!("Motion data collection control");
-    // TODO: Implement sensor control
-    // - Start/stop IMU readings
-    // - Start/stop encoder readings
+
+    // For now, "motion data collection" means IMU orientation streaming for control loops.
+    // Encoders are started/stopped by the drive task depending on control mode (e.g., drift compensation),
+    // so we only manage the IMU here.
+    if start {
+        info!("Starting IMU readings");
+        imu_read::start_imu_readings();
+    } else {
+        info!("Stopping IMU readings");
+        imu_read::stop_imu_readings();
+    }
 }
 
 /// Handle ultrasonic sweep control

@@ -306,7 +306,7 @@ pub async fn port_expander(i2c_bus: &'static I2cBusShared, mut interrupt: Input<
         match select(COMMAND_CHANNEL.receiver().receive(), interrupt.wait_for_low()).await {
             // Command received
             Either::First(command) => {
-                debug!("Processing command: {:?}", command);
+                // debug!("Processing command: {:?}", command);
                 if (process_command(&mut state, &mut driver, command).await).is_err() {
                     error!("Failed to process command");
                 }

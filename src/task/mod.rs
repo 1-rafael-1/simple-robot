@@ -15,4 +15,5 @@ pub mod port_expander;
 // pub mod rc_control;
 // pub mod rgb_led_indicate;
 // pub mod sweep_ultrasonic;
+pub mod testing;
 // pub mod track_inactivity;
