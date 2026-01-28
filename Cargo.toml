@@ -8,6 +8,11 @@ description = "A simple tracked robot that can move around in RC or autonomous m
 readme = "README.md"
 repository = "https://github.com/1-rafael-1/simple-robot"
 
+[features]
+# Gate high-frequency diagnostic logging (IMU loop diag, MAG diag, rotation tick logs).
+# Keep this OFF by default so release runs without a log consumer don't spend time formatting/queuing logs.
+telemetry_logs = []
+
 [profile.dev]
 lto = true
 codegen-units = 1

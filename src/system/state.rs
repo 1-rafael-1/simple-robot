@@ -54,6 +54,8 @@ pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::ne
     standby: false,
     motor_calibration_status: CalibrationStatus::NotLoaded,
     imu_calibration_status: CalibrationStatus::NotLoaded,
+    left_track_speed: 0,
+    right_track_speed: 0,
 });
 
 /// Robot system state containing all runtime state information
@@ -95,6 +97,16 @@ pub struct SystemState {
     /// - Loaded: Calibration data loaded from flash and applied
     /// - NotAvailable: No calibration data in flash (needs calibration run)
     pub imu_calibration_status: CalibrationStatus,
+    /// Current left track speed (-100 to +100)
+    /// - Negative values: reverse
+    /// - 0: stopped
+    /// - Positive values: forward
+    pub left_track_speed: i8,
+    /// Current right track speed (-100 to +100)
+    /// - Negative values: reverse
+    /// - 0: stopped
+    /// - Positive values: forward
+    pub right_track_speed: i8,
 }
 
 impl SystemState {

@@ -87,7 +87,7 @@ pub enum FlashCommand {
 }
 
 /// IMU calibration data structure
-#[derive(Debug, Clone, Copy, Format, Default)]
+#[derive(Debug, Clone, Copy, Format)]
 pub struct ImuCalibration {
     /// Gyroscope X-axis bias (rad/s)
     pub gyro_x_bias: f32,
@@ -109,6 +109,40 @@ pub struct ImuCalibration {
     pub mag_y_bias: f32,
     /// Magnetometer Z-axis bias
     pub mag_z_bias: f32,
+
+    /// Motor interference correction factors at 50% power
+    /// Format: [all_motors, left_track, right_track]
+    pub mag_x_interference_50: [f32; 3],
+    pub mag_y_interference_50: [f32; 3],
+    pub mag_z_interference_50: [f32; 3],
+
+    /// Motor interference correction factors at 100% power
+    /// Format: [all_motors, left_track, right_track]
+    pub mag_x_interference_100: [f32; 3],
+    pub mag_y_interference_100: [f32; 3],
+    pub mag_z_interference_100: [f32; 3],
+}
+
+impl Default for ImuCalibration {
+    fn default() -> Self {
+        Self {
+            gyro_x_bias: 0.0,
+            gyro_y_bias: 0.0,
+            gyro_z_bias: 0.0,
+            accel_x_bias: 0.0,
+            accel_y_bias: 0.0,
+            accel_z_bias: 0.0,
+            mag_x_bias: 0.0,
+            mag_y_bias: 0.0,
+            mag_z_bias: 0.0,
+            mag_x_interference_50: [0.0; 3],
+            mag_y_interference_50: [0.0; 3],
+            mag_z_interference_50: [0.0; 3],
+            mag_x_interference_100: [0.0; 3],
+            mag_y_interference_100: [0.0; 3],
+            mag_z_interference_100: [0.0; 3],
+        }
+    }
 }
 
 /// Combined calibration data
@@ -185,41 +219,220 @@ impl Value<'_> for MotorCalibration {
 /// Serialize IMU calibration to bytes
 impl Value<'_> for ImuCalibration {
     fn serialize_into(&self, buffer: &mut [u8]) -> Result<usize, SerializationError> {
-        if buffer.len() < 36 {
+        const REQUIRED_SIZE: usize = 108; // 27 floats * 4 bytes
+        if buffer.len() < REQUIRED_SIZE {
             return Err(SerializationError::BufferTooSmall);
         }
 
-        buffer[0..4].copy_from_slice(&self.gyro_x_bias.to_le_bytes());
-        buffer[4..8].copy_from_slice(&self.gyro_y_bias.to_le_bytes());
-        buffer[8..12].copy_from_slice(&self.gyro_z_bias.to_le_bytes());
-        buffer[12..16].copy_from_slice(&self.accel_x_bias.to_le_bytes());
-        buffer[16..20].copy_from_slice(&self.accel_y_bias.to_le_bytes());
-        buffer[20..24].copy_from_slice(&self.accel_z_bias.to_le_bytes());
-        buffer[24..28].copy_from_slice(&self.mag_x_bias.to_le_bytes());
-        buffer[28..32].copy_from_slice(&self.mag_y_bias.to_le_bytes());
-        buffer[32..36].copy_from_slice(&self.mag_z_bias.to_le_bytes());
+        let mut offset = 0;
 
-        Ok(36)
+        // Base calibration (9 floats)
+        buffer[offset..offset + 4].copy_from_slice(&self.gyro_x_bias.to_le_bytes());
+        offset += 4;
+        buffer[offset..offset + 4].copy_from_slice(&self.gyro_y_bias.to_le_bytes());
+        offset += 4;
+        buffer[offset..offset + 4].copy_from_slice(&self.gyro_z_bias.to_le_bytes());
+        offset += 4;
+        buffer[offset..offset + 4].copy_from_slice(&self.accel_x_bias.to_le_bytes());
+        offset += 4;
+        buffer[offset..offset + 4].copy_from_slice(&self.accel_y_bias.to_le_bytes());
+        offset += 4;
+        buffer[offset..offset + 4].copy_from_slice(&self.accel_z_bias.to_le_bytes());
+        offset += 4;
+        buffer[offset..offset + 4].copy_from_slice(&self.mag_x_bias.to_le_bytes());
+        offset += 4;
+        buffer[offset..offset + 4].copy_from_slice(&self.mag_y_bias.to_le_bytes());
+        offset += 4;
+        buffer[offset..offset + 4].copy_from_slice(&self.mag_z_bias.to_le_bytes());
+        offset += 4;
+
+        // Interference correction at 50% (9 floats)
+        for &val in &self.mag_x_interference_50 {
+            buffer[offset..offset + 4].copy_from_slice(&val.to_le_bytes());
+            offset += 4;
+        }
+        for &val in &self.mag_y_interference_50 {
+            buffer[offset..offset + 4].copy_from_slice(&val.to_le_bytes());
+            offset += 4;
+        }
+        for &val in &self.mag_z_interference_50 {
+            buffer[offset..offset + 4].copy_from_slice(&val.to_le_bytes());
+            offset += 4;
+        }
+
+        // Interference correction at 100% (9 floats)
+        for &val in &self.mag_x_interference_100 {
+            buffer[offset..offset + 4].copy_from_slice(&val.to_le_bytes());
+            offset += 4;
+        }
+        for &val in &self.mag_y_interference_100 {
+            buffer[offset..offset + 4].copy_from_slice(&val.to_le_bytes());
+            offset += 4;
+        }
+        for &val in &self.mag_z_interference_100 {
+            buffer[offset..offset + 4].copy_from_slice(&val.to_le_bytes());
+            offset += 4;
+        }
+
+        Ok(108)
     }
 
     fn deserialize_from(buffer: &[u8]) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
-        if buffer.len() < 36 {
+        const REQUIRED_SIZE: usize = 108; // 27 floats * 4 bytes
+        if buffer.len() < REQUIRED_SIZE {
             return Err(SerializationError::BufferTooSmall);
         }
 
+        let mut offset = 0;
+
+        // Base calibration (9 floats)
+        let gyro_x_bias = f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]);
+        offset += 4;
+        let gyro_y_bias = f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]);
+        offset += 4;
+        let gyro_z_bias = f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]);
+        offset += 4;
+        let accel_x_bias = f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]);
+        offset += 4;
+        let accel_y_bias = f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]);
+        offset += 4;
+        let accel_z_bias = f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]);
+        offset += 4;
+        let mag_x_bias = f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]);
+        offset += 4;
+        let mag_y_bias = f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]);
+        offset += 4;
+        let mag_z_bias = f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]);
+        offset += 4;
+
+        // Read interference corrections at 50%
+        let mut mag_x_interference_50 = [0.0f32; 3];
+        for val in &mut mag_x_interference_50 {
+            *val = f32::from_le_bytes([
+                buffer[offset],
+                buffer[offset + 1],
+                buffer[offset + 2],
+                buffer[offset + 3],
+            ]);
+            offset += 4;
+        }
+        let mut mag_y_interference_50 = [0.0f32; 3];
+        for val in &mut mag_y_interference_50 {
+            *val = f32::from_le_bytes([
+                buffer[offset],
+                buffer[offset + 1],
+                buffer[offset + 2],
+                buffer[offset + 3],
+            ]);
+            offset += 4;
+        }
+        let mut mag_z_interference_50 = [0.0f32; 3];
+        for val in &mut mag_z_interference_50 {
+            *val = f32::from_le_bytes([
+                buffer[offset],
+                buffer[offset + 1],
+                buffer[offset + 2],
+                buffer[offset + 3],
+            ]);
+            offset += 4;
+        }
+
+        // Read interference corrections at 100%
+        let mut mag_x_interference_100 = [0.0f32; 3];
+        for val in &mut mag_x_interference_100 {
+            *val = f32::from_le_bytes([
+                buffer[offset],
+                buffer[offset + 1],
+                buffer[offset + 2],
+                buffer[offset + 3],
+            ]);
+            offset += 4;
+        }
+        let mut mag_y_interference_100 = [0.0f32; 3];
+        for val in &mut mag_y_interference_100 {
+            *val = f32::from_le_bytes([
+                buffer[offset],
+                buffer[offset + 1],
+                buffer[offset + 2],
+                buffer[offset + 3],
+            ]);
+            offset += 4;
+        }
+        let mut mag_z_interference_100 = [0.0f32; 3];
+        for val in &mut mag_z_interference_100 {
+            *val = f32::from_le_bytes([
+                buffer[offset],
+                buffer[offset + 1],
+                buffer[offset + 2],
+                buffer[offset + 3],
+            ]);
+            offset += 4;
+        }
+
         Ok(ImuCalibration {
-            gyro_x_bias: f32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]),
-            gyro_y_bias: f32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]),
-            gyro_z_bias: f32::from_le_bytes([buffer[8], buffer[9], buffer[10], buffer[11]]),
-            accel_x_bias: f32::from_le_bytes([buffer[12], buffer[13], buffer[14], buffer[15]]),
-            accel_y_bias: f32::from_le_bytes([buffer[16], buffer[17], buffer[18], buffer[19]]),
-            accel_z_bias: f32::from_le_bytes([buffer[20], buffer[21], buffer[22], buffer[23]]),
-            mag_x_bias: f32::from_le_bytes([buffer[24], buffer[25], buffer[26], buffer[27]]),
-            mag_y_bias: f32::from_le_bytes([buffer[28], buffer[29], buffer[30], buffer[31]]),
-            mag_z_bias: f32::from_le_bytes([buffer[32], buffer[33], buffer[34], buffer[35]]),
+            gyro_x_bias,
+            gyro_y_bias,
+            gyro_z_bias,
+            accel_x_bias,
+            accel_y_bias,
+            accel_z_bias,
+            mag_x_bias,
+            mag_y_bias,
+            mag_z_bias,
+            mag_x_interference_50,
+            mag_y_interference_50,
+            mag_z_interference_50,
+            mag_x_interference_100,
+            mag_y_interference_100,
+            mag_z_interference_100,
         })
     }
 }
