@@ -84,12 +84,6 @@ pub enum FlashCommand {
 
     /// Request calibration data (responds via signal)
     GetData(CalibrationKind),
-
-    /// Load all calibration data from flash and apply to motor driver
-    LoadAll,
-
-    /// Erase all stored calibration data
-    EraseAll,
 }
 
 /// IMU calibration data structure
@@ -228,36 +222,6 @@ impl Value<'_> for ImuCalibration {
             mag_z_bias: f32::from_le_bytes([buffer[32], buffer[33], buffer[34], buffer[35]]),
         })
     }
-}
-
-/// Receive motor calibration signal response
-///
-/// This waits for the motor calibration signal from the flash storage task.
-/// The signal is automatically cleared before waiting to ensure fresh data.
-/// This is safe because the flash storage task is the only one that modifies the data.
-///
-/// # Example
-/// ```rust
-/// send_flash_command(FlashCommand::GetData(CalibrationKind::Motor)).await;
-/// let motor_cal = receive_motor_calibration_signal().await;
-/// ```
-pub async fn receive_motor_calibration_signal() -> MotorCalibration {
-    MOTOR_CALIBRATION_SIGNAL.wait().await
-}
-
-/// Receive IMU calibration signal response
-///
-/// This waits for the IMU calibration signal from the flash storage task.
-/// The signal is automatically cleared before waiting to ensure fresh data.
-/// This is safe because the flash storage task is the only one that modifies the data.
-///
-/// # Example
-/// ```rust
-/// send_flash_command(FlashCommand::GetData(CalibrationKind::Imu)).await;
-/// let imu_cal = receive_imu_calibration_signal().await;
-/// ```
-pub async fn receive_imu_calibration_signal() -> ImuCalibration {
-    IMU_CALIBRATION_SIGNAL.wait().await
 }
 
 /// Flash storage task
@@ -454,118 +418,9 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                     }
                 }
             }
-
-            FlashCommand::LoadAll => {
-                info!("Loading calibration from flash...");
-
-                match fetch_item::<StorageKey, MotorCalibration, _>(
-                    &mut flash,
-                    flash_range.clone(),
-                    &mut cache,
-                    &mut data_buffer,
-                    &StorageKey::MotorCalibration,
-                )
-                .await
-                {
-                    Ok(Some(motor_cal)) => {
-                        info!("Motor calibration reloaded");
-                        let mut data = CALIBRATION_DATA.lock().await;
-                        if let Some(ref mut cal) = *data {
-                            cal.motor = motor_cal;
-                        } else {
-                            *data = Some(CalibrationData {
-                                motor: motor_cal,
-                                imu: ImuCalibration::default(),
-                            });
-                        }
-                        drop(data);
-
-                        // Send event to notify orchestrator
-                        send_event(Events::CalibrationDataLoaded(
-                            CalibrationKind::Motor,
-                            Some(CalibrationDataKind::Motor(motor_cal)),
-                        ))
-                        .await;
-                    }
-                    Ok(None) => {
-                        warn!("No motor calibration to reload");
-                    }
-                    Err(e) => {
-                        error!("Failed to reload motor calibration: {}", defmt::Debug2Format(&e));
-                    }
-                }
-
-                match fetch_item::<StorageKey, ImuCalibration, _>(
-                    &mut flash,
-                    flash_range.clone(),
-                    &mut cache,
-                    &mut data_buffer,
-                    &StorageKey::ImuCalibration,
-                )
-                .await
-                {
-                    Ok(Some(imu_cal)) => {
-                        info!("IMU calibration loaded");
-                        let mut data = CALIBRATION_DATA.lock().await;
-                        if let Some(ref mut cal) = *data {
-                            cal.imu = imu_cal;
-                        } else {
-                            *data = Some(CalibrationData {
-                                motor: MotorCalibration::default(),
-                                imu: imu_cal,
-                            });
-                        }
-                        drop(data);
-
-                        // Send event to notify orchestrator
-                        send_event(Events::CalibrationDataLoaded(
-                            CalibrationKind::Imu,
-                            Some(CalibrationDataKind::Imu(imu_cal)),
-                        ))
-                        .await;
-                    }
-                    Ok(None) => {
-                        warn!("No IMU calibration to reload");
-                    }
-                    Err(e) => {
-                        error!("Failed to reload IMU calibration: {}", defmt::Debug2Format(&e));
-                    }
-                }
-            }
-
-            FlashCommand::EraseAll => {
-                info!("Erasing all calibration data...");
-
-                // Erase the flash range
-                let start_addr = flash_range.start;
-                let end_addr = flash_range.end;
-
-                match flash.erase(start_addr, end_addr).await {
-                    Ok(_) => {
-                        info!("Calibration erased successfully");
-
-                        // Reset to defaults
-                        let defaults = CalibrationData::default();
-                        *CALIBRATION_DATA.lock().await = Some(defaults);
-                    }
-                    Err(e) => {
-                        error!("Failed to erase calibration: {}", defmt::Debug2Format(&e));
-                    }
-                }
-            }
         }
 
         // Small delay to prevent tight loop
         Timer::after(Duration::from_millis(10)).await;
     }
-}
-
-/// Get the flash storage offset (for debugging)
-pub fn get_storage_offset() -> u32 {
-    STORAGE_OFFSET
-}
-
-/// Get the storage size (for debugging)
-pub fn get_storage_size() -> usize {
-    STORAGE_SIZE
 }

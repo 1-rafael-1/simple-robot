@@ -13,6 +13,7 @@ pub mod motor_driver;
 pub mod orchestrate;
 pub mod port_expander;
 // pub mod rc_control;
-// pub mod rgb_led_indicate;
+pub mod rgb_led_indicate;
+pub mod rotary_encoder;
 // pub mod sweep_ultrasonic;
 // pub mod track_inactivity;

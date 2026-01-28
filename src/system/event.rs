@@ -109,6 +109,20 @@ pub enum Events {
     /// - Completes hold actions
     ButtonHoldEnd(ButtonId),
 
+    /// Rotary encoder turn
+    /// - Clockwise = increment, CounterClockwise = decrement
+    RotaryTurned(RotaryDirection),
+
+    /// Rotary encoder button press
+    /// - Short press
+    RotaryButtonPressed,
+
+    /// Rotary encoder button hold initiated
+    RotaryButtonHoldStart,
+
+    /// Rotary encoder button hold released
+    RotaryButtonHoldEnd,
+
     /// System inactivity timeout
     /// - No user input for extended period
     /// - Triggers power saving measures
@@ -155,6 +169,15 @@ pub enum Events {
         line2: Option<heapless::String<20>>,
         line3: Option<heapless::String<20>>,
     },
+}
+
+/// Rotary encoder direction
+#[derive(Debug, Clone, Copy, Format, PartialEq)]
+pub enum RotaryDirection {
+    /// Encoder turned clockwise
+    Clockwise,
+    /// Encoder turned counter clockwise
+    CounterClockwise,
 }
 
 /// Remote control button identifiers

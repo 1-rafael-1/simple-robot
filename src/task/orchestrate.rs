@@ -17,10 +17,9 @@ use heapless::String;
 use crate::{
     system::{
         event::{Events, wait},
-        state,
-        state::{CalibrationStatus, SYSTEM_STATE},
+        state::{self, CalibrationStatus, SYSTEM_STATE},
     },
-    task::{display, drive, flash_storage, motor_driver},
+    task::{display, drive, flash_storage, imu_read, motor_driver, rgb_led_indicate},
 };
 
 /// Main coordination task that implements the system's event loop
@@ -46,6 +45,10 @@ async fn handle_event(event: Events) {
         Events::ButtonPressed(button_id) => handle_button_pressed(button_id).await,
         Events::ButtonHoldStart(button_id) => handle_button_hold_start(button_id).await,
         Events::ButtonHoldEnd(button_id) => handle_button_hold_end(button_id).await,
+        Events::RotaryTurned(_) => info!("Rotary turned"),
+        Events::RotaryButtonPressed => info!("Rotary button pressed"),
+        Events::RotaryButtonHoldStart => info!("Rotary button hold start"),
+        Events::RotaryButtonHoldEnd => info!("Rotary button hold end"),
         Events::InactivityTimeout => handle_inactivity_timeout().await,
         Events::EncoderMeasurementTaken(measurement) => handle_encoder_measurement(measurement).await,
         Events::UltrasonicSweepReadingTaken(distance, angle) => handle_ultrasonic_sweep_reading(distance, angle).await,
@@ -67,12 +70,12 @@ async fn handle_battery_measured(level: u8, voltage: f32) {
     info!("Battery level measured");
 
     // Store battery voltage in system state for motor driver to poll
-    let mut state = state::SYSTEM_STATE.lock().await;
-    state.battery_voltage = Some(voltage);
-
-    // TODO: Update LED color based on level
-    // TODO: Trigger low battery warnings if level is critical
-    let _ = level; // Suppress unused warning until implemented
+    {
+        let mut state = state::SYSTEM_STATE.lock().await;
+        state.battery_voltage = Some(voltage);
+        state.battery_level = Some(level);
+    }
+    rgb_led_indicate::update_indicator(false);
 }
 
 /// Handle system initialization

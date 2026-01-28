@@ -48,7 +48,7 @@ pub enum CalibrationStatus {
 /// - No calibration data loaded
 pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::new(SystemState {
     operation_mode: OperationMode::Manual,
-    battery_level: 100,
+    battery_level: None,
     battery_voltage: None,
     obstacle_detected: false,
     standby: false,
@@ -70,7 +70,7 @@ pub struct SystemState {
     /// - 1-20: Low battery warning
     /// - 21-99: Normal operation
     /// - 100: Fully charged
-    pub battery_level: u8,
+    pub battery_level: Option<u8>,
     /// Battery voltage in volts (2S Li-Ion: 6.0V-8.4V)
     /// - None: No reading available yet
     /// - Some(voltage): Latest voltage measurement

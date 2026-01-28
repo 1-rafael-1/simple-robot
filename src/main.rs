@@ -14,9 +14,14 @@ use embassy_rp::{
     block::ImageDef,
     config::Config,
     flash::{Async, Flash},
-    gpio::Pull,
+    gpio::{Input, Pull},
     i2c::{Config as I2cConfig, I2c, InterruptHandler as I2cInterruptHandler},
-    peripherals::I2C0,
+    peripherals::{I2C0, PIO1},
+    pio::{InterruptHandler as PioInterruptHandler, Pio},
+    pio_programs::{
+        pwm::{PioPwm, PioPwmProgram},
+        rotary_encoder::{PioEncoder, PioEncoderProgram},
+    },
     pwm::{InputMode, Pwm},
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
@@ -37,6 +42,7 @@ mod task;
 bind_interrupts!(pub struct Irqs {
     I2C0_IRQ => I2cInterruptHandler<I2C0>;
     ADC_IRQ_FIFO => AdcInterruptHandler;
+    PIO1_IRQ_0 => PioInterruptHandler<PIO1>;
 });
 
 /// Motor driver peripheral pins (for new architecture with PCA9555)
@@ -58,6 +64,18 @@ struct MotorDriverPins {
     encoder_right_rear_pin: Peri<'static, embassy_rp::peripherals::PIN_27>,
 }
 
+struct RgbLedPins {
+    red: Peri<'static, embassy_rp::peripherals::PIN_4>,
+    green: Peri<'static, embassy_rp::peripherals::PIN_6>,
+    blue: Peri<'static, embassy_rp::peripherals::PIN_8>,
+}
+
+struct Ec11Pins {
+    a: Peri<'static, embassy_rp::peripherals::PIN_22>,
+    b: Peri<'static, embassy_rp::peripherals::PIN_23>,
+    button: Peri<'static, embassy_rp::peripherals::PIN_24>,
+}
+
 /// Public type for shared I2C bus
 pub type I2cBusShared = Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, embassy_rp::i2c::Async>>;
 
@@ -66,20 +84,67 @@ pub type I2cBusShared = Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, embass
 async fn main(spawner: Spawner) {
     // Configure rp2350 to use the external oscillator and run at its usual 150Mhz
     let mut config = Config::default();
-    config.clocks = embassy_rp::clocks::ClockConfig::system_freq(150_000_000).unwrap();
+    config.clocks = match embassy_rp::clocks::ClockConfig::system_freq(150_000_000) {
+        Ok(c) => c,
+        Err(_) => defmt::panic!("Failed to configure system clocks"),
+    };
+    // get a peripheral handle
     let p = embassy_rp::init(config);
 
     // make peripheral handles and spawn tasks
 
+    // Initialize shared I2C bus
     let i2c_bus = init_i2c_bus(p.I2C0, p.PIN_13, p.PIN_12);
 
+    // Initialize PIO1 for various tasks
+    let Pio {
+        mut common,
+        sm0,
+        sm1,
+        sm2,
+        sm3,
+        ..
+    } = Pio::new(p.PIO1, Irqs);
+
+    // Initialize core tasks
+    // Orchestrator
+    init_orchestrate(&spawner);
+    // Battery monitoring
+    init_battery_monitoring(&spawner, p.ADC, p.PIN_26);
+    // Display
+    init_display(&spawner, i2c_bus);
+
+    // Initialize port expander task
     init_port_expander(&spawner, i2c_bus, p.PIN_20);
 
-    init_orchestrate(&spawner);
-    init_battery_monitoring(&spawner, p.ADC, p.PIN_26);
-    // init_rgb_led(&spawner, p.PWM_SLICE1, p.PIN_2, p.PWM_SLICE2, p.PIN_4);
+    // Initialize the rgb indicattor led
+    init_rgb_led(
+        &spawner,
+        &mut common,
+        sm0,
+        sm1,
+        sm2,
+        RgbLedPins {
+            red: p.PIN_4,
+            green: p.PIN_6,
+            blue: p.PIN_8,
+        },
+    );
+
+    // Initialize the rotary encoder
+    init_rotary_encoder(
+        &spawner,
+        &mut common,
+        sm3,
+        Ec11Pins {
+            a: p.PIN_22,
+            b: p.PIN_23,
+            button: p.PIN_24,
+        },
+    );
     // init_rc_buttons(&spawner, p.PIN_10, p.PIN_16, p.PIN_11, p.PIN_17);
 
+    // Initialize motor driver and motor encoders
     init_motor_driver(
         &spawner,
         MotorDriverPins {
@@ -103,8 +168,10 @@ async fn main(spawner: Spawner) {
     // init_ir_obstacle_detect(&spawner, p.PIN_26);
     // init_ultrasonic_sweep(&spawner, p.PIO0, p.PIN_5, p.PIN_15, p.PIN_14);
 
-    init_display(&spawner, i2c_bus);
+    // Initialize IMU task
     init_imu_read(&spawner, i2c_bus, p.PIN_18, p.PIN_19);
+
+    // Initialize flash storage task
     init_flash_storage(&spawner, p.FLASH, p.DMA_CH0);
 
     // init_motion_correction(&spawner);
@@ -155,19 +222,37 @@ fn init_battery_monitoring(
     spawner.must_spawn(task::battery_charge_read::battery_charge_read(adc, battery_channel));
 }
 
-// /// Initialize RGB LED indicator with PWM outputs
-// fn init_rgb_led(
-//     spawner: &Spawner,
-//     pwm_slice1: Peri<'static, embassy_rp::peripherals::PWM_SLICE1>,
-//     pin_2: Peri<'static, embassy_rp::peripherals::PIN_2>,
-//     pwm_slice2: Peri<'static, embassy_rp::peripherals::PWM_SLICE2>,
-//     pin_4: Peri<'static, embassy_rp::peripherals::PIN_4>,
-// ) {
-//     let pwm_config = embassy_rp::pwm::Config::default();
-//     let pwm_red = Pwm::new_output_a(pwm_slice1, pin_2, pwm_config.clone());
-//     let pwm_green = Pwm::new_output_a(pwm_slice2, pin_config);
-//     spawner.must_spawn(rgb_led_indicate(pwm_red, pwm_green));
-// }
+/// Initialize RGB LED indicator with PIO PWM outputs
+fn init_rgb_led(
+    spawner: &Spawner,
+    common: &mut embassy_rp::pio::Common<'static, PIO1>,
+    sm0: embassy_rp::pio::StateMachine<'static, PIO1, 0>,
+    sm1: embassy_rp::pio::StateMachine<'static, PIO1, 1>,
+    sm2: embassy_rp::pio::StateMachine<'static, PIO1, 2>,
+    pins: RgbLedPins,
+) {
+    let rgb_program = PioPwmProgram::new(common);
+    let pwm_red = PioPwm::new(common, sm0, pins.red, &rgb_program);
+    let pwm_green = PioPwm::new(common, sm1, pins.green, &rgb_program);
+    let pwm_blue = PioPwm::new(common, sm2, pins.blue, &rgb_program);
+
+    spawner.must_spawn(task::rgb_led_indicate::rgb_led_indicate(pwm_red, pwm_green, pwm_blue));
+}
+
+/// Initialize EC11 rotary encoder (PIO quadrature + button input)
+fn init_rotary_encoder(
+    spawner: &Spawner,
+    common: &mut embassy_rp::pio::Common<'static, PIO1>,
+    sm3: embassy_rp::pio::StateMachine<'static, PIO1, 3>,
+    pins: Ec11Pins,
+) {
+    let encoder_program = PioEncoderProgram::new(common);
+    let encoder = PioEncoder::new(common, sm3, pins.a, pins.b, &encoder_program);
+    let encoder_button = Input::new(pins.button, Pull::Up);
+
+    spawner.must_spawn(task::rotary_encoder::rotary_encoder_turns(encoder));
+    spawner.must_spawn(task::rotary_encoder::rotary_encoder_button(encoder_button));
+}
 
 // /// Initialize all four RC button inputs
 // fn init_rc_buttons(

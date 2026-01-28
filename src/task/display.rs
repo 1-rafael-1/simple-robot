@@ -26,7 +26,7 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embedded_graphics::{
     geometry::Size,
-    mono_font::{MonoTextStyleBuilder, ascii::FONT_7X14_BOLD as Font},
+    mono_font::{MonoTextStyle, MonoTextStyleBuilder, ascii::FONT_7X14_BOLD as Font},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::{Arc, Line, PrimitiveStyle, Rectangle},
@@ -34,7 +34,9 @@ use embedded_graphics::{
 };
 use heapless::{String, Vec};
 use micromath::F32Ext;
-use ssd1306_async::{I2CDisplayInterface, Ssd1306, prelude::*};
+use ssd1306_async::{
+    I2CDisplayInterface, Ssd1306, i2c_interface::I2CInterface, mode::BufferedGraphicsMode, prelude::*,
+};
 
 use crate::I2cBusShared;
 
@@ -47,6 +49,23 @@ pub enum DisplayAction {
     /// Clear the entire display
     Clear,
 }
+
+#[derive(Debug)]
+enum DisplayError {
+    InvalidLine(u8),
+}
+
+type DisplayDriver = Ssd1306<
+    I2CInterface<
+        I2cDevice<
+            'static,
+            CriticalSectionRawMutex,
+            embassy_rp::i2c::I2c<'static, embassy_rp::peripherals::I2C0, embassy_rp::i2c::Async>,
+        >,
+    >,
+    DisplaySize128x64,
+    BufferedGraphicsMode<DisplaySize128x64>,
+>;
 
 /// Control channel to trigger display updates
 pub static DISPLAY_CHANNEL: Channel<CriticalSectionRawMutex, DisplayAction, 16> = Channel::new();
@@ -133,14 +152,16 @@ pub async fn display(i2c_bus: &'static I2cBusShared) {
     let interface = I2CDisplayInterface::new(i2c);
     let mut display =
         Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0).into_buffered_graphics_mode();
-    display.init().await.unwrap();
+
+    if display.init().await.is_err() {
+        panic!("Display initialization error");
+    }
 
     let text_style = MonoTextStyleBuilder::new()
         .font(&Font)
         .text_color(BinaryColor::On)
         .build();
 
-    let mut display_action: DisplayAction;
     let mut points: PointsBuffer = Vec::new();
     let mut last_angle: f32 = 0.0; // Move state into the task
     let mut moving_right: bool = true; // Move state into the task
@@ -148,131 +169,170 @@ pub async fn display(i2c_bus: &'static I2cBusShared) {
     display_update(DisplayAction::Clear).await;
 
     display.clear();
-    display.flush().await.unwrap();
+
+    if display.flush().await.is_err() {
+        panic!("Display flush error");
+    }
 
     loop {
-        // Wait for the next display update request and clear the display
-        display_action = wait().await;
-        // display.clear();
+        let display_action = wait().await;
 
-        match display_action {
-            DisplayAction::ShowSweep(distance, angle) => {
-                // Clear only sweep area (below header)
-                Rectangle::new(
-                    Point::new(0, DISPLAY_HEADER_HEIGHT),
-                    Size::new(DISPLAY_WIDTH as u32, (DISPLAY_HEIGHT - DISPLAY_HEADER_HEIGHT) as u32),
-                )
-                .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
-                .draw(&mut display)
-                .unwrap();
-
-                // Draw base half-circle
-                Arc::new(
-                    Point::new(CENTER_X - RADIUS, CENTER_Y - RADIUS), // Bounding box top-left
-                    DIAMETER,
-                    Angle::from_degrees(190.0), // Start at -10° from horizontal (left)
-                    Angle::from_degrees(160.0), // Sweep 160° clockwise
-                )
-                .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
-                .draw(&mut display)
-                .unwrap();
-
-                // Convert servo angle (0-160°) to display coordinates
-                // Servo: 0° = left, 160° = right
-                // Offset angle by 10° to align with arc's starting position
-                let display_angle = angle + 10.0; // Add 10° to align with arc start
-                let rad_angle = display_angle.to_radians();
-
-                // Calculate sweep line endpoint
-                let line_end_x = CENTER_X + (RADIUS as f32 * rad_angle.cos()) as i32;
-                let line_end_y = CENTER_Y - (RADIUS as f32 * rad_angle.sin()) as i32;
-                Line::new(Point::new(CENTER_X, CENTER_Y), Point::new(line_end_x, line_end_y))
-                    .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
-                    .draw(&mut display)
-                    .unwrap();
-
-                // Use same angle offset for point plotting to maintain consistency
-                if distance <= MAX_DISTANCE_CM as f64 {
-                    let scaled_distance = (distance as f32 / MAX_DISTANCE_CM) * RADIUS as f32;
-                    let point = SweepPoint {
-                        x: CENTER_X + (scaled_distance * rad_angle.cos()) as i32,
-                        y: CENTER_Y - (scaled_distance * rad_angle.sin()) as i32,
-                        angle: display_angle, // Store offset angle for point clearing
-                    };
-                    let _ = points.push(point);
-                }
-
-                // Track sweep direction for point clearing
-                // Large angle changes (>90°) indicate direction reversal
-                // Otherwise compare with last angle to determine direction
-                let moving_right_new = if (angle - last_angle).abs() > 90.0 {
-                    !moving_right // Reversed direction
-                } else {
-                    angle > last_angle // Moving right if angle increasing
-                };
-                last_angle = angle;
-                moving_right = moving_right_new;
-
-                // Clear points near sweep line based on direction
-                // Points are removed when the sweep line approaches within CLEAR_ZONE degrees
-                // Different retention logic based on sweep direction to properly clear points
-                points.retain(|point| {
-                    let angle_diff = (point.angle - angle).rem_euclid(180.0);
-                    if moving_right {
-                        angle_diff > CLEAR_ZONE && angle_diff < 180.0
-                    } else {
-                        angle_diff < (180.0 - CLEAR_ZONE) && angle_diff > 0.0
-                    }
-                });
-
-                // Add new detection point if object within range
-                if distance <= MAX_DISTANCE_CM as f64 {
-                    // Scale distance from cm to display pixels
-                    // Maps 0-200cm to 0-RADIUS pixels proportionally
-                    let scaled_distance = (distance as f32 / MAX_DISTANCE_CM) * RADIUS as f32;
-
-                    // Convert polar coordinates (distance, angle) to cartesian (x, y)
-                    let rad_angle = angle.to_radians();
-                    let point = SweepPoint {
-                        x: CENTER_X + (scaled_distance * rad_angle.cos()) as i32,
-                        y: CENTER_Y - (scaled_distance * rad_angle.sin()) as i32,
-                        angle, // Store angle for later point clearing
-                    };
-                    let _ = points.push(point); // Add to fixed-size buffer
-                }
-
-                // Draw all points
-                for point in points.iter() {
-                    Pixel(Point::new(point.x, point.y), BinaryColor::On)
-                        .draw(&mut display)
-                        .unwrap();
-                }
-            }
-            DisplayAction::ShowText(text, line) => {
-                // Display text at specified line
-                let point: Point = match line {
-                    0 => Point::new(0, 0),
-                    1 => Point::new(0, 16),
-                    2 => Point::new(0, 32),
-                    3 => Point::new(0, 48),
-                    _ => panic!("Invalid line number"),
-                };
-
-                // Clear only text line area
-                Rectangle::new(point, Size::new(DISPLAY_WIDTH as u32, 16))
-                    .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
-                    .draw(&mut display)
-                    .unwrap();
-
-                // Draw text
-                Text::with_baseline(&text, point, text_style, Baseline::Top)
-                    .draw(&mut display)
-                    .unwrap();
-            }
-            DisplayAction::Clear => display.clear(),
+        if let Err(error) = handle_display_action(
+            &mut display,
+            text_style,
+            &mut points,
+            &mut last_angle,
+            &mut moving_right,
+            display_action,
+        ) {
+            panic!("Display action error: {:?}", error);
         }
 
-        // Write out the display data
-        display.flush().await.unwrap();
+        if display.flush().await.is_err() {
+            panic!("Display flush error");
+        }
     }
+}
+
+fn handle_display_action(
+    display: &mut DisplayDriver,
+    text_style: MonoTextStyle<BinaryColor>,
+    points: &mut PointsBuffer,
+    last_angle: &mut f32,
+    moving_right: &mut bool,
+    display_action: DisplayAction,
+) -> Result<(), DisplayError> {
+    match display_action {
+        DisplayAction::ShowSweep(distance, angle) => {
+            handle_show_sweep(display, points, last_angle, moving_right, distance, angle)
+        }
+        DisplayAction::ShowText(text, line) => handle_show_text(display, text_style, text, line),
+        DisplayAction::Clear => {
+            display.clear();
+            Ok(())
+        }
+    }
+}
+
+fn handle_show_sweep(
+    display: &mut DisplayDriver,
+    points: &mut PointsBuffer,
+    last_angle: &mut f32,
+    moving_right: &mut bool,
+    distance: f64,
+    angle: f32,
+) -> Result<(), DisplayError> {
+    // Clear only sweep area (below header)
+    let _ = Rectangle::new(
+        Point::new(0, DISPLAY_HEADER_HEIGHT),
+        Size::new(DISPLAY_WIDTH as u32, (DISPLAY_HEIGHT - DISPLAY_HEADER_HEIGHT) as u32),
+    )
+    .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
+    .draw(display);
+
+    // Draw base half-circle
+    let _ = Arc::new(
+        Point::new(CENTER_X - RADIUS, CENTER_Y - RADIUS), // Bounding box top-left
+        DIAMETER,
+        Angle::from_degrees(190.0), // Start at -10° from horizontal (left)
+        Angle::from_degrees(160.0), // Sweep 160° clockwise
+    )
+    .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
+    .draw(display);
+
+    // Convert servo angle (0-160°) to display coordinates
+    // Servo: 0° = left, 160° = right
+    // Offset angle by 10° to align with arc's starting position
+    let display_angle = angle + 10.0; // Add 10° to align with arc start
+    let rad_angle = display_angle.to_radians();
+
+    // Calculate sweep line endpoint
+    let line_end_x = CENTER_X + (RADIUS as f32 * rad_angle.cos()) as i32;
+    let line_end_y = CENTER_Y - (RADIUS as f32 * rad_angle.sin()) as i32;
+    let _ = Line::new(Point::new(CENTER_X, CENTER_Y), Point::new(line_end_x, line_end_y))
+        .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
+        .draw(display);
+
+    // Use same angle offset for point plotting to maintain consistency
+    if distance <= MAX_DISTANCE_CM as f64 {
+        let scaled_distance = (distance as f32 / MAX_DISTANCE_CM) * RADIUS as f32;
+        let point = SweepPoint {
+            x: CENTER_X + (scaled_distance * rad_angle.cos()) as i32,
+            y: CENTER_Y - (scaled_distance * rad_angle.sin()) as i32,
+            angle: display_angle, // Store offset angle for point clearing
+        };
+        let _ = points.push(point);
+    }
+
+    // Track sweep direction for point clearing
+    // Large angle changes (>90°) indicate direction reversal
+    // Otherwise compare with last angle to determine direction
+    let moving_right_new = if (angle - *last_angle).abs() > 90.0 {
+        !*moving_right // Reversed direction
+    } else {
+        angle > *last_angle // Moving right if angle increasing
+    };
+    *last_angle = angle;
+    *moving_right = moving_right_new;
+
+    // Clear points near sweep line based on direction
+    // Points are removed when the sweep line approaches within CLEAR_ZONE degrees
+    // Different retention logic based on sweep direction to properly clear points
+    points.retain(|point| {
+        let angle_diff = (point.angle - angle).rem_euclid(180.0);
+        if *moving_right {
+            angle_diff > CLEAR_ZONE && angle_diff < 180.0
+        } else {
+            angle_diff < (180.0 - CLEAR_ZONE) && angle_diff > 0.0
+        }
+    });
+
+    // Add new detection point if object within range
+    if distance <= MAX_DISTANCE_CM as f64 {
+        // Scale distance from cm to display pixels
+        // Maps 0-200cm to 0-RADIUS pixels proportionally
+        let scaled_distance = (distance as f32 / MAX_DISTANCE_CM) * RADIUS as f32;
+
+        // Convert polar coordinates (distance, angle) to cartesian (x, y)
+        let rad_angle = angle.to_radians();
+        let point = SweepPoint {
+            x: CENTER_X + (scaled_distance * rad_angle.cos()) as i32,
+            y: CENTER_Y - (scaled_distance * rad_angle.sin()) as i32,
+            angle, // Store angle for later point clearing
+        };
+        let _ = points.push(point); // Add to fixed-size buffer
+    }
+
+    // Draw all points
+    for point in points.iter() {
+        let _ = Pixel(Point::new(point.x, point.y), BinaryColor::On).draw(display);
+    }
+
+    Ok(())
+}
+
+fn handle_show_text(
+    display: &mut DisplayDriver,
+    text_style: MonoTextStyle<BinaryColor>,
+    text: String<20>,
+    line: u8,
+) -> Result<(), DisplayError> {
+    // Display text at specified line
+    let point: Point = match line {
+        0 => Point::new(0, 0),
+        1 => Point::new(0, 16),
+        2 => Point::new(0, 32),
+        3 => Point::new(0, 48),
+        _ => return Err(DisplayError::InvalidLine(line)),
+    };
+
+    // Clear only text line area
+    let _ = Rectangle::new(point, Size::new(DISPLAY_WIDTH as u32, 16))
+        .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
+        .draw(display);
+
+    // Draw text
+    let _ = Text::with_baseline(&text, point, text_style, Baseline::Top).draw(display);
+
+    Ok(())
 }

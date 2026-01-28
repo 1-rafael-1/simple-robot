@@ -14,11 +14,11 @@ This document maps the Raspberry Pi Pico 2 (RP2350) GPIOs to the peripherals tha
 | 1 | Output (PWM slice 0B) | ✅ | Motor driver A, channel 1 | H-bridge PWM output. |
 | 2 | Output (PWM slice 1A) | ✅ | Motor driver B, channel 0 | H-bridge PWM output. |
 | 3 | Output (PWM slice 1B) | ✅ | Motor driver B, channel 1 | H-bridge PWM output. |
-| 4 | — | ⬜ | Available | Reserved in code for future RGB LED via PIO. |
-| 5 | — | ⬜ | Available | Reserved in code for ultrasonic servo PIO (sweep task disabled; safe to reuse until the servo feature returns). |
-| 6 | — | ⬜ | Available | No references in firmware. |
+| 4 | — | 🟡 | Planned | RGB LED (PIO PWM) Red channel. |
+| 5 | — | 🟡 | Planned | Ultrasonic sweep servo (PIO). |
+| 6 | — | 🟡 | Planned | RGB LED (PIO PWM) Green channel. |
 | 7 | Input (PWM slice 3B) | ✅ | Motor encoder 0 | Rising-edge count input. |
-| 8 | — | ⬜ | Available | No references in firmware. |
+| 8 | — | 🟡 | Planned | RGB LED (PIO PWM) Blue channel. |
 | 9 | Input (PWM slice 4B) | ✅ | Motor encoder 1 | Rising-edge count input. |
 | 10 | — | ⬜ | Available | Previously RC button; now unused. |
 | 11 | — | ⬜ | Available | UART0 TX only in legacy plan. |
@@ -26,19 +26,19 @@ This document maps the Raspberry Pi Pico 2 (RP2350) GPIOs to the peripherals tha
 | 13 | Bidirectional (I²C0 SDA) | ✅ | Shared I²C bus | 400 kHz fast mode. |
 | 14 | Input (planned) | 🟡 | Ultrasonic sensor echo | HC-SR04 echo; task currently disabled—keep clear until the sweep task returns. |
 | 15 | Output (planned) | 🟡 | Ultrasonic sensor trigger | HC-SR04 trigger; task currently disabled—keep clear until the sweep task returns. |
-| 16 | — | ⬜ | Available | Planned IR sensor input. |
-| 17 | — | ⬜ | Available | Planned IR sensor input. |
+| 16 | — | 🟡 | Planned | IR obstacle sensor input (left). |
+| 17 | — | 🟡 | Planned | IR obstacle sensor input (right). |
 | 18 | Input (reserved) | 🟡 | IMU interrupt (planned) | Task signature reserves this pin; wire the IMU INT when available. |
 | 19 | Output (reserved) | 🟡 | IMU address/config pin (planned) | Task signature reserves this pin; set the IMU address pin when wiring the sensor. |
 | 20 | Input (pull-up) | ✅ | PCA9555 interrupt | Active-low interrupt from expander. |
 | 21 | Input (PWM slice 2B) | ✅ | Motor encoder 2 | Rising-edge count input. |
-| 22 | — | ⬜ | Available | Free for expansion. |
-| 23 | — | ⬜ | Available | UART0 RX only in legacy plan. |
-| 24 | — | ⬜ | Available | Reserved for rotary encoder plan. |
+| 22 | — | 🟡 | Planned | EC11 rotary encoder A (PIO input). |
+| 23 | — | 🟡 | Planned | EC11 rotary encoder B (PIO input). |
+| 24 | — | 🟡 | Planned | EC11 rotary encoder button (GPIO input). |
 | 25 | On-board LED (output) | ⬜ | Pico built-in LED | Firmware never toggles it; safe to reuse if you don't need the onboard indicator. |
 | 26 | Analog input (ADC0) | ✅ | Battery voltage monitor | Connected to battery pack via voltage divider (20kΩ/10kΩ). Measures battery voltage before the voltage regulator. |
 | 27 | Input (PWM slice 5B) | ✅ | Motor encoder 3 | Rising-edge count input. |
-| 28 | — | ⬜ | Available | Reserved for rotary encoder button. |
+| 28 | — | ⬜ | Available | Free for future use. |
 | 29 | Analog input (ADC3) | ⬜ | Available | Free for future use. |
 
 Legend: ✅ = actively used by running firmware; 🟡 = reserved in firmware (tasks expect hardware soon); ⬜ = free/available (may be mentioned in comments but not enabled).
@@ -105,13 +105,13 @@ The port expander interrupt (GPIO20) fires on any input change. Outputs are alwa
 These signals remain referenced in comments or helper modules but no task enables them yet:
 
 - **Ultrasonic sweep** — would consume GPIO5 (servo PIO), GPIO14 (echo), GPIO15 (trigger).
-- **RGB status LED** — planned to move to PIO on GPIO4/5; currently disabled.
+- **RGB status LED** — planned on PIO PWM using GPIO4/6/8 (RGB channels).
 - **IR obstacle sensors** — intended for GPIO16/17.
-- **Rotary encoder (EC11)** — earmarked for GPIO24/26/28.
+- **Rotary encoder (EC11)** — planned on GPIO22 (A), GPIO23 (B), GPIO24 (button).
 - **Battery monitor** — Active on GPIO26 (ADC0) measuring 2S Li-Ion battery voltage (6V-8.4V) through 20kΩ/10kΩ voltage divider connected to battery pack before the voltage regulator.
-- **Grove Vision UART** — Legacy plan on GPIO11 (TX) / GPIO23 (RX); no active code.
+- **Grove Vision UART** — Legacy plan on GPIO11 (TX) / GPIO23 (RX); RX now claimed by EC11, so this would need reassignment if revived.
 
-Treat these pins as free until the corresponding tasks are re-enabled.
+Treat 🟡 pins as reserved for upcoming wiring; only ⬜ pins are truly free.
 
 ---
 
