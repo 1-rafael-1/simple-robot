@@ -11,14 +11,16 @@ Check out the v1-robot navigating autonomously, download the demo video here: [A
 
 ## Licensing Overview
 
-This project is licensed under the MIT License with one exception:
+This project uses multiple licenses depending on the component:
 
-- **MIT License** - Applies to all content: Rust code, custom 3D models, PCB designs, and documentation (see [LICENSE](LICENSE))
-- **Exception: Original Proto-Tank Design Files** - Located in `misc/chassis/proto-tank/`, licensed under CC BY 4.0. See [misc/chassis/ATTRIBUTION.md](misc/chassis/ATTRIBUTION.md) for details
+- **Firmware code** (`src/`, `build.rs`, `Cargo.toml`, etc.): Licensed under **MIT License** (see `LICENSE-MIT.md`)
+- **3D-printed chassis designs** (`misc/chassis/`): Based on the Proto-Tank Chassis by fustyles, licensed under **CC BY-SA 4.0** (see attribution below)
+- **Schematic and hardware design** (`misc/media/schematic_picture.png`): Licensed under **CC BY-SA 4.0** (see `LICENSE-CC-BY-SA-4.0.md`)
+- **Documentation** (`docs/`, `README.md`): Licensed under **CC BY-SA 4.0**
 
-For complete licensing information, refer to:
-- [LICENSE](LICENSE) file (MIT - applies to everything except original Proto-Tank files)
-- [misc/chassis/ATTRIBUTION.md](misc/chassis/ATTRIBUTION.md) (CC BY 4.0 for original Proto-Tank)
+Please review the individual license files and attribution sections for detailed information.
+
+---
 
 ## What is it?
 
@@ -209,13 +211,6 @@ The `main.rs` file is the entry point of the program but does nothing besides in
 
 For wiring and future expansion, see `docs/PIN_ASSIGNMENTS.md`. It records the active GPIO usage and also the planned reservations (RGB via PIO PWM on GPIO4/6/8, EC11 on GPIO22/23/24, ultrasonic on GPIO5/14/15, IR on GPIO16/17), so there is a single source of truth for what is still safe to use.
 
-## Things that went wrong so far
-
-- PCB design: Through-hole width must be 1.04mm, not the default 0.7mm. Doesn't fit, cannot be repaired. It is not expensive, but it is annoying, because delivery is the most costly and most time-consuming part of the process. So a small mistake, corrected in an hour, set me back two weeks.
-- Soldering: I had to do it all twice, because at some point solder would not flow where it should and heating stuff too high & too long made a mess out of the first board, leading to odd unwanted connectivity. And most annoyingly i put in the step-up-converters the wrong way around, unsoldering them damaged the PCB even more. Turns out wiping the board down with Isopropanol before soldering is a good idea. Also, sometimes a fiber glass pen is a good thing to have around. A clean soldering iron tip is a must, at the lowest temperature sufficient to heat solder&noard enough.
-- Overconfidence: I did not bother to check if the IR sensors output high or low when detecting an obstacle. Expected them to send normally low signals, but they send normally high signals. My original plan was to connect them both to only one GPIO, routing each through a diode. I was low on free GPIOs and this saves one. As it is with normally high signals, detection does not work, of course. So I had to get a CD4049 hex inverter and wire the sensors through that. That works, but it is annoying - I now have some additional external circuitry that could have easily fitted on the PCB. Looks ugly and clumsy. Want to know the best part? I actually do have one GPIO left... :-) The next version of the PCB (if there ever is one) will have the IR sensors connected directly to the GPIOs each.
-
-Besides that I have had quite a few more minor moments of if-i-only-had-known-that-before. But that is the fun part of the hobby, isn't it?
 
 ## Acknowledgments & Attribution
 
