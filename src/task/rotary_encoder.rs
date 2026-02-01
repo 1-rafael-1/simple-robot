@@ -16,7 +16,7 @@ use embassy_rp::{
 };
 use embassy_time::{Duration, Timer};
 
-use crate::system::event::{Events, RotaryDirection, send_event};
+use crate::system::event::{Events, RotaryDirection, raise_event};
 
 /// Button hold threshold (ms)
 const HOLD_DURATION: Duration = Duration::from_millis(700);
@@ -33,7 +33,7 @@ pub async fn rotary_encoder_turns(mut encoder: PioEncoder<'static, embassy_rp::p
             PioDirection::Clockwise => Events::RotaryTurned(RotaryDirection::Clockwise),
             PioDirection::CounterClockwise => Events::RotaryTurned(RotaryDirection::CounterClockwise),
         };
-        send_event(event).await;
+        raise_event(event).await;
     }
 }
 
@@ -50,12 +50,12 @@ pub async fn rotary_encoder_button(mut button: Input<'static>) {
 
         match select(Timer::after(HOLD_DURATION), debounce(&mut button)).await {
             Either::First(()) => {
-                send_event(Events::RotaryButtonHoldStart).await;
+                raise_event(Events::RotaryButtonHoldStart).await;
                 button.wait_for_high().await;
-                send_event(Events::RotaryButtonHoldEnd).await;
+                raise_event(Events::RotaryButtonHoldEnd).await;
             }
             Either::Second(_) => {
-                send_event(Events::RotaryButtonPressed).await;
+                raise_event(Events::RotaryButtonPressed).await;
             }
         };
     }

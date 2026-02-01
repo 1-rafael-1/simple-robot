@@ -18,7 +18,8 @@
 //! ## Port 1 (Mixed I/O)
 //! - Bits 0-3: Inputs - RC Receiver Buttons A, B, C, D
 //! - Bits 4-5: Outputs - General purpose (currently used for motor driver enables)
-//! - Bits 6-7: Outputs - Available for future expansion
+//! - Bit 6: Input - IR obstacle detect
+//! - Bit 7: Output - Available for future expansion
 //!
 //! # Usage
 //!
@@ -53,7 +54,8 @@ use embedded_hal_async::i2c::I2c;
 
 use crate::{
     I2cBusShared,
-    system::event::{ButtonId, Events, send_event},
+    system::event::{ButtonId, Events, raise_event},
+    task::ir_obstacle_detect::signal_ir_obstacle,
 };
 
 /// PCA9555 I2C address (A0=high, A1=A2=low -> 0x21)
@@ -110,6 +112,7 @@ struct InputState {
     button_b: bool,
     button_c: bool,
     button_d: bool,
+    ir_obstacle: bool,
 }
 
 impl InputState {
@@ -121,22 +124,27 @@ impl InputState {
             button_b: (value & 0b0000_0010) == 0, // Inverted: LOW = pressed
             button_c: (value & 0b0000_0100) == 0, // Inverted: LOW = pressed
             button_d: (value & 0b0000_1000) == 0, // Inverted: LOW = pressed
+            // IR sensor output is inverted in hardware: HIGH = obstacle detected
+            ir_obstacle: (value & 0b0100_0000) != 0,
         }
     }
 
     /// Compare and send events for changed inputs
     async fn send_changes(&self, previous: &InputState) {
         if self.button_a != previous.button_a && self.button_a {
-            send_event(Events::ButtonPressed(ButtonId::A)).await;
+            raise_event(Events::ButtonPressed(ButtonId::A)).await;
         }
         if self.button_b != previous.button_b && self.button_b {
-            send_event(Events::ButtonPressed(ButtonId::B)).await;
+            raise_event(Events::ButtonPressed(ButtonId::B)).await;
         }
         if self.button_c != previous.button_c && self.button_c {
-            send_event(Events::ButtonPressed(ButtonId::C)).await;
+            raise_event(Events::ButtonPressed(ButtonId::C)).await;
         }
         if self.button_d != previous.button_d && self.button_d {
-            send_event(Events::ButtonPressed(ButtonId::D)).await;
+            raise_event(Events::ButtonPressed(ButtonId::D)).await;
+        }
+        if self.ir_obstacle != previous.ir_obstacle {
+            signal_ir_obstacle(self.ir_obstacle).await;
         }
     }
 }
@@ -161,6 +169,7 @@ impl PortExpanderState {
                 button_b: false,
                 button_c: false,
                 button_d: false,
+                ir_obstacle: false,
             },
         }
     }
@@ -224,8 +233,8 @@ impl Pca9555Driver {
         // Configure Port 0: All outputs
         self.write_register(REG_CONFIG_PORT0, 0x00).await?;
 
-        // Configure Port 1: Bits 0-3 inputs (buttons), 4-7 outputs
-        self.write_register(REG_CONFIG_PORT1, 0x0F).await?;
+        // Configure Port 1: Bits 0-3 inputs (buttons), bit 6 input (IR), 4-5/7 outputs
+        self.write_register(REG_CONFIG_PORT1, 0x4F).await?;
 
         // Initialize outputs to safe state (all low)
         self.write_register(REG_OUTPUT_PORT0, 0x00).await?;

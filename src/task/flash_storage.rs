@@ -17,7 +17,7 @@ use sequential_storage::{
 };
 
 use crate::{
-    system::event::{Events, send_event},
+    system::event::{Events, raise_event},
     task::motor_driver::MotorCalibration,
 };
 
@@ -495,7 +495,7 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                             drop(data);
 
                             // Send event with calibration data
-                            send_event(Events::CalibrationDataLoaded(
+                            raise_event(Events::CalibrationDataLoaded(
                                 CalibrationKind::Motor,
                                 Some(CalibrationDataKind::Motor(motor_cal)),
                             ))
@@ -504,12 +504,12 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                         Ok(None) => {
                             info!("No motor calibration found in flash");
                             // Send event with None to indicate no data
-                            send_event(Events::CalibrationDataLoaded(CalibrationKind::Motor, None)).await;
+                            raise_event(Events::CalibrationDataLoaded(CalibrationKind::Motor, None)).await;
                         }
                         Err(e) => {
                             error!("Failed to load motor calibration: {}", defmt::Debug2Format(&e));
                             // Send event with None to indicate failure
-                            send_event(Events::CalibrationDataLoaded(CalibrationKind::Motor, None)).await;
+                            raise_event(Events::CalibrationDataLoaded(CalibrationKind::Motor, None)).await;
                         }
                     }
                 }
@@ -541,7 +541,7 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                             drop(data);
 
                             // Send event with calibration data
-                            send_event(Events::CalibrationDataLoaded(
+                            raise_event(Events::CalibrationDataLoaded(
                                 CalibrationKind::Imu,
                                 Some(CalibrationDataKind::Imu(imu_cal)),
                             ))
@@ -550,12 +550,12 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                         Ok(None) => {
                             info!("No IMU calibration found in flash");
                             // Send event with None to indicate no data
-                            send_event(Events::CalibrationDataLoaded(CalibrationKind::Imu, None)).await;
+                            raise_event(Events::CalibrationDataLoaded(CalibrationKind::Imu, None)).await;
                         }
                         Err(e) => {
                             error!("Failed to load IMU calibration: {}", defmt::Debug2Format(&e));
                             // Send event with None to indicate failure
-                            send_event(Events::CalibrationDataLoaded(CalibrationKind::Imu, None)).await;
+                            raise_event(Events::CalibrationDataLoaded(CalibrationKind::Imu, None)).await;
                         }
                     }
                 }

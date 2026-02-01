@@ -10,11 +10,9 @@ use defmt::{error, info};
 use defmt_rtt as _;
 use embassy_futures::select::{Either, select};
 use embassy_rp::{
-    Peri,
     gpio::{Input, Output},
-    peripherals::{PIN_5, PIO0},
-    pio::{Instance, Pio},
-    pio_programs::pwm::{PioPwm, PioPwmProgram},
+    pio::Instance,
+    pio_programs::pwm::PioPwm,
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Delay, Instant, Timer};
@@ -22,10 +20,7 @@ use hcsr04_async::{Config, DistanceUnit, Hcsr04, Now, TemperatureUnit};
 use moving_median::MovingMedian;
 use panic_probe as _;
 
-use crate::{
-    Irqs,
-    system::event::{Events, send_event},
-};
+use crate::system::event::{Events, raise_event};
 
 /// Commands for ultrasonic sweep control
 enum UltrasonicSweepCommand {
@@ -169,7 +164,7 @@ impl Now for Clock {
 
 /// Initializes the ultrasonic sensor with trigger and echo pins
 ///
-/// This function should be called from main.rs to set up the HCSR04 sensor.
+/// This helper is constructed inside the sweep task when it starts.
 /// Returns a configured Hcsr04 instance ready for measurements.
 pub fn setup_ultrasonic_sensor(
     trigger_pin: Output<'static>,
@@ -184,16 +179,11 @@ pub fn setup_ultrasonic_sensor(
 
 /// Initializes the servo for ultrasonic sweep control
 ///
-/// This function should be called from main.rs to set up the servo.
+/// This helper is constructed inside the sweep task when it starts.
 /// Returns a configured Servo instance ready for angle control.
 pub fn setup_servo(
-    pio: Peri<'static, PIO0>,
-    servo_pin: Peri<'static, PIN_5>,
+    pwm_pio: PioPwm<'static, embassy_rp::peripherals::PIO0, 0>,
 ) -> Servo<'static, embassy_rp::peripherals::PIO0, 0> {
-    let Pio { mut common, sm0, .. } = Pio::new(pio, Irqs);
-
-    let prg = PioPwmProgram::new(&mut common);
-    let pwm_pio = PioPwm::new(&mut common, sm0, servo_pin, &prg);
     let mut servo = ServoBuilder::new(pwm_pio)
         .set_max_degree_rotation(160) // SG90 servo has 160° range of motion
         .set_min_pulse_width(Duration::from_micros(500)) // SG90 minimum pulse width
@@ -211,9 +201,13 @@ pub fn setup_servo(
 /// a moving median filter to reduce noise.
 #[embassy_executor::task]
 pub async fn ultrasonic_sweep(
-    mut sensor: Hcsr04<Output<'static>, Input<'static>, Clock, Delay>,
-    mut servo: Servo<'static, embassy_rp::peripherals::PIO0, 0>,
+    pwm_pio: PioPwm<'static, embassy_rp::peripherals::PIO0, 0>,
+    trigger_pin: Output<'static>,
+    echo_pin: Input<'static>,
 ) {
+    let mut sensor = setup_ultrasonic_sensor(trigger_pin, echo_pin);
+    let mut servo = setup_servo(pwm_pio);
+
     // Create median filter to smooth out distance measurements
     let mut median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
 
@@ -273,7 +267,7 @@ pub async fn ultrasonic_sweep(
             filtered_distance = median_filter.median();
 
             // Send reading event to orchestration task
-            send_event(Events::UltrasonicSweepReadingTaken(filtered_distance, angle)).await;
+            raise_event(Events::UltrasonicSweepReadingTaken(filtered_distance, angle)).await;
 
             // Update angle and check for direction change
             angle += angle_increment;

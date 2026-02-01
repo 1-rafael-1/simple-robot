@@ -644,7 +644,7 @@ impl PwmChannels {
 }
 
 /// Convert speed value to motor direction
-fn speed_to_direction(speed: i8) -> MotorDirection {
+const fn speed_to_direction(speed: i8) -> MotorDirection {
     match speed {
         s if s > 0 => MotorDirection::Forward,
         s if s < 0 => MotorDirection::Backward,
@@ -725,6 +725,7 @@ async fn process_set_all_motors(
 }
 
 /// Process a motor command
+#[allow(clippy::too_many_lines)]
 async fn process_command(
     pwm_channels: &mut PwmChannels,
     calibration: &mut MotorCalibration,
@@ -944,11 +945,17 @@ pub async fn motor_driver(pwm_driver_left: Pwm<'static>, pwm_driver_right: Pwm<'
     let (right_a, right_b) = pwm_driver_right.split();
 
     // Initialize PWM channels
+    let (Some(left_front), Some(left_rear), Some(right_front), Some(right_rear)) = (left_a, left_b, right_a, right_b)
+    else {
+        warn!("PWM channels not configured; motor driver task exiting");
+        return;
+    };
+
     let mut pwm_channels = PwmChannels {
-        left_front: left_a.expect("Left driver channel A not configured"),
-        left_rear: left_b.expect("Left driver channel B not configured"),
-        right_front: right_a.expect("Right driver channel A not configured"),
-        right_rear: right_b.expect("Right driver channel B not configured"),
+        left_front,
+        left_rear,
+        right_front,
+        right_rear,
     };
 
     // Initialize calibration with defaults - will be updated when flash sends data
@@ -977,8 +984,7 @@ pub async fn motor_driver(pwm_driver_left: Pwm<'static>, pwm_driver_right: Pwm<'
 
         let was_motors_active = motors_active;
         let next_motors_active = match &command {
-            MotorCommand::SetTrack { speed, .. } => *speed != 0,
-            MotorCommand::SetSpeed { speed, .. } => *speed != 0,
+            MotorCommand::SetTrack { speed, .. } | MotorCommand::SetSpeed { speed, .. } => *speed != 0,
             MotorCommand::SetTracks {
                 left_speed,
                 right_speed,
@@ -988,15 +994,17 @@ pub async fn motor_driver(pwm_driver_left: Pwm<'static>, pwm_driver_right: Pwm<'
                 left_rear,
                 right_front,
                 right_rear,
-            } => *left_front != 0 || *left_rear != 0 || *right_front != 0 || *right_rear != 0,
-            MotorCommand::SetAllMotorsRaw {
+            }
+            | MotorCommand::SetAllMotorsRaw {
                 left_front,
                 left_rear,
                 right_front,
                 right_rear,
             } => *left_front != 0 || *left_rear != 0 || *right_front != 0 || *right_rear != 0,
-            MotorCommand::Brake { .. } | MotorCommand::BrakeAll => false, // Braking = motors stopping
-            MotorCommand::Coast { .. } | MotorCommand::CoastAll => false, // Coasting = motors idle
+            MotorCommand::Brake { .. }
+            | MotorCommand::BrakeAll
+            | MotorCommand::Coast { .. }
+            | MotorCommand::CoastAll => false,
             MotorCommand::SetDriverEnable { .. }
             | MotorCommand::SetAllDriversEnable { .. }
             | MotorCommand::UpdateCalibration { .. }

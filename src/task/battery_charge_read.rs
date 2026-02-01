@@ -115,7 +115,7 @@ pub async fn battery_charge_read(mut adc: Adc<'static, AdcAsync>, mut channel: C
 
         // Send consolidated battery measurement event (single event instead of two)
         // Battery monitoring is critical for safety - must not drop events
-        event::send_event(event::Events::BatteryMeasured {
+        event::raise_event(event::Events::BatteryMeasured {
             level: (battery_level * 100.0) as u8,
             voltage,
         })

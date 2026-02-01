@@ -67,7 +67,7 @@ use embassy_rp::pwm::Pwm;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Timer};
 
-use crate::system::event::{Events, send_event};
+use crate::system::event::{Events, raise_event};
 
 /// Commands for encoder reading control
 #[derive(Debug, Clone, Copy)]
@@ -245,7 +245,7 @@ pub async fn encoder_read(
                     last_measurement = measurement;
 
                     // Send measurement event
-                    send_event(Events::EncoderMeasurementTaken(measurement)).await;
+                    raise_event(Events::EncoderMeasurementTaken(measurement)).await;
                 }
             }
         } else {

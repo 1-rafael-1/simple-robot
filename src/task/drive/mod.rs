@@ -98,7 +98,7 @@ use embassy_time::{Duration, Timer};
 
 use crate::{
     system::{
-        event::{Events, send_event},
+        event::{Events, raise_event},
         state::SYSTEM_STATE,
     },
     task::{
@@ -339,7 +339,7 @@ pub async fn drive() {
             }
 
             // Notify system (orchestrator) and any local waiters.
-            send_event(Events::RotationCompleted).await;
+            raise_event(Events::RotationCompleted).await;
 
             // Provide completion details to anyone awaiting rotation completion.
             // Normalize error as magnitude-only:
@@ -526,25 +526,23 @@ pub async fn drive() {
                         } => {
                             // Request IMU start for closed-loop rotation control.
                             // The orchestrator handles this event and starts IMU streaming.
-                            send_event(Events::StartStopMotionDataCollection(true)).await;
+                            raise_event(Events::StartStopMotionDataCollection(true)).await;
 
                             // Initialize new rotation state
                             rotation_state = Some(RotationState::new(degrees, direction, motion));
-
                             // Apply initial motor speeds for rotation
-                            let (left_speed, right_speed) = rotation_state.as_ref().unwrap().calculate_motor_speeds();
-
-                            // Use SetTracks for atomic update
-                            motor_driver::send_motor_command(MotorCommand::SetTracks {
-                                left_speed,
-                                right_speed,
-                            })
-                            .await;
-
-                            // Update system state
-                            let mut state = SYSTEM_STATE.lock().await;
-                            state.left_track_speed = left_speed;
-                            state.right_track_speed = right_speed;
+                            if let Some(rotation_state) = rotation_state.as_ref() {
+                                let (left_speed, right_speed) = rotation_state.calculate_motor_speeds();
+                                motor_driver::send_motor_command(MotorCommand::SetTracks {
+                                    left_speed,
+                                    right_speed,
+                                })
+                                .await;
+                                // Update system state
+                                let mut state = SYSTEM_STATE.lock().await;
+                                state.left_track_speed = left_speed;
+                                state.right_track_speed = right_speed;
+                            }
                         }
                         DriveAction::Coast => {
                             info!("coast");

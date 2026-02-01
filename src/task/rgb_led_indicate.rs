@@ -28,6 +28,7 @@ use embassy_futures::select::{Either, select};
 use embassy_rp::{peripherals::PIO1, pio_programs::pwm::PioPwm};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
+use nalgebra::abs;
 
 use crate::system::state::{OperationMode, SYSTEM_STATE};
 
@@ -57,8 +58,9 @@ const AFFIRM_BLINK_INTERVAL: Duration = Duration::from_millis(30);
 const PWM_PERIOD: CoreDuration = CoreDuration::from_micros(10_000);
 
 /// Sets a PIO PWM channel to a duty cycle percentage.
+#[allow(clippy::cast_possible_truncation)]
 fn set_pwm_percent<const SM: usize>(pwm: &mut PioPwm<'static, PIO1, SM>, percent: u8) {
-    let clamped = percent.min(100) as u128;
+    let clamped = u128::from(percent.min(100));
     let high_us = PWM_PERIOD.as_micros() * clamped / 100;
     let high = CoreDuration::from_micros(high_us as u64);
     pwm.write(high);

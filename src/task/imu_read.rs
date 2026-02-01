@@ -54,10 +54,7 @@ use ahrs::{Ahrs, Madgwick};
 use defmt::{info, warn};
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_futures::select::{Either, select};
-use embassy_rp::{
-    Peri,
-    peripherals::{PIN_18, PIN_19},
-};
+use embassy_rp::gpio::Input;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Delay, Duration, Instant, Timer};
 use icm20948::{
@@ -70,7 +67,7 @@ use nalgebra::{UnitQuaternion, Vector3};
 use crate::{
     I2cBusShared,
     system::{
-        event::{Events, send_event},
+        event::{Events, raise_event},
         state::SYSTEM_STATE,
     },
     task::{drive, flash_storage},
@@ -298,11 +295,7 @@ fn apply_motor_interference_correction(
 
 /// Embassy task that handles IMU measurements with 9-axis AHRS fusion
 #[embassy_executor::task]
-pub async fn inertial_measurement_read(
-    i2c_bus: &'static I2cBusShared,
-    _imu_int: Peri<'static, PIN_18>,
-    _imu_add: Peri<'static, PIN_19>,
-) {
+pub async fn inertial_measurement_read(i2c_bus: &'static I2cBusShared) {
     // On battery power-up, the IMU can still be in POR / internal regulator startup when
     // this task begins. Under a debugger, the extra attach/flash/reset time often masks
     // this. Add a deterministic startup delay and retry init for robustness.
@@ -643,7 +636,7 @@ pub async fn inertial_measurement_read(
                                     timestamp_ms,
                                 };
 
-                                send_event(Events::ImuMeasurementTaken(imu_measurement)).await;
+                                raise_event(Events::ImuMeasurementTaken(imu_measurement)).await;
                             }
                         }
                     }

@@ -12,7 +12,7 @@ use crate::system::event;
 static ACTIVITY_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// Standby timeout (s)
-const INACTIVITY_TIMEOUT: Duration = Duration::from_secs(180); // 3 minutes
+const INACTIVITY_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Signals user activity occurrence
 pub fn signal_activity() {
@@ -29,12 +29,10 @@ pub async fn wait() -> () {
 pub async fn track_inactivity() {
     loop {
         match select(Timer::after(INACTIVITY_TIMEOUT), wait()).await {
-            Either::First(_) => {
-                event::send_event(event::Events::InactivityTimeout).await;
+            Either::First(()) => {
+                event::raise_event(event::Events::InactivityTimeout).await;
             }
-            Either::Second(_) => {
-                continue;
-            }
+            Either::Second(()) => {}
         }
     }
 }

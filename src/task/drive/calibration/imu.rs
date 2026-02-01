@@ -1,17 +1,25 @@
-//! IMU calibration procedure  
+//! IMU calibration procedure
 //!
 //! Calibrates gyroscope, accelerometer, and magnetometer, plus measures
 //! motor interference effects on magnetometer for runtime compensation.
 
+use core::fmt::Write;
+
 use defmt::info;
 use embassy_time::{Duration, Timer};
 
-use crate::task::{
-    drive::feedback::{
-        clear_accel_measurement, clear_gyro_measurement, clear_mag_measurement, get_latest_accel_measurement,
-        get_latest_gyro_measurement, measure_mag_average, subtract_mag, wait_for_mag_event_timeout,
+use crate::{
+    system::helper::{
+        self,
+        string_helper::{self, status_text},
     },
-    motor_driver::{self, MotorCommand, Track},
+    task::{
+        drive::feedback::{
+            clear_accel_measurement, clear_gyro_measurement, clear_mag_measurement, get_latest_accel_measurement,
+            get_latest_gyro_measurement, measure_mag_average, subtract_mag, wait_for_mag_event_timeout,
+        },
+        motor_driver::{self, MotorCommand, Track},
+    },
 };
 
 /// Run the IMU calibration procedure
@@ -38,7 +46,8 @@ use crate::task::{
 /// - Motor calibration MUST run before IMU calibration
 /// - This ensures IMU measures interference at correctly calibrated speeds
 /// - If motor calibration changes later, IMU calibration should be re-run
-pub(crate) async fn run_imu_calibration() {
+#[allow(clippy::too_many_lines)]
+pub async fn run_imu_calibration() {
     use heapless::String;
 
     use crate::{
@@ -49,9 +58,9 @@ pub(crate) async fn run_imu_calibration() {
     info!("=== Starting IMU Calibration ===");
 
     // Display calibration header
-    event::send_event(event::Events::CalibrationStatus {
-        header: Some(String::try_from("IMU Calibration").unwrap()),
-        line1: Some(String::try_from("Initializing").unwrap()),
+    event::raise_event(event::Events::CalibrationStatus {
+        header: status_text("IMU Calibration"),
+        line1: status_text("Initializing"),
         line2: None,
         line3: None,
     })
@@ -59,16 +68,15 @@ pub(crate) async fn run_imu_calibration() {
 
     // Step 1: Gyroscope and Accelerometer Calibration (stationary)
     info!("Step 1: Gyroscope and Accelerometer Calibration");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 1/9").unwrap()),
-        line2: Some(String::try_from("Gyro/Accel cal").unwrap()),
-        line3: Some(String::try_from("Keep still 10s").unwrap()),
+        line1: status_text("Step 1/9"),
+        line2: status_text("Gyro/Accel cal"),
+        line3: status_text("Keep still 10s"),
     })
     .await;
 
     // Start IMU readings for calibration
-    use core::fmt::Write;
     imu_read::start_imu_readings();
     Timer::after(Duration::from_millis(500)).await; // Wait for IMU to start
 
@@ -115,8 +123,8 @@ pub(crate) async fn run_imu_calibration() {
         if i % 100 == 0 {
             let progress = (i * 100) / num_samples;
             let mut line = String::new();
-            let _ = write!(line, "Progress: {}%", progress);
-            event::send_event(event::Events::CalibrationStatus {
+            let _ = write!(line, "Progress: {progress}%");
+            event::raise_event(event::Events::CalibrationStatus {
                 header: None,
                 line1: None,
                 line2: None,
@@ -144,20 +152,20 @@ pub(crate) async fn run_imu_calibration() {
 
     // Step 2: Magnetometer Calibration (moving through all axes)
     info!("Step 2: Magnetometer Calibration (CRITICAL - Manual Rotation Required)");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 2/9").unwrap()),
-        line2: Some(String::try_from("MAG CALIBRATION").unwrap()),
-        line3: Some(String::try_from("Prepare to move").unwrap()),
+        line1: status_text("Step 2/9"),
+        line2: status_text("MAG CALIBRATION"),
+        line3: status_text("Prepare to move"),
     })
     .await;
     Timer::after(Duration::from_secs(3)).await;
 
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 2/9").unwrap()),
-        line2: Some(String::try_from("ROTATE SLOWLY").unwrap()),
-        line3: Some(String::try_from("All axes 60s").unwrap()),
+        line1: status_text("Step 2/9"),
+        line2: status_text("ROTATE SLOWLY"),
+        line3: status_text("All axes 60s"),
     })
     .await;
 
@@ -210,7 +218,7 @@ pub(crate) async fn run_imu_calibration() {
                 let seconds_left = (mag_samples - i) / 100;
                 let mut line = String::new();
                 let _ = write!(line, "{}s left", seconds_left);
-                event::send_event(event::Events::CalibrationStatus {
+                event::raise_event(event::Events::CalibrationStatus {
                     header: None,
                     line1: None,
                     line2: None,
@@ -249,11 +257,11 @@ pub(crate) async fn run_imu_calibration() {
 
     // Step 3: Motor interference baseline (motors off)
     info!("Step 3: Measuring magnetic baseline (motors OFF)");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 3/9").unwrap()),
-        line2: Some(String::try_from("Baseline (OFF)").unwrap()),
-        line3: Some(String::try_from("5 seconds...").unwrap()),
+        line1: status_text("Step 3/9"),
+        line2: status_text("Baseline (OFF)"),
+        line3: status_text("5 seconds..."),
     })
     .await;
 
@@ -267,11 +275,11 @@ pub(crate) async fn run_imu_calibration() {
 
     // Step 4: All motors at 50%
     info!("Step 4: Motor interference at 50% (all motors)");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 4/9").unwrap()),
-        line2: Some(String::try_from("All motors 50%").unwrap()),
-        line3: Some(String::try_from("Measuring 6s...").unwrap()),
+        line1: status_text("Step 4/9"),
+        line2: status_text("All motors 50%"),
+        line3: status_text("Measuring 6s..."),
     })
     .await;
 
@@ -300,11 +308,11 @@ pub(crate) async fn run_imu_calibration() {
 
     // Step 5: All motors at 100%
     info!("Step 5: Motor interference at 100% (all motors)");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 4/9").unwrap()),
-        line2: Some(String::try_from("All motors 100%").unwrap()),
-        line3: Some(String::try_from("Measuring 6s...").unwrap()),
+        line1: status_text("Step 5/9"),
+        line2: status_text("All motors 100%"),
+        line3: status_text("Measuring 6s..."),
     })
     .await;
 
@@ -333,11 +341,11 @@ pub(crate) async fn run_imu_calibration() {
 
     // Step 6: Left track at 50%
     info!("Step 6: Motor interference at 50% (left track only)");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 5/9").unwrap()),
-        line2: Some(String::try_from("Left track 50%").unwrap()),
-        line3: Some(String::try_from("Measuring 6s...").unwrap()),
+        line1: status_text("Step 6/9"),
+        line2: status_text("Left track 50%"),
+        line3: status_text("Measuring 6s..."),
     })
     .await;
 
@@ -366,11 +374,11 @@ pub(crate) async fn run_imu_calibration() {
 
     // Step 7: Left track at 100%
     info!("Step 7: Motor interference at 100% (left track only)");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 6/9").unwrap()),
-        line2: Some(String::try_from("Left track 100%").unwrap()),
-        line3: Some(String::try_from("Measuring 6s...").unwrap()),
+        line1: status_text("Step 7/9"),
+        line2: status_text("Left track 100%"),
+        line3: status_text("Measuring 6s..."),
     })
     .await;
 
@@ -399,11 +407,11 @@ pub(crate) async fn run_imu_calibration() {
 
     // Step 8: Right track at 50%
     info!("Step 8: Motor interference at 50% (right track only)");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 7/9").unwrap()),
-        line2: Some(String::try_from("Right track 50%").unwrap()),
-        line3: Some(String::try_from("Measuring 6s...").unwrap()),
+        line1: status_text("Step 8/9"),
+        line2: status_text("Right track 50%"),
+        line3: status_text("Measuring 6s..."),
     })
     .await;
 
@@ -432,11 +440,11 @@ pub(crate) async fn run_imu_calibration() {
 
     // Step 9: Right track at 100%
     info!("Step 9: Motor interference at 100% (right track only)");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 8/9").unwrap()),
-        line2: Some(String::try_from("Right track 100%").unwrap()),
-        line3: Some(String::try_from("Measuring 6s...").unwrap()),
+        line1: status_text("Step 9/9"),
+        line2: status_text("Right track 100%"),
+        line3: status_text("Measuring 6s..."),
     })
     .await;
 
@@ -465,10 +473,10 @@ pub(crate) async fn run_imu_calibration() {
 
     // Step 10: Build calibration struct
     info!("Step 10: Building complete calibration data structure");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 9/9").unwrap()),
-        line2: Some(String::try_from("Finalizing...").unwrap()),
+        line1: status_text("Step 9/9"),
+        line2: status_text("Finalizing"),
         line3: None,
     })
     .await;
@@ -515,11 +523,11 @@ pub(crate) async fn run_imu_calibration() {
     info!("║    X: {} Y: {} Z: {}", mag_x_bias, mag_y_bias, mag_z_bias);
     info!("║  Motor interference patterns captured ✓          ║");
     info!("╚═══════════════════════════════════════════════════╝");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Complete!").unwrap()),
-        line2: Some(String::try_from("Saving...").unwrap()),
-        line3: Some(String::try_from("Please wait").unwrap()),
+        line1: status_text("Complete!"),
+        line2: status_text("Saving to flash"),
+        line3: status_text("Please wait"),
     })
     .await;
 
@@ -536,10 +544,10 @@ pub(crate) async fn run_imu_calibration() {
     imu_read::load_imu_calibration(imu_calibration);
 
     // Display completion
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Complete!").unwrap()),
-        line2: Some(String::try_from("Calibration saved").unwrap()),
+        line1: status_text("Complete!"),
+        line2: status_text("Calibration saved"),
         line3: None,
     })
     .await;

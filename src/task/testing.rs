@@ -27,7 +27,7 @@ use embassy_time::{Duration, Timer};
 use heapless::String;
 
 use crate::{
-    system::event::{Events, send_event},
+    system::event::{Events, raise_event},
     task::{
         display::{DisplayAction, display_update},
         drive::{DriveAction, DriveCommand, send_drive_command},
@@ -86,7 +86,7 @@ async fn testing_sequence() {
 
     // Send initialization event to orchestrator
     Timer::after(Duration::from_millis(100)).await;
-    send_event(Events::Initialize).await;
+    raise_event(Events::Initialize).await;
 
     // Wait for system to stabilize and for orchestrator to load calibration from flash
     // (orchestrator automatically loads calibration on Initialize event)
@@ -177,7 +177,7 @@ async fn testing_sequence() {
 async fn auto_calibration_sequence() {
     // Send initialization event
     Timer::after(Duration::from_millis(100)).await;
-    send_event(Events::Initialize).await;
+    raise_event(Events::Initialize).await;
 
     // Wait for system to initialize
     Timer::after(Duration::from_secs(3)).await;
