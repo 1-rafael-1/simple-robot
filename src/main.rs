@@ -264,8 +264,8 @@ async fn main(spawner: Spawner) {
     // Initialize flash storage task
     init_flash_storage(spawner, p.FLASH, p.DMA_CH0);
 
-    // init_motion_correction(&spawner);
-    // init_inactivity_tracker(&spawner);
+    // Initialize inactivity tracker task;
+    init_inactivity_tracker(spawner);
 
     // Initialize testing task for development
     task::testing::init_testing(&spawner);
@@ -489,17 +489,7 @@ fn init_flash_storage(
     spawner.must_spawn(task::flash_storage::flash_storage(flash));
 }
 
-// /// Initialize autonomous drive task
-// fn init_autonomous_drive(spawner: &Spawner) {
-//     spawner.must_spawn(autonomous_drive());
-// }
-
-// /// Initialize motion correction control task
-// fn init_motion_correction(spawner: &Spawner) {
-//     spawner.must_spawn(motion_correction_control());
-// }
-
-// /// Initialize inactivity tracker task
-// fn init_inactivity_tracker(spawner: &Spawner) {
-//     spawner.must_spawn(track_inactivity());
-// }
+/// Initialize inactivity tracker task
+fn init_inactivity_tracker(spawner: Spawner) {
+    spawner.must_spawn(task::track_inactivity::track_inactivity());
+}

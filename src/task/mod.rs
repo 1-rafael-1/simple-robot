@@ -8,7 +8,6 @@ pub mod encoder_read;
 pub mod flash_storage;
 pub mod imu_read;
 pub mod ir_obstacle_detect;
-// pub mod monitor_motion;
 pub mod motor_driver;
 pub mod orchestrate;
 pub mod port_expander;

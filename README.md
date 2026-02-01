@@ -125,14 +125,21 @@ Here is an overview of things used to make the robot. This is not supposed to be
 |2 battery holders|Wired parallel. One 18650 drains pretty quickly but two give decent life.|
 |slide switch|Wired and glued to the battery holders so that I can cut power.|
 |RGB LED|Whatever thing that can be driven by PWM on red and green pin each.|
-|6 104 ceramic (100nF) capacitors|Across power supply lines of RC receiver, across power supply of servo, display, rc receiver, IMU, both sides of level shifter|
-|2 47uF electrolytic capacitors|Across power output of 5V step-up converter. The RC receiver will not be happy with the power ripple otherwise.|
-|470uF electrolytic capacitor|Across the motor power input of the motor driver. Motor switching will send power spikes down the supply so much as to kick out the debugger and what else it hurt I could not observe.|
-|2 330Ω Resistors|For the RGB LED.|
-|10KΩ resistor, 20KΩ resistor|For the voltage divider for the HC-SR04 echo line.|
+|22 104 ceramic (100nF) capacitors|Decoupling capacitors across power supply lines for all ICs, sensors, level shifters, and modules|
+|1 4700µF 16V electrolytic capacitors|Bulk capacitors for motor driver VM input (critical for noise suppression)|
+|2 220µF electrolytic capacitors|Bulk capacitors for 5V rail|
+|2 10µF 16V electrolytic capacitors|Additional filtering capacitors|
+|1 220µF 10V electrolytic capacitor|Power filtering|
+|1 10µF 10V electrolytic capacitor|Power filtering|
+|2 330Ω resistors|Current limiting for RGB LED (red and green channels)|
+|3 220Ω resistors|Current limiting resistors|
+|3 20kΩ resistors|Voltage divider high side (HC-SR04 echo + battery sense)|
+|2 10kΩ resistors|Voltage divider low side (HC-SR04 echo + battery sense)|
+|3 1kΩ resistors|General purpose resistors|
+|3 47Ω resistors|Low value resistors|
 |9g micro servo|For the sweeping sensor|
 |2 IR sensors|For obstacle detection. I used VMA330, but other options will also work.|
-|2 1N5817 Schottky diodes|To combine the IR sensors onto one GPIO|
+
 |CD4049 hex converter|Used to repair my bad design for the IR sensors. These are sending high when no obstacle, while i exppected them to send low then. That way the circuit would not work and the output needs to be inverted.|
 |ICM20948|9-axis Inertial Measurement Unit (IMU)|
 |Header pins|They go everywhere, under most of the boards, onto the PCB for more connections.... get plenty.|

@@ -79,7 +79,7 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 nanorand = { version = "0.8.0", features = [
     "wyrand",
 ], default-features = false }
-hcsr04_async = { version = "^0.4.0", features = ["blocking_trigger"] }
+hcsr04_async = { version = "^0.5.0", features = ["blocking_trigger"] }
 moving_median = "0.3.0"
 ssd1306-async = { git = "https://github.com/kalkyl/ssd1306-async" }
 embedded-graphics = "0.8.1"
@@ -92,7 +92,7 @@ ahrs = { version = "0.8", default-features = false }
 nalgebra = { version = "0.34", default-features = false, features = ["libm"] }
 port-expander = "0.6.5"
 embedded-hal-async = "1.0.0"
-sequential-storage = "3.0.0"
+sequential-storage = "7.1.0"
 embedded-storage-async = "0.4.1"
 
 # [patch.crates-io]

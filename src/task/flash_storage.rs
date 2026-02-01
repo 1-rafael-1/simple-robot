@@ -10,10 +10,9 @@ use defmt::*;
 use embassy_rp::flash::{Async, ERASE_SIZE, Flash};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal};
 use embassy_time::{Duration, Timer};
-use embedded_storage_async::nor_flash::NorFlash;
 use sequential_storage::{
     cache::NoCache,
-    map::{Key, SerializationError, Value, fetch_item, store_item},
+    map::{Key, MapConfig, MapStorage, SerializationError, Value},
 };
 
 use crate::{
@@ -199,7 +198,7 @@ impl Value<'_> for MotorCalibration {
         Ok(16)
     }
 
-    fn deserialize_from(buffer: &[u8]) -> Result<Self, SerializationError>
+    fn deserialize_from(buffer: &[u8]) -> Result<(Self, usize), SerializationError>
     where
         Self: Sized,
     {
@@ -212,7 +211,10 @@ impl Value<'_> for MotorCalibration {
         let right_front = f32::from_le_bytes([buffer[8], buffer[9], buffer[10], buffer[11]]);
         let right_rear = f32::from_le_bytes([buffer[12], buffer[13], buffer[14], buffer[15]]);
 
-        Ok(MotorCalibration::new(left_front, left_rear, right_front, right_rear))
+        Ok((
+            MotorCalibration::new(left_front, left_rear, right_front, right_rear),
+            16,
+        ))
     }
 }
 
@@ -277,7 +279,7 @@ impl Value<'_> for ImuCalibration {
         Ok(108)
     }
 
-    fn deserialize_from(buffer: &[u8]) -> Result<Self, SerializationError>
+    fn deserialize_from(buffer: &[u8]) -> Result<(Self, usize), SerializationError>
     where
         Self: Sized,
     {
@@ -417,23 +419,26 @@ impl Value<'_> for ImuCalibration {
             offset += 4;
         }
 
-        Ok(ImuCalibration {
-            gyro_x_bias,
-            gyro_y_bias,
-            gyro_z_bias,
-            accel_x_bias,
-            accel_y_bias,
-            accel_z_bias,
-            mag_x_bias,
-            mag_y_bias,
-            mag_z_bias,
-            mag_x_interference_50,
-            mag_y_interference_50,
-            mag_z_interference_50,
-            mag_x_interference_100,
-            mag_y_interference_100,
-            mag_z_interference_100,
-        })
+        Ok((
+            ImuCalibration {
+                gyro_x_bias,
+                gyro_y_bias,
+                gyro_z_bias,
+                accel_x_bias,
+                accel_y_bias,
+                accel_z_bias,
+                mag_x_bias,
+                mag_y_bias,
+                mag_z_bias,
+                mag_x_interference_50,
+                mag_y_interference_50,
+                mag_z_interference_50,
+                mag_x_interference_100,
+                mag_y_interference_100,
+                mag_z_interference_100,
+            },
+            REQUIRED_SIZE,
+        ))
     }
 }
 
@@ -449,8 +454,8 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
     // Define flash range for storage
     let flash_range = STORAGE_OFFSET..(STORAGE_OFFSET + STORAGE_SIZE as u32);
 
-    // Create cache for flash operations
-    let mut cache = NoCache::new();
+    // Create storage instance (owns flash and cache)
+    let mut storage = MapStorage::<StorageKey, _, _>::new(flash, MapConfig::new(flash_range.clone()), NoCache::new());
 
     // Create scratch buffer for serialization/deserialization
     // Motor calibration needs 16 bytes, IMU calibration needs 36 bytes
@@ -467,14 +472,9 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                 CalibrationKind::Motor => {
                     info!("Loading motor calibration from flash...");
 
-                    match fetch_item::<StorageKey, MotorCalibration, _>(
-                        &mut flash,
-                        flash_range.clone(),
-                        &mut cache,
-                        &mut data_buffer,
-                        &StorageKey::MotorCalibration,
-                    )
-                    .await
+                    match storage
+                        .fetch_item::<MotorCalibration>(&mut data_buffer, &StorageKey::MotorCalibration)
+                        .await
                     {
                         Ok(Some(motor_cal)) => {
                             info!(
@@ -516,14 +516,9 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                 CalibrationKind::Imu => {
                     info!("Loading IMU calibration from flash...");
 
-                    match fetch_item::<StorageKey, ImuCalibration, _>(
-                        &mut flash,
-                        flash_range.clone(),
-                        &mut cache,
-                        &mut data_buffer,
-                        &StorageKey::ImuCalibration,
-                    )
-                    .await
+                    match storage
+                        .fetch_item::<ImuCalibration>(&mut data_buffer, &StorageKey::ImuCalibration)
+                        .await
                     {
                         Ok(Some(imu_cal)) => {
                             info!("IMU calibration loaded from flash");
@@ -578,15 +573,9 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                         }
                         drop(data);
 
-                        match store_item(
-                            &mut flash,
-                            flash_range.clone(),
-                            &mut cache,
-                            &mut data_buffer,
-                            &StorageKey::MotorCalibration,
-                            &motor_cal,
-                        )
-                        .await
+                        match storage
+                            .store_item(&mut data_buffer, &StorageKey::MotorCalibration, &motor_cal)
+                            .await
                         {
                             Ok(_) => {
                                 info!("Motor calibration saved successfully");
@@ -611,15 +600,9 @@ pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FL
                         }
                         drop(data);
 
-                        match store_item(
-                            &mut flash,
-                            flash_range.clone(),
-                            &mut cache,
-                            &mut data_buffer,
-                            &StorageKey::ImuCalibration,
-                            &imu_cal,
-                        )
-                        .await
+                        match storage
+                            .store_item(&mut data_buffer, &StorageKey::ImuCalibration, &imu_cal)
+                            .await
                         {
                             Ok(_) => {
                                 info!("IMU calibration saved successfully");
