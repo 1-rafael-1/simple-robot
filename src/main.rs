@@ -4,6 +4,7 @@
 
 #![no_std]
 #![no_main]
+#![allow(unused)]
 
 use defmt_rtt as _;
 use embassy_executor::Spawner;

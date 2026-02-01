@@ -50,9 +50,11 @@ pub enum DisplayAction {
     Clear,
 }
 
+/// Display error types
 #[derive(Debug)]
 enum DisplayError {
-    InvalidLine(u8),
+    /// Error for invalid text line number
+    InvalidLine,
 }
 
 type DisplayDriver = Ssd1306<
@@ -118,6 +120,7 @@ struct SweepPoint {
 /// Clear zone angle in degrees
 const CLEAR_ZONE: f32 = 10.0;
 
+/// Fixed-size buffer for storing detected points
 type PointsBuffer = heapless::Vec<SweepPoint, MAX_POINTS>;
 
 /// Main display task that manages the SSD1306 OLED screen
@@ -127,25 +130,25 @@ type PointsBuffer = heapless::Vec<SweepPoint, MAX_POINTS>;
 /// ## Angle Conversion
 /// - Input angle is -80° to +80° from vertical
 /// - Subtract 90° to align with standard coordinate system
-/// - Convert to radians: angle_rad = (angle - 90°) * π/180
+/// - Convert to radians: `angle_rad` = (angle - 90°) * π/180
 ///
 /// ## Sweep Line
 /// - End point calculated using polar to cartesian conversion:
-///   x = center_x + radius * cos(angle_rad)
-///   y = center_y + radius * sin(angle_rad)
+///   x = `center_x` + radius * cos(`angle_rad`)
+///   y = `center_y` + radius * sin(`angle_rad`)
 ///
 /// ## Distance Point Plotting
 /// - Scale input distance (0-100cm) to display radius (0-30px):
-///   scaled = (distance/MAX_DISTANCE_CM) * RADIUS
+///   scaled = (distance/`MAX_DISTANCE_CM`) * RADIUS
 /// - Calculate point position using scaled distance:
-///   point_x = center_x + scaled * cos(angle_rad)
-///   point_y = center_y + scaled * sin(angle_rad)
+///   `point_x` = `center_x` + scaled * cos(`angle_rad`)
+///   `point_y` = `center_y` + scaled * sin(`angle_rad`)
 ///
 /// ## Point Retention
 /// - Calculate angle between stored point and sweep line:
-///   point_angle = atan2(dy, dx)
+///   `point_angle` = atan2(dy, dx)
 /// - Remove points within ±0.1 radians of sweep line
-/// - Keep fixed maximum number of points (MAX_POINTS)
+/// - Keep fixed maximum number of points (`MAX_POINTS`)
 #[embassy_executor::task]
 pub async fn display(i2c_bus: &'static I2cBusShared) {
     let i2c = I2cDevice::new(i2c_bus);
@@ -194,6 +197,7 @@ pub async fn display(i2c_bus: &'static I2cBusShared) {
     }
 }
 
+/// Handles the specified display action
 fn handle_display_action(
     display: &mut DisplayDriver,
     text_style: MonoTextStyle<BinaryColor>,
@@ -323,7 +327,7 @@ fn handle_show_text(
         1 => Point::new(0, 16),
         2 => Point::new(0, 32),
         3 => Point::new(0, 48),
-        _ => return Err(DisplayError::InvalidLine(line)),
+        _ => return Err(DisplayError::InvalidLine),
     };
 
     // Clear only text line area

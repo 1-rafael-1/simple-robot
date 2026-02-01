@@ -92,7 +92,12 @@ pub enum Events {
     /// - level: 0-100 percent, triggers LED color updates
     /// - voltage: raw voltage in volts, used for motor driver voltage compensation
     /// - Single event reduces event channel load
-    BatteryMeasured { level: u8, voltage: f32 },
+    BatteryMeasured {
+        /// Battery charge level (0-100%)
+        level: u8,
+        /// Battery voltage in volts
+        voltage: f32,
+    },
 
     /// Button press detected
     /// - Short press (< 1 second)

@@ -167,7 +167,7 @@ pub fn load_imu_calibration(calibration: flash_storage::ImuCalibration) {
     IMU_CONTROL.signal(ImuCommand::LoadCalibration(calibration));
 }
 
-/// Convert nalgebra UnitQuaternion to Euler angles (in degrees)
+/// Convert nalgebra `UnitQuaternion` to Euler angles (in degrees)
 ///
 /// Uses the aerospace sequence (ZYX - yaw, pitch, roll) which is standard for vehicle orientation:
 /// - Yaw (Z-axis): heading/compass direction
