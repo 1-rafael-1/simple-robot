@@ -4682,6 +4682,124 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "PCM_SL_Resistors:47ohm"
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(property "Reference" "R"
+				(at 0 5.08 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" "47ohm"
+				(at 0 2.54 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal"
+				(at 0.889 -4.318 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" ""
+				(at 0.508 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "47Ω, 1/4W Resistor"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "Resistor"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_fp_filters" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm*"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "47ohm_0_1"
+				(rectangle
+					(start -2.286 0.889)
+					(end 2.286 -0.889)
+					(stroke
+						(width 0.24)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(symbol "47ohm_1_1"
+				(pin passive line
+					(at -3.81 0 0)
+					(length 1.5)
+					(name ""
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 0 0)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 3.81 0 180)
+					(length 1.5)
+					(name "~"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 0 0)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "PCM_SL_Screw_Terminal:Screw_Terminal_2_P5.00mm"
 			(exclude_from_sim no)
 			(in_bom yes)
@@ -7348,8 +7466,8 @@
 		(uuid 5a0ea226-a309-4714-895b-81eba0caab9c)
 	)
 	(rectangle
-		(start 140.97 166.37)
-		(end 171.45 196.85)
+		(start 71.12 151.13)
+		(end 110.49 181.61)
 		(stroke
 			(width 0)
 			(type default)
@@ -7360,8 +7478,8 @@
 		(uuid 60ca2bd6-916c-4688-a18f-a7d4aa0d702b)
 	)
 	(rectangle
-		(start 85.09 147.32)
-		(end 134.62 167.64)
+		(start 113.03 161.29)
+		(end 162.56 181.61)
 		(stroke
 			(width 0)
 			(type default)
@@ -7526,7 +7644,7 @@
 	)
 	(text "Grove Vision AI v2 Connector"
 		(exclude_from_sim no)
-		(at 155.194 165.1 0)
+		(at 85.344 149.86 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -7557,7 +7675,7 @@
 	)
 	(text "Rotary Encoder Input"
 		(exclude_from_sim no)
-		(at 95.504 146.05 0)
+		(at 123.444 160.02 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -7728,7 +7846,7 @@
 		(uuid "ccdccdfc-8990-41f5-8922-d1e33d55d789")
 	)
 	(junction
-		(at 153.67 176.53)
+		(at 95.25 161.29)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "d4b842b6-9c11-4a58-9d61-6b3074716b60")
@@ -8007,6 +8125,16 @@
 	)
 	(wire
 		(pts
+			(xy 88.9 166.37) (xy 95.25 166.37)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3670de1d-8b31-4a3c-83f2-c9e69a663320")
+	)
+	(wire
+		(pts
 			(xy 162.56 144.78) (xy 158.75 144.78)
 		)
 		(stroke
@@ -8174,6 +8302,16 @@
 			(type default)
 		)
 		(uuid "6cdc20d5-2a41-4cca-9fd4-dc4efca607b0")
+	)
+	(wire
+		(pts
+			(xy 88.9 168.91) (xy 95.25 168.91)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "7e5d492f-c24c-460e-9822-6fdb3ed1b97d")
 	)
 	(wire
 		(pts
@@ -8589,7 +8727,7 @@
 	)
 	(global_label "ROT_ENC_B"
 		(shape output)
-		(at 100.33 162.56 180)
+		(at 128.27 176.53 180)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8599,7 +8737,7 @@
 		)
 		(uuid "04691a70-0f87-4894-8190-fcb29a7cdf62")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 86.822 162.56 0)
+			(at 114.762 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8917,7 +9055,7 @@
 	)
 	(global_label "ROT_ENC_PUSH"
 		(shape output)
-		(at 115.57 157.48 0)
+		(at 143.51 171.45 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8927,7 +9065,7 @@
 		)
 		(uuid "310bae53-f955-43de-87a2-e8007138bce6")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 132.9485 157.48 0)
+			(at 160.8885 171.45 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -9371,6 +9509,28 @@
 			)
 		)
 	)
+	(global_label "GV_RX"
+		(shape input)
+		(at 81.28 168.91 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "6bb1cdb9-6722-419e-aef9-ef3f5389dcb9")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 72.4891 168.91 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "ENC_LF"
 		(shape input)
 		(at 30.48 45.72 180)
@@ -9589,7 +9749,7 @@
 	)
 	(global_label "ROT_ENC_A"
 		(shape output)
-		(at 100.33 157.48 180)
+		(at 128.27 171.45 180)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -9599,7 +9759,7 @@
 		)
 		(uuid "844a6978-6128-4eef-8c2e-6d8edfb01ed4")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 87.0034 157.48 0)
+			(at 114.9434 171.45 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -9981,6 +10141,28 @@
 			)
 		)
 	)
+	(global_label "GV_TX"
+		(shape output)
+		(at 81.28 166.37 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "bfba4c9e-9b9a-4164-891a-850846907744")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 72.7915 166.37 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "M_RR_PWM"
 		(shape input)
 		(at 265.43 72.39 0)
@@ -10330,28 +10512,6 @@
 		)
 	)
 	(global_label "GV_TX"
-		(shape output)
-		(at 153.67 181.61 180)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "edf48009-aa77-41be-9a19-9985be326972")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 145.1815 181.61 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "GV_TX"
 		(shape input)
 		(at 66.04 68.58 0)
 		(fields_autoplaced yes)
@@ -10369,28 +10529,6 @@
 					(size 1.27 1.27)
 				)
 				(justify left)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "GV_RX"
-		(shape input)
-		(at 153.67 184.15 180)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "efa51162-6157-467c-b09b-4afc9a202ebd")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 144.8791 184.15 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
 				(hide yes)
 			)
 		)
@@ -10640,7 +10778,7 @@
 	)
 	(symbol
 		(lib_id "power:+3V3")
-		(at 153.67 176.53 90)
+		(at 95.25 161.29 90)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -10648,7 +10786,7 @@
 		(dnp no)
 		(uuid "049d9147-f887-4f14-88fa-2e52b785e053")
 		(property "Reference" "#PWR0111"
-			(at 157.48 176.53 0)
+			(at 99.06 161.29 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10657,7 +10795,7 @@
 			)
 		)
 		(property "Value" "+3V3"
-			(at 148.082 176.784 90)
+			(at 89.662 161.544 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10665,7 +10803,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 153.67 176.53 0)
+			(at 95.25 161.29 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10674,7 +10812,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 153.67 176.53 0)
+			(at 95.25 161.29 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10683,7 +10821,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+3V3\""
-			(at 153.67 176.53 0)
+			(at 95.25 161.29 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11451,7 +11589,7 @@
 	)
 	(symbol
 		(lib_id "PCM_SL_Capacitors:100nF_Ceramic")
-		(at 153.67 173.99 90)
+		(at 95.25 158.75 90)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -11459,7 +11597,7 @@
 		(dnp no)
 		(uuid "1069e6bf-0b3e-48cb-b4b2-7dfa542bcbdb")
 		(property "Reference" "C26"
-			(at 150.622 173.736 90)
+			(at 92.202 158.496 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11469,7 +11607,7 @@
 			)
 		)
 		(property "Value" "100nF_Ceramic"
-			(at 165.862 171.196 90)
+			(at 107.442 155.956 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11478,7 +11616,7 @@
 			)
 		)
 		(property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P2.50mm"
-			(at 157.48 173.99 0)
+			(at 99.06 158.75 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11487,7 +11625,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 153.67 173.99 0)
+			(at 95.25 158.75 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11496,7 +11634,7 @@
 			)
 		)
 		(property "Description" "100nF Ceramic Capacitor"
-			(at 153.67 173.99 0)
+			(at 95.25 158.75 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11922,7 +12060,7 @@
 	)
 	(symbol
 		(lib_id "power:+3V3")
-		(at 100.33 160.02 90)
+		(at 128.27 173.99 90)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -11931,7 +12069,7 @@
 		(fields_autoplaced yes)
 		(uuid "1d6aab4c-3155-4537-a82b-b222e152e5d3")
 		(property "Reference" "#PWR011"
-			(at 104.14 160.02 0)
+			(at 132.08 173.99 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11940,7 +12078,7 @@
 			)
 		)
 		(property "Value" "+3V3"
-			(at 97.79 160.0199 90)
+			(at 125.73 173.9899 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11949,7 +12087,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 100.33 160.02 0)
+			(at 128.27 173.99 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11958,7 +12096,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 100.33 160.02 0)
+			(at 128.27 173.99 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11967,7 +12105,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+3V3\""
-			(at 100.33 160.02 0)
+			(at 128.27 173.99 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12351,7 +12489,7 @@
 	)
 	(symbol
 		(lib_id "PCM_SL_Connectors:JST_04")
-		(at 157.48 180.594 0)
+		(at 99.06 165.354 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -12360,7 +12498,7 @@
 		(fields_autoplaced yes)
 		(uuid "228ad92b-e60a-4493-a34f-426d04d4f993")
 		(property "Reference" "J14"
-			(at 160.02 179.0699 0)
+			(at 101.6 163.8299 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12369,7 +12507,7 @@
 			)
 		)
 		(property "Value" "JST_GV"
-			(at 160.02 181.6099 0)
+			(at 101.6 166.3699 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12378,7 +12516,7 @@
 			)
 		)
 		(property "Footprint" "Connector_JST:JST_EH_B4B-EH-A_1x04_P2.50mm_Vertical"
-			(at 157.48 171.45 0)
+			(at 99.06 156.21 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12387,7 +12525,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 157.48 171.45 0)
+			(at 99.06 156.21 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12396,7 +12534,7 @@
 			)
 		)
 		(property "Description" "JST Connector  4 pins"
-			(at 157.48 180.594 0)
+			(at 99.06 165.354 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12758,7 +12896,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 115.57 162.56 90)
+		(at 143.51 176.53 90)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -12766,7 +12904,7 @@
 		(dnp no)
 		(uuid "30994f1c-b969-4481-9534-fcb4352f5ae4")
 		(property "Reference" "#PWR089"
-			(at 121.92 162.56 0)
+			(at 149.86 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12775,7 +12913,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 118.872 162.56 0)
+			(at 146.812 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12784,7 +12922,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 115.57 162.56 0)
+			(at 143.51 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12793,7 +12931,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 115.57 162.56 0)
+			(at 143.51 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12802,7 +12940,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 115.57 162.56 0)
+			(at 143.51 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13466,8 +13604,75 @@
 		)
 	)
 	(symbol
+		(lib_id "PCM_SL_Resistors:47ohm")
+		(at 85.09 168.91 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "3f98b5a7-4909-43b4-b1f0-2ec76e18ccc7")
+		(property "Reference" "R3"
+			(at 81.788 170.942 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "47ohm"
+			(at 86.36 170.942 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal"
+			(at 85.979 173.228 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 85.598 168.91 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "47Ω, 1/4W Resistor"
+			(at 85.09 168.91 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "cbc8f395-31f9-460f-b593-e3c9519a1a98")
+		)
+		(pin "1"
+			(uuid "29a18c67-726d-4f06-adb7-aa671d2b7dfa")
+		)
+		(instances
+			(project ""
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "R3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:RotaryEncoder_Switch")
-		(at 107.95 160.02 0)
+		(at 135.89 173.99 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -13476,7 +13681,7 @@
 		(fields_autoplaced yes)
 		(uuid "41616292-7985-46fd-9e0c-0cea9309a838")
 		(property "Reference" "SW1"
-			(at 107.95 149.86 0)
+			(at 135.89 163.83 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13484,7 +13689,7 @@
 			)
 		)
 		(property "Value" "RotaryEncoder_Switch"
-			(at 107.95 152.4 0)
+			(at 135.89 166.37 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13492,7 +13697,7 @@
 			)
 		)
 		(property "Footprint" "Rotary_Encoder:RotaryEncoder_Alps_EC11E-Switch_Vertical_H20mm"
-			(at 104.14 155.956 0)
+			(at 132.08 169.926 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13501,7 +13706,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 107.95 153.416 0)
+			(at 135.89 167.386 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13510,7 +13715,7 @@
 			)
 		)
 		(property "Description" "Rotary encoder, dual channel, incremental quadrate outputs, with switch"
-			(at 107.95 160.02 0)
+			(at 135.89 173.99 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15818,7 +16023,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 153.67 179.07 270)
+		(at 95.25 163.83 270)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -15826,7 +16031,7 @@
 		(dnp no)
 		(uuid "65436802-1c13-4608-890b-b37a024ec112")
 		(property "Reference" "#PWR0112"
-			(at 147.32 179.07 0)
+			(at 88.9 163.83 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15835,7 +16040,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 150.622 179.07 90)
+			(at 92.202 163.83 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15845,7 +16050,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 153.67 179.07 0)
+			(at 95.25 163.83 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15854,7 +16059,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 153.67 179.07 0)
+			(at 95.25 163.83 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15863,7 +16068,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 153.67 179.07 0)
+			(at 95.25 163.83 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16916,7 +17121,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 161.29 191.77 90)
+		(at 102.87 176.53 90)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -16924,7 +17129,7 @@
 		(dnp no)
 		(uuid "77b3d836-daf0-457a-b827-b7f1c1f225dd")
 		(property "Reference" "#PWR0114"
-			(at 167.64 191.77 0)
+			(at 109.22 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16933,7 +17138,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 164.338 191.77 90)
+			(at 105.918 176.53 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16943,7 +17148,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 161.29 191.77 0)
+			(at 102.87 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16952,7 +17157,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 161.29 191.77 0)
+			(at 102.87 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16961,7 +17166,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 161.29 191.77 0)
+			(at 102.87 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -17555,7 +17760,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 153.67 171.45 180)
+		(at 95.25 156.21 180)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -17563,7 +17768,7 @@
 		(dnp no)
 		(uuid "8259337b-c9d1-429e-8d33-c8ac14a68cc6")
 		(property "Reference" "#PWR0115"
-			(at 153.67 165.1 0)
+			(at 95.25 149.86 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -17572,7 +17777,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 153.67 168.148 0)
+			(at 95.25 152.908 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -17581,7 +17786,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 153.67 171.45 0)
+			(at 95.25 156.21 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -17590,7 +17795,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 153.67 171.45 0)
+			(at 95.25 156.21 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -17599,7 +17804,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 153.67 171.45 0)
+			(at 95.25 156.21 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18428,7 +18633,7 @@
 	)
 	(symbol
 		(lib_id "power:+3V3")
-		(at 153.67 191.77 90)
+		(at 95.25 176.53 90)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -18436,7 +18641,7 @@
 		(dnp no)
 		(uuid "94264723-e177-4b41-966b-b6f52adfb940")
 		(property "Reference" "#PWR0113"
-			(at 157.48 191.77 0)
+			(at 99.06 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18445,7 +18650,7 @@
 			)
 		)
 		(property "Value" "+3V3"
-			(at 148.082 192.024 90)
+			(at 89.662 176.784 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18453,7 +18658,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 153.67 191.77 0)
+			(at 95.25 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18462,7 +18667,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 153.67 191.77 0)
+			(at 95.25 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18471,7 +18676,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+3V3\""
-			(at 153.67 191.77 0)
+			(at 95.25 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18693,7 +18898,7 @@
 	)
 	(symbol
 		(lib_id "PCM_SL_Capacitors:10uF_16V")
-		(at 157.48 191.77 0)
+		(at 99.06 176.53 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -18701,7 +18906,7 @@
 		(dnp no)
 		(uuid "9cd87222-eeed-4a6c-a4b5-9b1f176e626e")
 		(property "Reference" "C25"
-			(at 153.924 193.548 0)
+			(at 95.504 178.308 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18709,7 +18914,7 @@
 			)
 		)
 		(property "Value" "10uF_16V"
-			(at 156.718 188.468 0)
+			(at 98.298 173.228 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18717,7 +18922,7 @@
 			)
 		)
 		(property "Footprint" "Capacitor_THT:CP_Radial_D5.0mm_P2.00mm"
-			(at 158.242 195.58 0)
+			(at 99.822 180.34 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18726,7 +18931,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 157.988 191.77 0)
+			(at 99.568 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18735,7 +18940,7 @@
 			)
 		)
 		(property "Description" "10uF, 16V Electrolytic Capacitor"
-			(at 157.48 191.77 0)
+			(at 99.06 176.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20876,6 +21081,73 @@
 			(project "simple-robot"
 				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
 					(reference "#PWR054")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "PCM_SL_Resistors:47ohm")
+		(at 85.09 166.37 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "c6592f8b-0211-44aa-9832-70f4c3c958cf")
+		(property "Reference" "R2"
+			(at 82.296 164.084 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "47ohm"
+			(at 86.868 164.084 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal"
+			(at 85.979 170.688 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 85.598 166.37 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "47Ω, 1/4W Resistor"
+			(at 85.09 166.37 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "9ad4a01a-3854-44c0-8caf-05a2435effaf")
+		)
+		(pin "1"
+			(uuid "e5956b9f-02c9-4aea-9293-8b472b1c685b")
+		)
+		(instances
+			(project ""
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "R2")
 					(unit 1)
 				)
 			)
