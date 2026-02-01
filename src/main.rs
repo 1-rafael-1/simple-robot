@@ -322,7 +322,7 @@ fn init_rotary_encoder(
 }
 
 /// Initialize all four RC button inputs
-fn init_rc_buttons(spawner: Spawner, pins: RCButtonPins) {
+fn init_rc_buttons(_spawner: Spawner, _pins: RCButtonPins) {
     // let btn_a = Input::new(btn_a, Pull::Down);
     // spawner.must_spawn(rc_button_handle(btn_a, ButtonId::A));
 

@@ -28,7 +28,6 @@ use embassy_futures::select::{Either, select};
 use embassy_rp::{peripherals::PIO1, pio_programs::pwm::PioPwm};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
-use nalgebra::abs;
 
 use crate::system::state::{OperationMode, SYSTEM_STATE};
 

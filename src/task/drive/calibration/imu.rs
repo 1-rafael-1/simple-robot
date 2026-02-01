@@ -9,10 +9,7 @@ use defmt::info;
 use embassy_time::{Duration, Timer};
 
 use crate::{
-    system::helper::{
-        self,
-        string_helper::{self, status_text},
-    },
+    system::helper::string_helper::status_text,
     task::{
         drive::feedback::{
             clear_accel_measurement, clear_gyro_measurement, clear_mag_measurement, get_latest_accel_measurement,

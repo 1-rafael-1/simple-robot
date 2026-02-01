@@ -286,7 +286,7 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let left_track_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
+    let _left_track_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
         info!("  ENCODER READINGS (LEFT TRACK @ 60%): {:?}", measurement);
         info!(
             "  Left front: {}, Left rear: {}",
@@ -514,7 +514,7 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let right_track_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
+    let _right_track_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
         info!("  ENCODER READINGS (RIGHT TRACK @ 60%): {:?}", measurement);
         info!(
             "  Right front: {}, Right rear: {}",

@@ -54,7 +54,6 @@ use ahrs::{Ahrs, Madgwick};
 use defmt::{info, warn};
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_futures::select::{Either, select};
-use embassy_rp::gpio::Input;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Delay, Duration, Instant, Timer};
 use icm20948::{

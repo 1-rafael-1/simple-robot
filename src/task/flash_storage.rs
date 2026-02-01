@@ -6,9 +6,9 @@
 //!
 //! The data is stored in a reserved section of flash memory defined in memory.x
 
-use defmt::*;
+use defmt::{Format, debug, error, info};
 use embassy_rp::flash::{Async, ERASE_SIZE, Flash};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
 use sequential_storage::{
     cache::NoCache,
@@ -31,6 +31,7 @@ const STORAGE_SIZE: usize = FLASH_SECTOR_SIZE * STORAGE_SECTOR_COUNT;
 
 /// Flash storage offset from the end of flash (last 8KB = 2 sectors)
 /// This should match the settings in memory.x
+#[allow(clippy::cast_possible_truncation)]
 const STORAGE_OFFSET: u32 = 2048 * 1024 - STORAGE_SIZE as u32;
 
 /// Size of the command queue
@@ -39,13 +40,7 @@ const COMMAND_QUEUE_SIZE: usize = 3;
 /// Channel for sending flash storage commands
 static FLASH_COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, FlashCommand, COMMAND_QUEUE_SIZE> = Channel::new();
 
-/// Signal for returning motor calibration data
-static MOTOR_CALIBRATION_SIGNAL: Signal<CriticalSectionRawMutex, MotorCalibration> = Signal::new();
-
-/// Signal for returning IMU calibration data
-static IMU_CALIBRATION_SIGNAL: Signal<CriticalSectionRawMutex, ImuCalibration> = Signal::new();
-
-/// Internal storage for calibration data (managed by flash_storage task only)
+/// Internal storage for calibration data (managed by `flash_storage` task only)
 static CALIBRATION_DATA: embassy_sync::mutex::Mutex<CriticalSectionRawMutex, Option<CalibrationData>> =
     embassy_sync::mutex::Mutex::new(None);
 
@@ -448,7 +443,7 @@ impl Value<'_> for ImuCalibration {
 /// It responds to commands sent via the command channel and uses sequential-storage
 /// for wear leveling and data integrity.
 #[embassy_executor::task]
-pub async fn flash_storage(mut flash: Flash<'static, embassy_rp::peripherals::FLASH, Async, { 2048 * 1024 }>) {
+pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH, Async, { 2048 * 1024 }>) {
     info!("Flash storage task started");
 
     // Define flash range for storage
