@@ -560,183 +560,6 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "JST_02_1"
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(property "Reference" "J"
-				(at 0 7.62 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Value" "JST_02"
-				(at 0 5.08 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Footprint" "Connector_JST:JST_EH_B2B-EH-A_1x02_P2.50mm_Vertical"
-				(at 0 6.35 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Datasheet" ""
-				(at 0 6.35 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Description" "JST Connector  2 pins"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_keywords" "JST 2"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_fp_filters" "Connector_JST:JST_EH_S2B-EH_1x02_P2.50mm_Horizontal"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(symbol "JST_02_1_0_1"
-				(rectangle
-					(start -1.27 2.54)
-					(end 1.27 -2.54)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type background)
-					)
-				)
-				(polyline
-					(pts
-						(xy -1.27 -1.778) (xy -1.27 -2.54) (xy 1.27 -2.54) (xy 1.27 -1.778) (xy 1.016 -1.778) (xy 1.016 -2.286)
-						(xy -1.016 -2.286) (xy -1.016 -1.778) (xy -1.27 -1.778)
-					)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type outline)
-					)
-				)
-				(circle
-					(center 0.254 1.27)
-					(radius 0.381)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type outline)
-					)
-				)
-				(circle
-					(center 0.254 -1.27)
-					(radius 0.381)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type outline)
-					)
-				)
-				(rectangle
-					(start 1.016 1.778)
-					(end 1.27 -1.778)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type outline)
-					)
-				)
-				(polyline
-					(pts
-						(xy 1.27 1.778) (xy 1.27 2.54) (xy -1.27 2.54) (xy -1.27 1.778) (xy -1.016 1.778) (xy -1.016 2.286)
-						(xy 1.016 2.286) (xy 1.016 1.778) (xy 1.27 1.778)
-					)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type outline)
-					)
-				)
-			)
-			(symbol "JST_02_1_1_1"
-				(pin passive line
-					(at -3.81 1.27 0)
-					(length 2.54)
-					(name ""
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin passive line
-					(at -3.81 -1.27 0)
-					(length 2.54)
-					(name ""
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-			)
-			(embedded_fonts no)
-		)
 		(symbol "JST_02_2"
 			(exclude_from_sim no)
 			(in_bom yes)
@@ -8553,6 +8376,16 @@
 	)
 	(wire
 		(pts
+			(xy 21.59 161.29) (xy 35.56 161.29)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "83d58a37-a6c9-4a7f-b67c-99366961260e")
+	)
+	(wire
+		(pts
 			(xy 128.27 36.83) (xy 123.19 36.83)
 		)
 		(stroke
@@ -8603,16 +8436,6 @@
 	)
 	(wire
 		(pts
-			(xy 31.75 158.75) (xy 35.56 158.75)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "8f91451a-5ae5-4927-b567-296f87ae6827")
-	)
-	(wire
-		(pts
 			(xy 236.22 69.85) (xy 236.22 68.58)
 		)
 		(stroke
@@ -8660,16 +8483,6 @@
 			(type default)
 		)
 		(uuid "a1cf9896-de71-44fd-bd6e-bc689252a1f9")
-	)
-	(wire
-		(pts
-			(xy 31.75 161.29) (xy 35.56 161.29)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "aa1f36ee-cd95-4b1e-ba32-d55c1b55a227")
 	)
 	(wire
 		(pts
@@ -8770,6 +8583,16 @@
 			(type default)
 		)
 		(uuid "ca8da8d5-ca4e-4fdc-a2e3-271733bd5411")
+	)
+	(wire
+		(pts
+			(xy 21.59 158.75) (xy 35.56 158.75)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "cab5ecd3-6ff8-4089-a432-f073421acbba")
 	)
 	(wire
 		(pts
@@ -11254,76 +11077,6 @@
 			(project "simple-robot"
 				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
 					(reference "#PWR033")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_name "JST_02_1")
-		(lib_id "PCM_SL_Connectors:JST_02")
-		(at 27.94 160.02 180)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(uuid "068be4b8-0b23-4948-8b0e-6c5b2513cb00")
-		(property "Reference" "J11"
-			(at 26.162 158.496 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "JST02 HC-SR04"
-			(at 32.258 155.702 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Connector_JST:JST_EH_B2B-EH-A_1x02_P2.50mm_Vertical"
-			(at 27.94 166.37 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" ""
-			(at 27.94 166.37 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "JST Connector  2 pins"
-			(at 27.94 160.02 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "72796c92-a701-4ff5-9938-447830718055")
-		)
-		(pin "2"
-			(uuid "7294df04-339b-4e08-b047-c20166478632")
-		)
-		(instances
-			(project ""
-				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
-					(reference "J11")
 					(unit 1)
 				)
 			)
@@ -14630,6 +14383,79 @@
 			(project "simple-robot"
 				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
 					(reference "J12")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "PCM_SL_Connectors:JST_04")
+		(at 17.78 162.306 180)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "47a2bb63-8bb4-431d-9f84-7644734cebe2")
+		(property "Reference" "J11"
+			(at 21.336 153.416 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "JSTHCSR04"
+			(at 21.336 155.956 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Connector_JST:JST_EH_B4B-EH-A_1x04_P2.50mm_Vertical"
+			(at 17.78 171.45 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 17.78 171.45 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "JST Connector  4 pins"
+			(at 17.78 162.306 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "3"
+			(uuid "b3f64918-8aad-415e-9653-947060e8188c")
+		)
+		(pin "2"
+			(uuid "c6f34385-1c56-4c09-a096-5a383addbc78")
+		)
+		(pin "1"
+			(uuid "2d23501f-5a81-4684-8619-cfa60208cf34")
+		)
+		(pin "4"
+			(uuid "bee1580e-5de2-45d0-b061-186ab9f3aaf2")
+		)
+		(instances
+			(project "simple-robot"
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "J11")
 					(unit 1)
 				)
 			)
@@ -20410,6 +20236,72 @@
 		)
 	)
 	(symbol
+		(lib_id "power:GND")
+		(at 21.59 163.83 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "b75fbe3a-6030-4b08-ae78-8bb89f97531e")
+		(property "Reference" "#PWR0116"
+			(at 27.94 163.83 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 24.892 163.83 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Footprint" ""
+			(at 21.59 163.83 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 21.59 163.83 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 21.59 163.83 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "aed1d1f2-cb2c-49b1-a68b-c6591e207788")
+		)
+		(instances
+			(project "simple-robot"
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "#PWR0116")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "PCM_SL_Capacitors:100nF_Ceramic")
 		(at 45.72 187.96 0)
 		(unit 1)
@@ -22873,6 +22765,71 @@
 			(project "simple-robot"
 				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
 					(reference "#PWR091")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+5V")
+		(at 21.59 166.37 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "e31cf183-59d3-4bd3-bcd1-d7c34a5ee645")
+		(property "Reference" "#PWR032"
+			(at 17.78 166.37 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+5V"
+			(at 26.67 166.37 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 21.59 166.37 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 21.59 166.37 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+5V\""
+			(at 21.59 166.37 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "ce84a97f-9686-4fb2-8015-8bb65df12b1f")
+		)
+		(instances
+			(project "simple-robot"
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "#PWR032")
 					(unit 1)
 				)
 			)
