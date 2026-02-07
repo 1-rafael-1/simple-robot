@@ -20,7 +20,7 @@ pub struct RotationState {
     /// Last measured yaw angle (in degrees)
     pub(crate) last_yaw: Option<f32>,
     /// Last update timestamp
-    last_update_ms: u32,
+    last_update_ms: u64,
     /// Direction of rotation
     direction: RotationDirection,
     /// Type of motion during rotation

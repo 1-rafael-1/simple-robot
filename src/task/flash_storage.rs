@@ -66,7 +66,9 @@ pub enum CalibrationKind {
 /// Calibration data variants
 #[derive(Debug, Clone, Copy, Format)]
 pub enum CalibrationDataKind {
+    /// Motor calibration data
     Motor(MotorCalibration),
+    /// IMU calibration data
     Imu(ImuCalibration),
 }
 
@@ -104,16 +106,18 @@ pub struct ImuCalibration {
     /// Magnetometer Z-axis bias
     pub mag_z_bias: f32,
 
-    /// Motor interference correction factors at 50% power
-    /// Format: [all_motors, left_track, right_track]
+    /// x-Axiss Motor interference correction factor at 50% power
     pub mag_x_interference_50: [f32; 3],
+    /// y-Axis Motor interference correction factor at 50% power
     pub mag_y_interference_50: [f32; 3],
+    /// z-Axis Motor interference correction factor at 50% power
     pub mag_z_interference_50: [f32; 3],
 
-    /// Motor interference correction factors at 100% power
-    /// Format: [all_motors, left_track, right_track]
+    /// x-Axis Motor interference correction factor at 100% power
     pub mag_x_interference_100: [f32; 3],
+    /// y-Axis Motor interference correction factor at 100% power
     pub mag_y_interference_100: [f32; 3],
+    /// z-Axis Motor interference correction factor at 100% power
     pub mag_z_interference_100: [f32; 3],
 }
 
@@ -142,7 +146,9 @@ impl Default for ImuCalibration {
 /// Combined calibration data
 #[derive(Debug, Clone, Copy, Format, Default)]
 pub struct CalibrationData {
+    /// Motor calibration data
     pub motor: MotorCalibration,
+    /// IMU calibration data
     pub imu: ImuCalibration,
 }
 
@@ -171,8 +177,8 @@ impl Key for StorageKey {
             return Err(SerializationError::BufferTooSmall);
         }
         match buffer[0] {
-            0 => Ok((StorageKey::MotorCalibration, 1)),
-            1 => Ok((StorageKey::ImuCalibration, 1)),
+            0 => Ok((Self::MotorCalibration, 1)),
+            1 => Ok((Self::ImuCalibration, 1)),
             _ => Err(SerializationError::InvalidFormat),
         }
     }
@@ -206,10 +212,7 @@ impl Value<'_> for MotorCalibration {
         let right_front = f32::from_le_bytes([buffer[8], buffer[9], buffer[10], buffer[11]]);
         let right_rear = f32::from_le_bytes([buffer[12], buffer[13], buffer[14], buffer[15]]);
 
-        Ok((
-            MotorCalibration::new(left_front, left_rear, right_front, right_rear),
-            16,
-        ))
+        Ok((Self::new(left_front, left_rear, right_front, right_rear), 16))
     }
 }
 
@@ -274,6 +277,8 @@ impl Value<'_> for ImuCalibration {
         Ok(108)
     }
 
+    /// Deserialize IMU calibration from bytes
+    #[allow(clippy::too_many_lines, clippy::similar_names)]
     fn deserialize_from(buffer: &[u8]) -> Result<(Self, usize), SerializationError>
     where
         Self: Sized,
@@ -415,7 +420,7 @@ impl Value<'_> for ImuCalibration {
         }
 
         Ok((
-            ImuCalibration {
+            Self {
                 gyro_x_bias,
                 gyro_y_bias,
                 gyro_z_bias,
@@ -442,11 +447,13 @@ impl Value<'_> for ImuCalibration {
 /// This task handles all flash read/write operations for calibration data.
 /// It responds to commands sent via the command channel and uses sequential-storage
 /// for wear leveling and data integrity.
+#[allow(clippy::too_many_lines)]
 #[embassy_executor::task]
 pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH, Async, { 2048 * 1024 }>) {
     info!("Flash storage task started");
 
     // Define flash range for storage
+    #[allow(clippy::cast_possible_truncation)]
     let flash_range = STORAGE_OFFSET..(STORAGE_OFFSET + STORAGE_SIZE as u32);
 
     // Create storage instance (owns flash and cache)
@@ -572,7 +579,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                             .store_item(&mut data_buffer, &StorageKey::MotorCalibration, &motor_cal)
                             .await
                         {
-                            Ok(_) => {
+                            Ok(()) => {
                                 info!("Motor calibration saved successfully");
                             }
                             Err(e) => {
@@ -599,7 +606,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                             .store_item(&mut data_buffer, &StorageKey::ImuCalibration, &imu_cal)
                             .await
                         {
-                            Ok(_) => {
+                            Ok(()) => {
                                 info!("IMU calibration saved successfully");
                             }
                             Err(e) => {
