@@ -269,7 +269,7 @@ async fn main(spawner: Spawner) {
     init_inactivity_tracker(spawner);
 
     // Initialize testing task for development
-    task::testing::init_testing(&spawner);
+    task::testing::init_testing(spawner);
 
     // main wishes you a great day
 }
@@ -323,18 +323,18 @@ fn init_rotary_encoder(
 }
 
 /// Initialize all four RC button inputs
-fn init_rc_buttons(_spawner: Spawner, _pins: RCButtonPins) {
-    // let btn_a = Input::new(btn_a, Pull::Down);
-    // spawner.must_spawn(rc_button_handle(btn_a, ButtonId::A));
+fn init_rc_buttons(spawner: Spawner, pins: RCButtonPins) {
+    let btn_a = Input::new(pins.a, Pull::Down);
+    spawner.must_spawn(task::rc_control::rc_button_handle(btn_a, system::event::ButtonId::A));
 
-    // let btn_b = Input::new(btn_b, Pull::Down);
-    // spawner.must_spawn(rc_button_handle(btn_b, ButtonId::B));
+    let btn_b = Input::new(pins.b, Pull::Down);
+    spawner.must_spawn(task::rc_control::rc_button_handle(btn_b, system::event::ButtonId::B));
 
-    // let btn_c = Input::new(btn_c, Pull::Down);
-    // spawner.must_spawn(rc_button_handle(btn_c, ButtonId::C));
+    let btn_c = Input::new(pins.c, Pull::Down);
+    spawner.must_spawn(task::rc_control::rc_button_handle(btn_c, system::event::ButtonId::C));
 
-    // let btn_d = Input::new(btn_d, Pull::Down);
-    // spawner.must_spawn(rc_button_handle(btn_d, ButtonId::D));
+    let btn_d = Input::new(pins.d, Pull::Down);
+    spawner.must_spawn(task::rc_control::rc_button_handle(btn_d, system::event::ButtonId::D));
 }
 
 /// Initialize motor driver with PWM channels and encoders

@@ -52,7 +52,7 @@ const SERVO_DEFAULT_MIN_PULSE_WIDTH: u64 = 1000;
 const SERVO_DEFAULT_MAX_PULSE_WIDTH: u64 = 2000;
 
 /// uncalibrated default, the degree of rotation that corresponds to a full cycle
-const SERVO_DEFAULT_MAX_DEGREE_ROTATION: u64 = 160;
+const SERVO_DEFAULT_MAX_DEGREE_ROTATION: f32 = 160.0;
 
 /// The period of each cycle
 const SERVO_REFRESH_INTERVAL: u64 = 20000;
@@ -71,15 +71,21 @@ const ULTRASONIC_TEMPERATURE: f64 = 21.5;
 /// Provides a fluent interface for setting servo parameters like pulse widths
 /// and rotation limits before constructing the final servo instance.
 pub struct ServoBuilder<'d, T: Instance, const SM: usize> {
+    /// PIO PWM driver for the servo output.
     pwm: PioPwm<'d, T, SM>,
+    /// PWM period for the servo refresh interval.
     period: Duration,
+    /// Minimum pulse width for the servo.
     min_pulse_width: Duration,
+    /// Maximum pulse width for the servo.
     max_pulse_width: Duration,
-    max_degree_rotation: u64,
+    /// Maximum rotation range in degrees.
+    max_degree_rotation: f32,
 }
 
 impl<'d, T: Instance, const SM: usize> ServoBuilder<'d, T, SM> {
-    pub fn new(pwm: PioPwm<'d, T, SM>) -> Self {
+    /// Create a new servo builder with default timing values.
+    pub const fn new(pwm: PioPwm<'d, T, SM>) -> Self {
         Self {
             pwm,
             period: Duration::from_micros(SERVO_REFRESH_INTERVAL),
@@ -89,21 +95,26 @@ impl<'d, T: Instance, const SM: usize> ServoBuilder<'d, T, SM> {
         }
     }
 
-    pub fn set_min_pulse_width(mut self, duration: Duration) -> Self {
+    /// Set the minimum pulse width for the servo.
+    pub const fn set_min_pulse_width(mut self, duration: Duration) -> Self {
         self.min_pulse_width = duration;
         self
     }
 
-    pub fn set_max_pulse_width(mut self, duration: Duration) -> Self {
+    /// Set the maximum pulse width for the servo.
+    pub const fn set_max_pulse_width(mut self, duration: Duration) -> Self {
         self.max_pulse_width = duration;
         self
     }
 
-    pub fn set_max_degree_rotation(mut self, degree: u64) -> Self {
+    /// Set the maximum rotation range in degrees.
+    pub const fn set_max_degree_rotation(mut self, degree: f32) -> Self {
         self.max_degree_rotation = degree;
         self
     }
 
+    /// Build the configured servo instance.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn build(mut self) -> Servo<'d, T, SM> {
         self.pwm.set_period(self.period);
         Servo {
@@ -120,13 +131,18 @@ impl<'d, T: Instance, const SM: usize> ServoBuilder<'d, T, SM> {
 /// Handles conversion between desired angle and PWM pulse width,
 /// accounting for servo-specific timing requirements.
 pub struct Servo<'d, T: Instance, const SM: usize> {
+    /// PIO PWM driver for the servo output.
     pwm: PioPwm<'d, T, SM>,
+    /// Minimum pulse width for the servo.
     min_pulse_width: Duration,
+    /// Maximum pulse width for the servo.
     max_pulse_width: Duration,
-    max_degree_rotation: u64,
+    /// Maximum rotation range in degrees.
+    max_degree_rotation: f32,
 }
 
-impl<'d, T: Instance, const SM: usize> Servo<'d, T, SM> {
+impl<T: Instance, const SM: usize> Servo<'_, T, SM> {
+    /// Start PWM output for the servo.
     pub fn start(&mut self) {
         self.pwm.start();
     }
@@ -134,16 +150,24 @@ impl<'d, T: Instance, const SM: usize> Servo<'d, T, SM> {
     /// Rotates the servo to the specified angle in degrees
     ///
     /// # Arguments
-    /// * `degree` - Target angle between 0° and max_degree_rotation°
+    /// * `degree` - Target angle between 0° and `max_degree_rotation`°
     ///
     /// Automatically clamps input to valid range and converts
     /// angle to appropriate PWM pulse width for the servo.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
     pub fn rotate_float(&mut self, degree: f32) {
-        let degree = degree.clamp(0.0, self.max_degree_rotation as f32) as f64;
-        let degree_per_nano_second = (self.max_pulse_width.as_nanos() as f64 - self.min_pulse_width.as_nanos() as f64)
-            / self.max_degree_rotation as f64;
-        let mut duration =
-            Duration::from_nanos((degree * degree_per_nano_second + self.min_pulse_width.as_nanos() as f64) as u64);
+        let max_degree_rotation = self.max_degree_rotation;
+        let degree = f64::from(degree.clamp(0.0, max_degree_rotation));
+        let max_pulse_nanos = u64::try_from(self.max_pulse_width.as_nanos()).unwrap_or(u64::MAX);
+        let min_pulse_nanos = u64::try_from(self.min_pulse_width.as_nanos()).unwrap_or(0);
+        let max_pulse_nanos = max_pulse_nanos as f64;
+        let min_pulse_nanos = min_pulse_nanos as f64;
+        let degree_per_nano_second = (max_pulse_nanos - min_pulse_nanos) / f64::from(max_degree_rotation);
+        let mut duration = Duration::from_nanos((degree * degree_per_nano_second + min_pulse_nanos + 0.5) as u64);
         if self.max_pulse_width < duration {
             duration = self.max_pulse_width;
         }
@@ -152,7 +176,7 @@ impl<'d, T: Instance, const SM: usize> Servo<'d, T, SM> {
 }
 
 /// Provides system clock implementation for the HCSR04 ultrasonic sensor driver
-/// by wrapping std::time::Instant
+/// by wrapping `embassy_time::Instant`
 pub struct Clock;
 
 impl Now for Clock {
@@ -166,6 +190,7 @@ impl Now for Clock {
 ///
 /// This helper is constructed inside the sweep task when it starts.
 /// Returns a configured Hcsr04 instance ready for measurements.
+#[allow(clippy::missing_const_for_fn)]
 pub fn setup_ultrasonic_sensor(
     trigger_pin: Output<'static>,
     echo_pin: Input<'static>,
@@ -185,7 +210,7 @@ pub fn setup_servo(
     pwm_pio: PioPwm<'static, embassy_rp::peripherals::PIO0, 0>,
 ) -> Servo<'static, embassy_rp::peripherals::PIO0, 0> {
     let mut servo = ServoBuilder::new(pwm_pio)
-        .set_max_degree_rotation(160) // SG90 servo has 160° range of motion
+        .set_max_degree_rotation(160.0) // SG90 servo has 160° range of motion
         .set_min_pulse_width(Duration::from_micros(500)) // SG90 minimum pulse width
         .set_max_pulse_width(Duration::from_micros(2400)) // SG90 maximum pulse width
         .build();
@@ -230,7 +255,7 @@ pub async fn ultrasonic_sweep(
                 info!("Stopping ultrasonic sweep");
                 continue 'command;
             }
-        };
+        }
 
         loop {
             // Update servo position
@@ -238,7 +263,7 @@ pub async fn ultrasonic_sweep(
 
             // Give servo time to reach position, also see if we must stop the sweep
             match select(Timer::after_millis(25), US_SWEEP_CONTROL.wait()).await {
-                Either::First(_) => {}
+                Either::First(()) => {}
                 Either::Second(_) => {
                     info!("Stopping ultrasonic sweep");
                     continue 'command;
@@ -271,8 +296,9 @@ pub async fn ultrasonic_sweep(
 
             // Update angle and check for direction change
             angle += angle_increment;
-            if angle >= servo.max_degree_rotation as f32 {
-                angle = servo.max_degree_rotation as f32;
+            let max_degree_rotation = servo.max_degree_rotation;
+            if angle >= max_degree_rotation {
+                angle = max_degree_rotation;
                 angle_increment = -angle_increment; // Start moving back
             } else if angle <= 0.0 {
                 angle = 0.0;

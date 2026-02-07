@@ -87,6 +87,7 @@ fn set_rgb(
 /// - Blue channel reserved for future status modes
 /// - Mixing creates intermediate colors
 /// - Blinking patterns indicate operation mode
+#[allow(clippy::cast_lossless, clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 #[embassy_executor::task]
 pub async fn rgb_led_indicate(
     mut pwm_red: PioPwm<'static, PIO1, 0>,

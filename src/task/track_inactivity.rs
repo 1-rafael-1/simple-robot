@@ -21,7 +21,7 @@ pub fn signal_activity() {
 
 /// Waits for next activity signal
 pub async fn wait() -> () {
-    ACTIVITY_SIGNAL.wait().await
+    ACTIVITY_SIGNAL.wait().await;
 }
 
 /// Inactivity monitoring task

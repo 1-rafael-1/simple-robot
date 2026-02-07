@@ -57,7 +57,7 @@ pub async fn rotary_encoder_button(mut button: Input<'static>) {
             Either::Second(_) => {
                 raise_event(Events::RotaryButtonPressed).await;
             }
-        };
+        }
     }
 }
 
