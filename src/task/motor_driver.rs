@@ -13,7 +13,7 @@
 //!
 //! The motor driver uses a dual-layer control system:
 //! 1. **PWM Control (this module)**: Speed control via PWM duty cycle on GPIO 0-3
-//! 2. **Direction Control (port_expander)**: Direction pins via PCA9555 I2C expander
+//! 2. **Direction Control (`port_expander`)**: Direction pins via PCA9555 I2C expander
 //! 3. **Encoder Feedback (this module)**: Pulse counting via PWM input on GPIO 7, 9, 21, 27
 //!
 //! # Hardware Configuration
@@ -142,37 +142,48 @@ fn calculate_voltage_compensation(battery_voltage: f32) -> f32 {
 }
 
 /// Track selection (left or right side of robot)
-#[derive(Debug, Clone, Copy, PartialEq, Format)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Format)]
 pub enum Track {
+    /// Left side of the robot
     Left,
+    /// Right side of the robot
     Right,
 }
 
 /// Motor position within a track (front or rear)
-#[derive(Debug, Clone, Copy, PartialEq, Format)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Format)]
 pub enum Motor {
+    /// Front motor in the track
     Front,
+    /// Rear motor in the track
     Rear,
 }
 
 /// Motor direction states
-#[derive(Debug, Clone, Copy, PartialEq, Format)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Format)]
 pub enum MotorDirection {
+    /// Motor moving forward
     Forward,
+    /// Motor moving backward
     Backward,
-    Coast, // Both pins low - freewheeling
-    Brake, // Both pins high - short circuit braking
+    /// Motor coasting (freewheeling)
+    Coast,
+    /// Motor braking (short circuit braking)
+    Brake,
 }
 
 /// Motor-specific port expander helpers
 /// These functions prepare generic port expander commands for motor control
 mod motor_port_mapping {
-    use super::*;
+    use crate::task::{
+        motor_driver::{Motor, MotorDirection, Track},
+        port_expander::{PortExpanderCommand, PortNumber},
+    };
 
     /// Get the bit positions for a specific motor's direction pins on Port 0
     ///
-    /// Returns (forward_bit, backward_bit) positions
-    pub fn get_motor_direction_bits(track: Track, motor: Motor) -> (u8, u8) {
+    /// Returns (`forward_bit`, `backward_bit`) positions
+    pub const fn get_motor_direction_bits(track: Track, motor: Motor) -> (u8, u8) {
         let base = match (track, motor) {
             (Track::Left, Motor::Front) => 0,  // bits 0,1
             (Track::Left, Motor::Rear) => 2,   // bits 2,3
@@ -183,7 +194,7 @@ mod motor_port_mapping {
     }
 
     /// Get the bit position for a driver's enable/standby pin on Port 1
-    pub fn get_driver_enable_bit(track: Track) -> u8 {
+    pub const fn get_driver_enable_bit(track: Track) -> u8 {
         match track {
             Track::Left => 4,
             Track::Right => 5,
@@ -191,7 +202,7 @@ mod motor_port_mapping {
     }
 
     /// Create port expander command to set a motor's direction
-    pub fn set_motor_direction_cmd(track: Track, motor: Motor, direction: MotorDirection) -> PortExpanderCommand {
+    pub const fn set_motor_direction_cmd(track: Track, motor: Motor, direction: MotorDirection) -> PortExpanderCommand {
         let (fwd_bit, bwd_bit) = get_motor_direction_bits(track, motor);
 
         let (fwd_state, bwd_state) = match direction {
@@ -250,7 +261,7 @@ mod motor_port_mapping {
     }
 
     /// Create port expander command to enable/disable a motor driver
-    pub fn set_driver_enable_cmd(track: Track, enabled: bool) -> PortExpanderCommand {
+    pub const fn set_driver_enable_cmd(track: Track, enabled: bool) -> PortExpanderCommand {
         let bit = get_driver_enable_bit(track);
 
         PortExpanderCommand::OutputPin {
@@ -261,7 +272,7 @@ mod motor_port_mapping {
     }
 
     /// Create port expander command to enable/disable both drivers at once
-    pub fn set_all_drivers_enable_cmd(enabled: bool) -> PortExpanderCommand {
+    pub const fn set_all_drivers_enable_cmd(enabled: bool) -> PortExpanderCommand {
         let mask = (1 << 4) | (1 << 5); // Bits 4 and 5 (left and right drivers)
         let value = if enabled { mask } else { 0 };
 
@@ -290,7 +301,7 @@ pub fn try_send_motor_command(command: MotorCommand) -> bool {
     MOTOR_COMMAND_CHANNEL.sender().try_send(command).is_ok()
 }
 
-/// Receive a motor command (internal use by motor_driver task)
+/// Receive a motor command (internal use by `motor_driver` task)
 async fn receive_motor_command() -> MotorCommand {
     MOTOR_COMMAND_CHANNEL.receiver().receive().await
 }
@@ -339,7 +350,12 @@ pub enum MotorCommand {
     ///     speed: 50,
     /// }).await;
     /// ```
-    SetTrack { track: Track, speed: i8 },
+    SetTrack {
+        /// Track to set (left or right)
+        track: Track,
+        /// Speed for the track (-100 to 100)
+        speed: i8,
+    },
 
     /// Set speeds for both tracks at once (most common operation)
     ///
@@ -364,7 +380,12 @@ pub enum MotorCommand {
     ///     right_speed: 40,
     /// }).await;
     /// ```
-    SetTracks { left_speed: i8, right_speed: i8 },
+    SetTracks {
+        /// Speed for left track (-100 to 100)
+        left_speed: i8,
+        /// Speed for right track (-100 to 100)
+        right_speed: i8,
+    },
 
     /// Set all motors individually (advanced operation)
     ///
@@ -378,9 +399,13 @@ pub enum MotorCommand {
     /// - Single I2C transaction for all direction pins
     /// - Rapid PWM updates for all channels
     SetAllMotors {
+        /// Speed for left front motor (-100 to 100)
         left_front: i8,
+        /// Speed for left rear motor (-100 to 100)
         left_rear: i8,
+        /// Speed for right front motor (-100 to 100)
         right_front: i8,
+        /// Speed for right rear motor (-100 to 100)
         right_rear: i8,
     },
 
@@ -394,14 +419,21 @@ pub enum MotorCommand {
     ///
     /// Speed range: -100 (full backward) to +100 (full forward)
     /// Speed 0 will coast the motor (both direction pins LOW)
-    SetSpeed { track: Track, motor: Motor, speed: i8 },
+    SetSpeed {
+        /// Track of the motor to set (left or right)
+        track: Track,
+        /// Motor position within the track (front or rear)
+        motor: Motor,
+        /// Speed for the motor (-100 to 100)
+        speed: i8,
+    },
 
     /// Set all motors individually with RAW speeds (calibration only)
     ///
     /// **No calibration applied** ❌
     /// **No voltage compensation applied** ❌
     ///
-    /// This is the efficient version of SetSpeed for use during motor calibration.
+    /// This is the efficient version of `SetSpeed` for use during motor calibration.
     /// It sets all 4 motors in one command but bypasses all calibration and compensation.
     ///
     /// This is ONLY for motor calibration procedure. For normal operation:
@@ -421,9 +453,13 @@ pub enum MotorCommand {
     /// }).await;
     /// ```
     SetAllMotorsRaw {
+        /// Speed for left front motor (-100 to 100)
         left_front: i8,
+        /// Speed for left rear motor (-100 to 100)
         left_rear: i8,
+        /// Speed for right front motor (-100 to 100)
         right_front: i8,
+        /// Speed for right rear motor (-100 to 100)
         right_rear: i8,
     },
 
@@ -431,7 +467,12 @@ pub enum MotorCommand {
     ///
     /// Actively stops motor using electrical braking (both direction pins HIGH).
     /// For normal operation, use `BrakeAll` instead.
-    Brake { track: Track, motor: Motor },
+    Brake {
+        /// Track of the motor to brake (left or right)
+        track: Track,
+        /// Motor position within the track (front or rear)
+        motor: Motor,
+    },
 
     /// Coast individual motor (testing/safety)
     ///
@@ -439,7 +480,12 @@ pub enum MotorCommand {
     ///
     /// Stops motor by freewheeling (both direction pins LOW).
     /// For normal operation, use `CoastAll` instead.
-    Coast { track: Track, motor: Motor },
+    Coast {
+        /// Track of the motor to coast (left or right)
+        track: Track,
+        /// Motor position within the track (front or rear)
+        motor: Motor,
+    },
 
     /// Brake all motors simultaneously (safety/emergency stop)
     ///
@@ -456,10 +502,18 @@ pub enum MotorCommand {
     ///
     /// When disabled, the driver chip enters standby mode (low power).
     /// All motor outputs are disabled regardless of direction pins.
-    SetDriverEnable { track: Track, enabled: bool },
+    SetDriverEnable {
+        /// Track of the driver to enable/disable (left or right)
+        track: Track,
+        /// Enable state: true = enabled, false = disabled (standby)
+        enabled: bool,
+    },
 
     /// Enable or disable both motor driver chips
-    SetAllDriversEnable { enabled: bool },
+    SetAllDriversEnable {
+        /// Enable state: true = enabled, false = disabled (standby)
+        enabled: bool,
+    },
 
     // === CALIBRATION MANAGEMENT COMMANDS ===
     /// Set the absolute calibration factor for a specific motor
@@ -469,15 +523,26 @@ pub enum MotorCommand {
     ///
     /// Note: This sets the absolute calibration value, not an incremental adjustment.
     /// The calibration procedure tracks cumulative factors and sends the final absolute value.
-    UpdateCalibration { track: Track, motor: Motor, factor: f32 },
+    UpdateCalibration {
+        /// Track of the motor to update (left or right)
+        track: Track,
+        /// Motor position within the track (front or rear)
+        motor: Motor,
+        /// New calibration factor for the motor (0.5 to 1.5)
+        factor: f32,
+    },
 
     /// Update all calibration factors at once
     ///
     /// Use this to load a complete calibration profile.
     UpdateAllCalibration {
+        /// Calibration factor for left front motor (0.5 to 1.5)
         left_front: f32,
+        /// Calibration factor for left rear motor (0.5 to 1.5)
         left_rear: f32,
+        /// Calibration factor for right front motor (0.5 to 1.5)
         right_front: f32,
+        /// Calibration factor for right rear motor (0.5 to 1.5)
         right_rear: f32,
     },
 }
@@ -512,12 +577,13 @@ impl Default for MotorCalibration {
 }
 
 impl MotorCalibration {
-    /// Clamp calibration factor to somewhat safe range
+    /// lower clamp limit for calibration factors (50% speed)
     const MIN_FACTOR: f32 = 0.5;
+    /// upper clamp limit for calibration factors (150% speed)
     const MAX_FACTOR: f32 = 1.5;
 
     /// Create new calibration with specified factors
-    pub fn new(left_front: f32, left_rear: f32, right_front: f32, right_rear: f32) -> Self {
+    pub const fn new(left_front: f32, left_rear: f32, right_front: f32, right_rear: f32) -> Self {
         let mut cal = Self {
             left_front,
             left_rear,
@@ -529,7 +595,7 @@ impl MotorCalibration {
     }
 
     /// Get calibration factor for a specific motor
-    pub fn get_factor(&self, track: Track, motor: Motor) -> f32 {
+    pub const fn get_factor(&self, track: Track, motor: Motor) -> f32 {
         match (track, motor) {
             (Track::Left, Motor::Front) => self.left_front,
             (Track::Left, Motor::Rear) => self.left_rear,
@@ -540,10 +606,17 @@ impl MotorCalibration {
 
     /// Set calibration factor for a specific motor
     pub fn set_factor(&mut self, track: Track, motor: Motor, factor: f32) {
-        let clamped = factor.clamp(Self::MIN_FACTOR, Self::MAX_FACTOR);
-        if clamped != factor {
-            warn!("Calibration factor {} clamped to {}", factor, clamped);
+        let range = Self::MIN_FACTOR..=Self::MAX_FACTOR;
+        if !range.contains(&factor) {
+            warn!(
+                "Calibration factor {} out of range [{}, {}]",
+                factor,
+                Self::MIN_FACTOR,
+                Self::MAX_FACTOR
+            );
         }
+
+        let clamped = factor.clamp(Self::MIN_FACTOR, Self::MAX_FACTOR);
 
         match (track, motor) {
             (Track::Left, Motor::Front) => self.left_front = clamped,
@@ -556,9 +629,10 @@ impl MotorCalibration {
     /// Apply calibration to a commanded speed
     ///
     /// Returns the calibrated speed, clamped to [-100, 100]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn apply(&self, track: Track, motor: Motor, speed: i8) -> i8 {
         let factor = self.get_factor(track, motor);
-        let calibrated_f32 = speed as f32 * factor;
+        let calibrated_f32 = f32::from(speed) * factor;
         let calibrated = if calibrated_f32 >= 0.0 {
             (calibrated_f32 + 0.5) as i8
         } else {
@@ -576,6 +650,7 @@ impl MotorCalibration {
     /// The voltage compensation ensures motors always receive ~6V regardless of battery level.
     ///
     /// Returns the fully compensated speed, clamped to [-100, 100]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn apply_with_voltage_compensation(
         &self,
         track: Track,
@@ -587,7 +662,7 @@ impl MotorCalibration {
         let calibrated = self.apply(track, motor, speed);
 
         // Then apply voltage compensation
-        let final_f32 = calibrated as f32 * voltage_compensation;
+        let final_f32 = f32::from(calibrated) * voltage_compensation;
         let final_speed = if final_f32 >= 0.0 {
             (final_f32 + 0.5) as i8
         } else {
@@ -598,7 +673,7 @@ impl MotorCalibration {
     }
 
     /// Clamp all factors to valid range
-    fn clamp_all(&mut self) {
+    const fn clamp_all(&mut self) {
         self.left_front = self.left_front.clamp(Self::MIN_FACTOR, Self::MAX_FACTOR);
         self.left_rear = self.left_rear.clamp(Self::MIN_FACTOR, Self::MAX_FACTOR);
         self.right_front = self.right_front.clamp(Self::MIN_FACTOR, Self::MAX_FACTOR);
@@ -608,10 +683,14 @@ impl MotorCalibration {
 
 /// PWM channel mapping - uses PWM slices with A/B channels split into separate outputs
 struct PwmChannels {
-    left_front: embassy_rp::pwm::PwmOutput<'static>, // Left driver, SLICE0 Channel A
-    left_rear: embassy_rp::pwm::PwmOutput<'static>,  // Left driver, SLICE0 Channel B
-    right_front: embassy_rp::pwm::PwmOutput<'static>, // Right driver, SLICE1 Channel A
-    right_rear: embassy_rp::pwm::PwmOutput<'static>, // Right driver, SLICE1 Channel B
+    /// Left driver, SLICE0 Channel A
+    left_front: embassy_rp::pwm::PwmOutput<'static>,
+    ///Left driver, SLICE0 Channel B
+    left_rear: embassy_rp::pwm::PwmOutput<'static>,
+    /// Right driver, SLICE1 Channel A
+    right_front: embassy_rp::pwm::PwmOutput<'static>,
+    /// Right driver, SLICE1 Channel B
+    right_rear: embassy_rp::pwm::PwmOutput<'static>,
 }
 
 impl PwmChannels {
