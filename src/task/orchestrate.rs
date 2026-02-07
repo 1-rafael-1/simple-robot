@@ -17,10 +17,9 @@ use heapless::String;
 use crate::{
     system::{
         event::{Events, wait},
-        state,
-        state::{CalibrationStatus, SYSTEM_STATE},
+        state::{self, CalibrationStatus, SYSTEM_STATE},
     },
-    task::{display, drive, flash_storage, imu_read, motor_driver},
+    task::{display, drive, flash_storage, imu_read, motor_driver, rgb_led_indicate},
 };
 
 /// Main coordination task that implements the system's event loop
@@ -46,12 +45,16 @@ async fn handle_event(event: Events) {
         Events::ButtonPressed(button_id) => handle_button_pressed(button_id).await,
         Events::ButtonHoldStart(button_id) => handle_button_hold_start(button_id).await,
         Events::ButtonHoldEnd(button_id) => handle_button_hold_end(button_id).await,
+        Events::RotaryTurned(_) => info!("Rotary turned"),
+        Events::RotaryButtonPressed => info!("Rotary button pressed"),
+        Events::RotaryButtonHoldStart => info!("Rotary button hold start"),
+        Events::RotaryButtonHoldEnd => info!("Rotary button hold end"),
         Events::InactivityTimeout => handle_inactivity_timeout().await,
         Events::EncoderMeasurementTaken(measurement) => handle_encoder_measurement(measurement).await,
         Events::UltrasonicSweepReadingTaken(distance, angle) => handle_ultrasonic_sweep_reading(distance, angle).await,
         Events::ImuMeasurementTaken(measurement) => handle_imu_measurement(measurement).await,
         Events::RotationCompleted => handle_rotation_completed().await,
-        Events::StartStopMotionDataCollection(start) => handle_start_stop_motion_data(start).await,
+        Events::StartStopMotionDataCollection(start) => handle_start_stop_motion_data(start),
         Events::StartStopUltrasonicSweep(start) => handle_start_stop_ultrasonic_sweep(start).await,
         Events::CalibrationStatus {
             header,
@@ -67,12 +70,12 @@ async fn handle_battery_measured(level: u8, voltage: f32) {
     info!("Battery level measured");
 
     // Store battery voltage in system state for motor driver to poll
-    let mut state = state::SYSTEM_STATE.lock().await;
-    state.battery_voltage = Some(voltage);
-
-    // TODO: Update LED color based on level
-    // TODO: Trigger low battery warnings if level is critical
-    let _ = level; // Suppress unused warning until implemented
+    {
+        let mut state = state::SYSTEM_STATE.lock().await;
+        state.battery_voltage = Some(voltage);
+        state.battery_level = Some(level);
+    }
+    rgb_led_indicate::update_indicator(false);
 }
 
 /// Handle system initialization
@@ -201,6 +204,7 @@ async fn handle_calibration_data_loaded(
 }
 
 /// Handle operation mode changes
+#[allow(clippy::unused_async)]
 async fn handle_operation_mode_set(_mode: crate::system::state::OperationMode) {
     info!("Operation mode set");
     // TODO: Implement mode transition logic
@@ -209,6 +213,7 @@ async fn handle_operation_mode_set(_mode: crate::system::state::OperationMode) {
 }
 
 /// Handle obstacle detection status changes
+#[allow(clippy::unused_async)]
 async fn handle_obstacle_detected(_detected: bool) {
     info!("Obstacle detection status changed");
     // TODO: Implement obstacle response
@@ -217,6 +222,7 @@ async fn handle_obstacle_detected(_detected: bool) {
 }
 
 /// Handle obstacle avoidance completion
+#[allow(clippy::unused_async)]
 async fn handle_obstacle_avoidance_attempted() {
     info!("Obstacle avoidance attempted");
     // TODO: Implement post-avoidance logic
@@ -224,6 +230,7 @@ async fn handle_obstacle_avoidance_attempted() {
 }
 
 /// Handle button press events
+#[allow(clippy::unused_async)]
 async fn handle_button_pressed(_button_id: crate::system::event::ButtonId) {
     info!("Button pressed");
     // TODO: Implement button actions
@@ -232,6 +239,7 @@ async fn handle_button_pressed(_button_id: crate::system::event::ButtonId) {
 }
 
 /// Handle button hold start events
+#[allow(clippy::unused_async)]
 async fn handle_button_hold_start(_button_id: crate::system::event::ButtonId) {
     info!("Button hold started");
     // TODO: Implement hold start actions
@@ -240,6 +248,7 @@ async fn handle_button_hold_start(_button_id: crate::system::event::ButtonId) {
 }
 
 /// Handle button hold end events
+#[allow(clippy::unused_async)]
 async fn handle_button_hold_end(_button_id: crate::system::event::ButtonId) {
     info!("Button hold ended");
     // TODO: Implement hold end actions
@@ -248,6 +257,7 @@ async fn handle_button_hold_end(_button_id: crate::system::event::ButtonId) {
 }
 
 /// Handle inactivity timeout
+#[allow(clippy::unused_async)]
 async fn handle_inactivity_timeout() {
     info!("Inactivity timeout");
     // TODO: Implement power saving
@@ -272,6 +282,7 @@ async fn handle_ultrasonic_sweep_reading(distance: f64, angle: f32) {
 }
 
 /// Handle IMU measurements
+#[allow(clippy::unused_async)]
 async fn handle_imu_measurement(measurement: crate::task::imu_read::ImuMeasurement) {
     // Forward IMU measurements to drive task for rotation control
     // Use try_send to avoid blocking orchestrator - IMU data arrives at 100Hz
@@ -280,6 +291,7 @@ async fn handle_imu_measurement(measurement: crate::task::imu_read::ImuMeasureme
 }
 
 /// Handle rotation completion
+#[allow(clippy::unused_async)]
 async fn handle_rotation_completed() {
     info!("Rotation completed");
     // TODO: Implement rotation completion logic
@@ -288,7 +300,7 @@ async fn handle_rotation_completed() {
 }
 
 /// Handle motion data collection control
-async fn handle_start_stop_motion_data(start: bool) {
+fn handle_start_stop_motion_data(start: bool) {
     info!("Motion data collection control");
 
     // For now, "motion data collection" means IMU orientation streaming for control loops.
@@ -304,6 +316,7 @@ async fn handle_start_stop_motion_data(start: bool) {
 }
 
 /// Handle ultrasonic sweep control
+#[allow(clippy::unused_async)]
 async fn handle_start_stop_ultrasonic_sweep(_start: bool) {
     info!("Ultrasonic sweep control");
     // TODO: Implement ultrasonic sweep control

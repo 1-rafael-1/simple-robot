@@ -20,7 +20,9 @@ use crate::task::{
 /// Which track (left/right) we are referring to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Track {
+    /// Left track
     Left,
+    /// Right track
     Right,
 }
 
@@ -28,18 +30,25 @@ pub enum Track {
 /// with computed per-track averages.
 #[derive(Debug, Clone, Copy)]
 pub struct TrackSpeedData {
+    /// Raw pulse counts for each motor in the current sampling window.
     pub left_front: u16,
+    /// Raw pulse counts for each motor in the current sampling window.
     pub left_rear: u16,
+    /// Raw pulse counts for each motor in the current sampling window.
     pub right_front: u16,
+    /// Raw pulse counts for each motor in the current sampling window.
     pub right_rear: u16,
+    /// Computed average pulse count for the left track (average of left front and rear).
     pub left_track_avg: f32,
+    /// Computed average pulse count for the right track (average of right front and rear).
     pub right_track_avg: f32,
-    pub timestamp_ms: u32,
+    /// Timestamp of the measurement (copied from `EncoderMeasurement`).
+    pub timestamp_ms: u64,
 }
 
 impl TrackSpeedData {
     /// True if all four motors reported zero pulses for this sample window.
-    pub fn all_zero(&self) -> bool {
+    pub const fn all_zero(&self) -> bool {
         self.left_front == 0 && self.left_rear == 0 && self.right_front == 0 && self.right_rear == 0
     }
 
@@ -83,8 +92,8 @@ pub fn calculate_track_averages(measurement: EncoderMeasurement) -> TrackSpeedDa
     let right_front = measurement.right_front;
     let right_rear = measurement.right_rear;
 
-    let left_track_avg = ((left_front as u32 + left_rear as u32) as f32) / 2.0;
-    let right_track_avg = ((right_front as u32 + right_rear as u32) as f32) / 2.0;
+    let left_track_avg = f32::from(left_front + left_rear) / 2.0;
+    let right_track_avg = f32::from(right_front + right_rear) / 2.0;
 
     TrackSpeedData {
         left_front,
@@ -159,6 +168,7 @@ pub fn determine_compensation(diff_percent: f32, left_speed: i8, right_speed: i8
     let raw = diff_percent.abs() * DRIFT_COMPENSATION_GAIN;
     // Avoid `f32::round()` to stay no_std-friendly (core-only). We want an integer step count.
     // `raw` is non-negative here, so "+ 0.5" is a round-to-nearest approximation.
+    #[allow(clippy::cast_possible_truncation)]
     let mut adjustment = (raw + 0.5) as i8;
 
     // Ensure at least 1 step for non-trivial diffs, but never exceed max.
@@ -208,7 +218,7 @@ pub fn determine_compensation(diff_percent: f32, left_speed: i8, right_speed: i8
 ///
 /// Example:
 /// - previous = 65530, current = 3 => delta = 9
-pub fn calculate_delta_u16(current: u16, previous: u16) -> u16 {
+pub const fn calculate_delta_u16(current: u16, previous: u16) -> u16 {
     if current >= previous {
         current - previous
     } else {
@@ -243,14 +253,16 @@ pub fn apply_compensation_action(action: CompensationAction, left_speed: i8, rig
     (l, r)
 }
 
+/// Add `delta` to `value` while clamping to [-100, 100].
+#[allow(clippy::cast_possible_truncation)]
 fn add_clamped(value: i8, delta: i8) -> i8 {
-    let v = value as i16 + delta as i16;
-    v.clamp(-100, 100) as i8
+    (i16::from(value) + i16::from(delta)).clamp(-100, 100) as i8
 }
 
+/// Subtract `delta` from `value` while clamping to [-100, 100].
+#[allow(clippy::cast_possible_truncation)]
 fn sub_clamped(value: i8, delta: i8) -> i8 {
-    let v = value as i16 - delta as i16;
-    v.clamp(-100, 100) as i8
+    (i16::from(value) - i16::from(delta)).clamp(-100, 100) as i8
 }
 
 /// Increase speed magnitude by `delta` while preserving sign (symmetric forward/reverse).
@@ -289,7 +301,7 @@ fn decrease_magnitude_clamped(value: i8, delta: i8) -> i8 {
 
 /// True if increasing magnitude by `delta` is possible without exceeding limits
 /// AND without crossing zero.
-fn can_increase_magnitude_within_bounds(value: i8, delta: i8) -> bool {
+const fn can_increase_magnitude_within_bounds(value: i8, delta: i8) -> bool {
     if delta <= 0 {
         return true;
     }
@@ -309,17 +321,15 @@ fn can_increase_magnitude_within_bounds(value: i8, delta: i8) -> bool {
 ///
 /// For reverse (-):
 /// - we do value + delta, require <= 0 => delta <= -value
+#[allow(clippy::cast_possible_truncation)]
 fn clamp_decrease_magnitude_amount_within_bounds(value: i8, desired_delta: i8) -> i8 {
     if desired_delta <= 0 {
         return 0;
     }
     let max_allowed = if value >= 0 {
-        value as i16
+        i16::from(value)
     } else {
-        (-(value as i16)).max(0)
+        -(i16::from(value)).max(0)
     };
-    (desired_delta as i16).min(max_allowed).max(0) as i8
+    i16::from(desired_delta).min(max_allowed).max(0) as i8
 }
-
-// Note: unit tests are removed here because this project builds in a no_std environment
-// where the `test` crate is not available.

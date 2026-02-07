@@ -18,7 +18,8 @@
 //! ## Port 1 (Mixed I/O)
 //! - Bits 0-3: Inputs - RC Receiver Buttons A, B, C, D
 //! - Bits 4-5: Outputs - General purpose (currently used for motor driver enables)
-//! - Bits 6-7: Outputs - Available for future expansion
+//! - Bit 6: Input - IR obstacle detect
+//! - Bit 7: Output - Available for future expansion
 //!
 //! # Usage
 //!
@@ -53,18 +54,24 @@ use embedded_hal_async::i2c::I2c;
 
 use crate::{
     I2cBusShared,
-    system::event::{ButtonId, Events, send_event},
+    system::event::{ButtonId, Events, raise_event},
+    task::ir_obstacle_detect::signal_ir_obstacle,
 };
 
 /// PCA9555 I2C address (A0=high, A1=A2=low -> 0x21)
 const PCA9555_ADDR: u8 = 0x21;
 
-/// PCA9555 Register addresses
+/// Input register for Port 0.
 const REG_INPUT_PORT0: u8 = 0x00;
+/// Input register for Port 1.
 const REG_INPUT_PORT1: u8 = 0x01;
+/// Output register for Port 0.
 const REG_OUTPUT_PORT0: u8 = 0x02;
+/// Output register for Port 1.
 const REG_OUTPUT_PORT1: u8 = 0x03;
+/// Configuration register for Port 0.
 const REG_CONFIG_PORT0: u8 = 0x06;
+/// Configuration register for Port 1.
 const REG_CONFIG_PORT1: u8 = 0x07;
 
 /// Command channel for port expander operations
@@ -76,9 +83,11 @@ pub async fn send_command(command: PortExpanderCommand) {
 }
 
 /// Port selection
-#[derive(Debug, Clone, Copy, PartialEq, Format)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Format)]
 pub enum PortNumber {
+    /// Port 0 (pins 0-7).
     Port0,
+    /// Port 1 (pins 0-7).
     Port1,
 }
 
@@ -87,56 +96,88 @@ pub enum PortNumber {
 pub enum PortExpanderCommand {
     /// Set a single output pin state
     OutputPin {
+        /// Target port.
         port: PortNumber,
-        pin: u8, // 0-7
+        /// Pin index (0-7).
+        pin: u8,
+        /// Desired output state.
         state: bool,
     },
 
     /// Set entire port output byte at once
-    OutputByte { port: PortNumber, value: u8 },
+    OutputByte {
+        /// Target port.
+        port: PortNumber,
+        /// Output value for all 8 pins.
+        value: u8,
+    },
 
     /// Set multiple bits using mask (efficient for updating specific bits)
     /// Only bits where mask=1 are affected
-    OutputBits { port: PortNumber, mask: u8, value: u8 },
+    OutputBits {
+        /// Target port.
+        port: PortNumber,
+        /// Bitmask of pins to update.
+        mask: u8,
+        /// Values for masked pins.
+        value: u8,
+    },
 
     /// Set both ports at once (atomic, most efficient)
-    BothPorts { port0: u8, port1: u8 },
+    BothPorts {
+        /// Output value for port 0.
+        port0: u8,
+        /// Output value for port 1.
+        port1: u8,
+    },
 }
 
 /// Input state tracking for Port 1
-#[derive(Debug, Clone, Copy, PartialEq, Format)]
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Format)]
 struct InputState {
+    /// Button A (active-low in hardware).
     button_a: bool,
+    /// Button B (active-low in hardware).
     button_b: bool,
+    /// Button C (active-low in hardware).
     button_c: bool,
+    /// Button D (active-low in hardware).
     button_d: bool,
+    /// IR obstacle signal (active-high in hardware).
+    ir_obstacle: bool,
 }
 
 impl InputState {
     /// Create from Port 1 input register value
     /// Note: RC buttons are inverted by NOT gates in hardware (active-LOW)
-    fn from_port1(value: u8) -> Self {
+    const fn from_port1(value: u8) -> Self {
         Self {
             button_a: (value & 0b0000_0001) == 0, // Inverted: LOW = pressed
             button_b: (value & 0b0000_0010) == 0, // Inverted: LOW = pressed
             button_c: (value & 0b0000_0100) == 0, // Inverted: LOW = pressed
             button_d: (value & 0b0000_1000) == 0, // Inverted: LOW = pressed
+            // IR sensor output is inverted in hardware: HIGH = obstacle detected
+            ir_obstacle: (value & 0b0100_0000) != 0,
         }
     }
 
     /// Compare and send events for changed inputs
-    async fn send_changes(&self, previous: &InputState) {
+    async fn send_changes(&self, previous: &Self) {
         if self.button_a != previous.button_a && self.button_a {
-            send_event(Events::ButtonPressed(ButtonId::A)).await;
+            raise_event(Events::ButtonPressed(ButtonId::A)).await;
         }
         if self.button_b != previous.button_b && self.button_b {
-            send_event(Events::ButtonPressed(ButtonId::B)).await;
+            raise_event(Events::ButtonPressed(ButtonId::B)).await;
         }
         if self.button_c != previous.button_c && self.button_c {
-            send_event(Events::ButtonPressed(ButtonId::C)).await;
+            raise_event(Events::ButtonPressed(ButtonId::C)).await;
         }
         if self.button_d != previous.button_d && self.button_d {
-            send_event(Events::ButtonPressed(ButtonId::D)).await;
+            raise_event(Events::ButtonPressed(ButtonId::D)).await;
+        }
+        if self.ir_obstacle != previous.ir_obstacle {
+            signal_ir_obstacle(self.ir_obstacle).await;
         }
     }
 }
@@ -152,7 +193,8 @@ struct PortExpanderState {
 }
 
 impl PortExpanderState {
-    fn new() -> Self {
+    /// Create new state with default values (all outputs low, no inputs pressed)
+    const fn new() -> Self {
         Self {
             port0_output: 0x00,
             port1_output: 0x00, // No pull-ups - external pull-downs needed for RC inputs
@@ -161,12 +203,13 @@ impl PortExpanderState {
                 button_b: false,
                 button_c: false,
                 button_d: false,
+                ir_obstacle: false,
             },
         }
     }
 
     /// Set a single output pin
-    fn set_output_pin(&mut self, port: PortNumber, pin: u8, state: bool) {
+    const fn set_output_pin(&mut self, port: PortNumber, pin: u8, state: bool) {
         if pin > 7 {
             return;
         }
@@ -184,7 +227,7 @@ impl PortExpanderState {
     }
 
     /// Set entire port output byte
-    fn set_output_byte(&mut self, port: PortNumber, value: u8) {
+    const fn set_output_byte(&mut self, port: PortNumber, value: u8) {
         match port {
             PortNumber::Port0 => self.port0_output = value,
             PortNumber::Port1 => self.port1_output = value,
@@ -192,7 +235,7 @@ impl PortExpanderState {
     }
 
     /// Set specific bits using mask
-    fn set_output_bits(&mut self, port: PortNumber, mask: u8, value: u8) {
+    const fn set_output_bits(&mut self, port: PortNumber, mask: u8, value: u8) {
         let port_value = match port {
             PortNumber::Port0 => &mut self.port0_output,
             PortNumber::Port1 => &mut self.port1_output,
@@ -203,7 +246,7 @@ impl PortExpanderState {
     }
 
     /// Set both ports at once
-    fn set_both_ports(&mut self, port0: u8, port1: u8) {
+    const fn set_both_ports(&mut self, port0: u8, port1: u8) {
         self.port0_output = port0;
         self.port1_output = port1;
     }
@@ -211,21 +254,23 @@ impl PortExpanderState {
 
 /// Simple PCA9555 driver using shared I2C bus
 struct Pca9555Driver {
+    /// Shared I2C bus
     i2c_bus: &'static I2cBusShared,
 }
 
 impl Pca9555Driver {
-    fn new(i2c_bus: &'static I2cBusShared) -> Self {
+    /// Create new driver instance with shared I2C bus
+    const fn new(i2c_bus: &'static I2cBusShared) -> Self {
         Self { i2c_bus }
     }
 
     /// Initialize the PCA9555
-    async fn init(&mut self) -> Result<(), ()> {
+    async fn init(&self) -> Result<(), ()> {
         // Configure Port 0: All outputs
         self.write_register(REG_CONFIG_PORT0, 0x00).await?;
 
-        // Configure Port 1: Bits 0-3 inputs (buttons), 4-7 outputs
-        self.write_register(REG_CONFIG_PORT1, 0x0F).await?;
+        // Configure Port 1: Bits 0-3 inputs (buttons), bit 6 input (IR), 4-5/7 outputs
+        self.write_register(REG_CONFIG_PORT1, 0x4F).await?;
 
         // Initialize outputs to safe state (all low)
         self.write_register(REG_OUTPUT_PORT0, 0x00).await?;
@@ -236,7 +281,7 @@ impl Pca9555Driver {
     }
 
     /// Write to a register
-    async fn write_register(&mut self, register: u8, value: u8) -> Result<(), ()> {
+    async fn write_register(&self, register: u8, value: u8) -> Result<(), ()> {
         let mut i2c = self.i2c_bus.lock().await;
         i2c.write(PCA9555_ADDR, &[register, value]).await.map_err(|_| {
             error!("PCA9555 write error");
@@ -244,17 +289,20 @@ impl Pca9555Driver {
     }
 
     /// Read from a register
-    async fn read_register(&mut self, register: u8) -> Result<u8, ()> {
+    async fn read_register(&self, register: u8) -> Result<u8, ()> {
         let mut buf = [0u8; 1];
-        let mut i2c = self.i2c_bus.lock().await;
-        i2c.write_read(PCA9555_ADDR, &[register], &mut buf).await.map_err(|_| {
+        let result = {
+            let mut i2c = self.i2c_bus.lock().await;
+            i2c.write_read(PCA9555_ADDR, &[register], &mut buf).await
+        };
+        result.map_err(|_| {
             error!("PCA9555 read error");
         })?;
         Ok(buf[0])
     }
 
     /// Write both output ports in ONE I2C transaction using auto-increment
-    async fn write_outputs(&mut self, port0: u8, port1: u8) -> Result<(), ()> {
+    async fn write_outputs(&self, port0: u8, port1: u8) -> Result<(), ()> {
         let mut i2c = self.i2c_bus.lock().await;
         // Auto-increment: write to REG_OUTPUT_PORT0, then automatically to REG_OUTPUT_PORT1
         i2c.write(PCA9555_ADDR, &[REG_OUTPUT_PORT0, port0, port1])
@@ -265,7 +313,7 @@ impl Pca9555Driver {
     }
 
     /// Read input state from Port 1
-    async fn read_inputs(&mut self) -> Result<u8, ()> {
+    async fn read_inputs(&self) -> Result<u8, ()> {
         self.read_register(REG_INPUT_PORT1).await
     }
 }
@@ -276,7 +324,7 @@ pub async fn port_expander(i2c_bus: &'static I2cBusShared, mut interrupt: Input<
     info!("Port expander task starting");
 
     // Initialize hardware
-    let mut driver = Pca9555Driver::new(i2c_bus);
+    let driver = Pca9555Driver::new(i2c_bus);
 
     // Initialize the device
     if (driver.init().await).is_err() {
@@ -293,7 +341,7 @@ pub async fn port_expander(i2c_bus: &'static I2cBusShared, mut interrupt: Input<
             state.last_input_state = InputState::from_port1(value);
             debug!("Initial input state: {:?}", state.last_input_state);
         }
-        Err(_) => {
+        Err(()) => {
             error!("Failed to read initial input state");
         }
     }
@@ -301,19 +349,22 @@ pub async fn port_expander(i2c_bus: &'static I2cBusShared, mut interrupt: Input<
     info!("Port expander initialized successfully");
 
     // Main task loop
+    let receiver = COMMAND_CHANNEL.receiver();
     loop {
         // Wait for either a command or an interrupt
-        match select(COMMAND_CHANNEL.receiver().receive(), interrupt.wait_for_low()).await {
+        let command_fut = receiver.receive();
+        let interrupt_fut = interrupt.wait_for_low();
+        match select(command_fut, interrupt_fut).await {
             // Command received
             Either::First(command) => {
                 // debug!("Processing command: {:?}", command);
-                if (process_command(&mut state, &mut driver, command).await).is_err() {
+                if (process_command(&mut state, &driver, command).await).is_err() {
                     error!("Failed to process command");
                 }
             }
 
             // Interrupt triggered (input changed)
-            Either::Second(_) => {
+            Either::Second(()) => {
                 debug!("Interrupt detected, reading inputs");
 
                 // Small delay to debounce
@@ -330,7 +381,7 @@ pub async fn port_expander(i2c_bus: &'static I2cBusShared, mut interrupt: Input<
                         // Update state
                         state.last_input_state = new_state;
                     }
-                    Err(_) => {
+                    Err(()) => {
                         error!("Failed to read inputs after interrupt");
                     }
                 }
@@ -342,7 +393,7 @@ pub async fn port_expander(i2c_bus: &'static I2cBusShared, mut interrupt: Input<
 /// Process a generic pin command and update hardware
 async fn process_command(
     state: &mut PortExpanderState,
-    driver: &mut Pca9555Driver,
+    driver: &Pca9555Driver,
     command: PortExpanderCommand,
 ) -> Result<(), ()> {
     match command {

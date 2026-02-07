@@ -26,14 +26,14 @@ pub enum DriveCommand {
 /// Motion control commands with associated parameters
 #[derive(Debug, Clone, PartialEq)]
 pub enum DriveAction {
-    /// Set motor speeds directly using motor_driver convention
+    /// Set motor speeds directly using `motor_driver` convention
     ///
     /// Speed range: -100 (full backward) to +100 (full forward)
     /// - Positive values: Forward motion
     /// - Negative values: Backward motion
     /// - Zero: Coast (freewheel)
     ///
-    /// This directly maps to motor_driver's SetTracks command.
+    /// This directly maps to `motor_driver`'s `SetTracks` command.
     SetSpeed {
         /// Left track speed (-100 to +100)
         left: i8,
@@ -58,7 +58,7 @@ pub enum DriveAction {
 }
 
 /// Rotation direction for precise turning
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RotationDirection {
     /// Clockwise rotation (right turn)
     Clockwise,
@@ -67,14 +67,17 @@ pub enum RotationDirection {
 }
 
 /// Combined motion options during rotation
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RotationMotion {
     /// Rotate in place at the given rotation speed (0-100)
     ///
     /// This is the "speed differential" input for turns-in-place:
     /// the controller will command left/right tracks as equal-and-opposite
     /// using this value as the magnitude.
-    Stationary { speed: u8 },
+    Stationary {
+        /// Rotation speed (0-100)
+        speed: u8,
+    },
 
     /// Rotate while moving at specified speed (-100 to +100)
     /// Positive = forward, Negative = backward

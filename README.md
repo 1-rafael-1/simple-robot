@@ -9,16 +9,30 @@ Check out the v1-robot navigating autonomously, download the demo video here: [A
 
 > Note: The initial version of this robot is preserved in the [`v1` tag](../../tree/v1). That version represents a simple but functional autonomous robot using basic components. The main branch now tracks the development of an improved version.
 
+## Current Status
+
+**v2 Complete Overhaul - Hardware Phase**
+
+The robot is undergoing a complete redesign with a custom PCB. The new PCB has been ordered and is awaiting delivery. Once it arrives, firmware development will begin in earnest.
+
+Current schematic and PCB designs can be found in the [KiCad directory](misc/KiCad/simple-robot):
+- [Schematic Image](misc/KiCad/simple-robot/schematic.jpg)
+- [PCB Image](misc/KiCad/simple-robot/simple-robot.jpg)
+
+The previous TODO list and BOM information below are from an earlier iteration and no longer reflect the current state of the project.
+
 ## Licensing Overview
 
-This project is licensed under the MIT License with one exception:
+This project uses multiple licenses depending on the component:
 
-- **MIT License** - Applies to all content: Rust code, custom 3D models, PCB designs, and documentation (see [LICENSE](LICENSE))
-- **Exception: Original Proto-Tank Design Files** - Located in `misc/chassis/proto-tank/`, licensed under CC BY 4.0. See [misc/chassis/ATTRIBUTION.md](misc/chassis/ATTRIBUTION.md) for details
+- **Firmware code** (`src/`, `build.rs`, `Cargo.toml`, etc.): Licensed under **MIT License** (see `LICENSE-MIT.md`)
+- **3D-printed chassis designs** (`misc/chassis/`): Based on the Proto-Tank Chassis by fustyles, licensed under **CC BY-SA 4.0** (see attribution below)
+- **Schematic and hardware design** (`misc/media/schematic_picture.png`): Licensed under **CC BY-SA 4.0** (see `LICENSE-CC-BY-SA-4.0.md`)
+- **Documentation** (`docs/`, `README.md`): Licensed under **CC BY-SA 4.0**
 
-For complete licensing information, refer to:
-- [LICENSE](LICENSE) file (MIT - applies to everything except original Proto-Tank files)
-- [misc/chassis/ATTRIBUTION.md](misc/chassis/ATTRIBUTION.md) (CC BY 4.0 for original Proto-Tank)
+Please review the individual license files and attribution sections for detailed information.
+
+---
 
 ## What is it?
 
@@ -46,50 +60,7 @@ Here is a list of the features of the robot, that may some day be implemented:
 - Battery Management
   - Show battery level on RGB LED
 
-It became so crowded on a breadboard, that I decided to make a PCB for it. This turned out to be a fun experience and after a few ... detours... I ended up with a working PCB. Here is my current list of improvements, that grows longer every day:
-
-- [ ] Sensor improvements:
-  - [x] Replace HC-SR04 ultrasonic sensor with IR sensor for more reliable obstacle detection
-    - [x] Add a second IR sensor because the chassis & tracks is too wide to be covered by one sensor.
-  - [x] Add servo-mounted HC-SR04 as a poor man's LIDAR system for better spatial awareness
-  - [ ] Do something with the data... right now it only shows on the display
-  - [X] Integrate MPU6500 IMU for improved position control and orientation sensing.
-- [x] Remote control improvements:
-  - [x] Re-wire everything to decouple the RC receiver as much as possible from the motor driver and other noisy components -> for better reception when motors are running
-- [X] General circuit improvements:
-  - [x] Get rid of the voltage dividers for the RC receiver and the sensors, replace with level shifters instead
-- [X] Mobility improvements:
-  - [x] Replace the simple DC motors with better ones that have higher torque and encoders
-  - [x] Wire up the encoders
-  - [x] Alter code to use encoders for better control and feedback, i.e. drive straight lines
-- [ ] Power management improvements:
-  - [x] Improve the battery indicator by refining the color scheme of the battery indicator
-  - [ ] Add a charger IC to charge and especially to protect the battery from deep discharge
-  - [ ] Gracefully power down when the battery is low
-  - [x] Some sort of on/off switch would be kind of nice, even if plugging the ground cable into the breadboard as a switch is nerdy fun
-- [ ] Mechanics improvements:
-  - [ ] There must be a solution for tightening the tracks, which are too long by a few mm and sometimes come loose
-  - [x] The base frame does not fit well with motors that have encoders -> needs to be adapted
-- [ ] Circuit & Wiring Improvements
-  - [x] Get to grips with KiCad and make an initial Schematic
-  - [x] Make a PCB and get it manufactured
-  - [X] Solder the components on the PCB and test it
-- [ ] Documentation Improvements
-  - [x] Update the readme with the new features
-  - [ ] Add more detailed instructions on how to assemble the robot
-  - [ ] Add more detailed instructions on how to power the robot
-- [ ] Complete implementation
-  - [ ] Implement monitor_motion : Correction for torque bias turning
-  - [ ] Implement monitor_motion : Correction for angled exact turning
-  - [ ] Implement drive : Remove old compensation code, throw out IMU and Encoder data received in favor of the new correction data
-  - [ ] Implement drive : Implement the compensation as received from monitor_motion
-  - [ ] Implement state and rc control :
-    - [ ] Autonomous simple mode (drive, ir sensors avoid collision, random turns)
-    - [ ] Autonomous advanced mode (drive, ir sensors avoid collision, us sweep data used to plot a course)
-
-I am not yet sure how many of these improvements I can implement in a reasonable time frame. Maybe I will archive a v2 at some point along the way.
-
-I will update the readme with these improvements once they are implemented. Let's get started!
+It became so crowded on a breadboard, that I decided to make a PCB for it. This turned out to be a fun experience and led to designing a custom PCB for v2. The new board has been ordered and we're awaiting its arrival to begin the next phase of development.
 
 ## Schematic
 
@@ -99,15 +70,15 @@ You can find the KiCad project here: [misc/KiCad/simple-robot](misc/KiCad/simple
 
 An excellent resource I found perfect to learn KiCad is a series of Youtube videos: [KiCad Tutorial: Beginning to End](https://www.youtube.com/watch?v=vLnu21fS22s&list=PLUOaI24LpvQPls1Ru_qECJrENwzD7XImd). This is crisp and to the point but easy to follow for a beginner like me.
 
-![robot-schematic](misc/media/schematic_picture.png)
-*The schematic*
+![robot-schematic](misc/KiCad/simple-robot/schematic.jpg)
+*The v2 schematic (current design)*
 
-![robot-pcb](misc/media/pcb_picture.png)
-*The PCB*
+![robot-pcb](misc/KiCad/simple-robot/simple-robot.jpg)
+*The v2 PCB layout (current design)*
 
-## Stuff used
+## Stuff used (v1 iteration - historical reference)
 
-Here is an overview of things used to make the robot. This is not supposed to be an exact BOM, but should give a good idea what to get. For an idea of what to connect to what, you can look at [resources.rs](src/system/resources.rs).
+> **Note:** The component list below reflects the v1 iteration of this robot. The v2 design uses a custom PCB with an updated component selection. This BOM is kept for historical reference only. The current v2 BOM will be documented once the new PCB arrives and assembly is complete.
 
 | Component | Description |
 |:--|:--|
@@ -123,14 +94,21 @@ Here is an overview of things used to make the robot. This is not supposed to be
 |2 battery holders|Wired parallel. One 18650 drains pretty quickly but two give decent life.|
 |slide switch|Wired and glued to the battery holders so that I can cut power.|
 |RGB LED|Whatever thing that can be driven by PWM on red and green pin each.|
-|6 104 ceramic (100nF) capacitors|Across power supply lines of RC receiver, across power supply of servo, display, rc receiver, IMU, both sides of level shifter|
-|2 47uF electrolytic capacitors|Across power output of 5V step-up converter. The RC receiver will not be happy with the power ripple otherwise.|
-|470uF electrolytic capacitor|Across the motor power input of the motor driver. Motor switching will send power spikes down the supply so much as to kick out the debugger and what else it hurt I could not observe.|
-|2 330Ω Resistors|For the RGB LED.|
-|10KΩ resistor, 20KΩ resistor|For the voltage divider for the HC-SR04 echo line.|
+|22 104 ceramic (100nF) capacitors|Decoupling capacitors across power supply lines for all ICs, sensors, level shifters, and modules|
+|1 4700µF 16V electrolytic capacitors|Bulk capacitors for motor driver VM input (critical for noise suppression)|
+|2 220µF electrolytic capacitors|Bulk capacitors for 5V rail|
+|2 10µF 16V electrolytic capacitors|Additional filtering capacitors|
+|1 220µF 10V electrolytic capacitor|Power filtering|
+|1 10µF 10V electrolytic capacitor|Power filtering|
+|2 330Ω resistors|Current limiting for RGB LED (red and green channels)|
+|3 220Ω resistors|Current limiting resistors|
+|3 20kΩ resistors|Voltage divider high side (HC-SR04 echo + battery sense)|
+|2 10kΩ resistors|Voltage divider low side (HC-SR04 echo + battery sense)|
+|3 1kΩ resistors|General purpose resistors|
+|3 47Ω resistors|Low value resistors|
 |9g micro servo|For the sweeping sensor|
 |2 IR sensors|For obstacle detection. I used VMA330, but other options will also work.|
-|2 1N5817 Schottky diodes|To combine the IR sensors onto one GPIO|
+
 |CD4049 hex converter|Used to repair my bad design for the IR sensors. These are sending high when no obstacle, while i exppected them to send low then. That way the circuit would not work and the output needs to be inverted.|
 |ICM20948|9-axis Inertial Measurement Unit (IMU)|
 |Header pins|They go everywhere, under most of the boards, onto the PCB for more connections.... get plenty.|
@@ -207,13 +185,8 @@ There are two modules, `system` and `task`. The `system` module contains rather 
 
 The `main.rs` file is the entry point of the program but does nothing besides initializing some resources and then spawning all the tasks.
 
-## Things that went wrong so far
 
-- PCB design: Through-hole width must be 1.04mm, not the default 0.7mm. Doesn't fit, cannot be repaired. It is not expensive, but it is annoying, because delivery is the most costly and most time-consuming part of the process. So a small mistake, corrected in an hour, set me back two weeks.
-- Soldering: I had to do it all twice, because at some point solder would not flow where it should and heating stuff too high & too long made a mess out of the first board, leading to odd unwanted connectivity. And most annoyingly i put in the step-up-converters the wrong way around, unsoldering them damaged the PCB even more. Turns out wiping the board down with Isopropanol before soldering is a good idea. Also, sometimes a fiber glass pen is a good thing to have around. A clean soldering iron tip is a must, at the lowest temperature sufficient to heat solder&noard enough.
-- Overconfidence: I did not bother to check if the IR sensors output high or low when detecting an obstacle. Expected them to send normally low signals, but they send normally high signals. My original plan was to connect them both to only one GPIO, routing each through a diode. I was low on free GPIOs and this saves one. As it is with normally high signals, detection does not work, of course. So I had to get a CD4049 hex inverter and wire the sensors through that. That works, but it is annoying - I now have some additional external circuitry that could have easily fitted on the PCB. Looks ugly and clumsy. Want to know the best part? I actually do have one GPIO left... :-) The next version of the PCB (if there ever is one) will have the IR sensors connected directly to the GPIOs each.
 
-Besides that I have had quite a few more minor moments of if-i-only-had-known-that-before. But that is the fun part of the hobby, isn't it?
 
 ## Acknowledgments & Attribution
 

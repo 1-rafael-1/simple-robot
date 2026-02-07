@@ -18,12 +18,14 @@
 //!
 //! # PWM Control
 //! - 100Hz PWM frequency for flicker-free operation
-//! - Independent control of red and green channels
+//! - Independent control of red, green, and blue channels via PIO PWM
 //! - Duty cycle proportional to battery level
 //! - Smooth transitions between states
 
+use core::time::Duration as CoreDuration;
+
 use embassy_futures::select::{Either, select};
-use embassy_rp::pwm::{Pwm, SetDutyCycle};
+use embassy_rp::{peripherals::PIO1, pio_programs::pwm::PioPwm};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 
@@ -51,19 +53,58 @@ const MODE_BLINK_INTERVAL: Duration = Duration::from_millis(700);
 /// Interval for state change confirmation blinks (30ms is quick but noticeable)
 const AFFIRM_BLINK_INTERVAL: Duration = Duration::from_millis(30);
 
+/// PWM period for the PIO-driven RGB LED (100 Hz).
+const PWM_PERIOD: CoreDuration = CoreDuration::from_micros(10_000);
+
+/// Sets a PIO PWM channel to a duty cycle percentage.
+#[allow(clippy::cast_possible_truncation)]
+fn set_pwm_percent<const SM: usize>(pwm: &mut PioPwm<'static, PIO1, SM>, percent: u8) {
+    let clamped = u128::from(percent.min(100));
+    let high_us = PWM_PERIOD.as_micros() * clamped / 100;
+    let high = CoreDuration::from_micros(high_us as u64);
+    pwm.write(high);
+}
+
+/// Sets all RGB channels in one call.
+fn set_rgb(
+    pwm_red: &mut PioPwm<'static, PIO1, 0>,
+    pwm_green: &mut PioPwm<'static, PIO1, 1>,
+    pwm_blue: &mut PioPwm<'static, PIO1, 2>,
+    red: u8,
+    green: u8,
+    blue: u8,
+) {
+    set_pwm_percent(pwm_red, red);
+    set_pwm_percent(pwm_green, green);
+    set_pwm_percent(pwm_blue, blue);
+}
+
 /// Main LED control task that manages visual feedback based on system state
 ///
-/// Uses PWM to control LED brightness and color:
+/// Uses PIO PWM to control LED brightness and color:
 /// - Red channel indicates low battery
 /// - Green channel indicates high battery
+/// - Blue channel reserved for future status modes
 /// - Mixing creates intermediate colors
 /// - Blinking patterns indicate operation mode
+#[allow(clippy::cast_lossless, clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 #[embassy_executor::task]
-pub async fn rgb_led_indicate(mut pwm_red: Pwm<'static>, mut pwm_green: Pwm<'static>) {
+pub async fn rgb_led_indicate(
+    mut pwm_red: PioPwm<'static, PIO1, 0>,
+    mut pwm_green: PioPwm<'static, PIO1, 1>,
+    mut pwm_blue: PioPwm<'static, PIO1, 2>,
+) {
+    pwm_red.set_period(PWM_PERIOD);
+    pwm_green.set_period(PWM_PERIOD);
+    pwm_blue.set_period(PWM_PERIOD);
+
+    pwm_red.start();
+    pwm_green.start();
+    pwm_blue.start();
+
     // Start with LED off
     let mut led_on = false;
-    let _ = pwm_red.set_duty_cycle_fully_off();
-    let _ = pwm_green.set_duty_cycle_fully_off();
+    set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, 0, 0, 0);
 
     loop {
         let affirm = wait().await;
@@ -72,16 +113,15 @@ pub async fn rgb_led_indicate(mut pwm_red: Pwm<'static>, mut pwm_green: Pwm<'sta
         if affirm {
             for _ in 0..5 {
                 if led_on {
-                    let _ = pwm_red.set_duty_cycle_fully_off();
-                    let _ = pwm_green.set_duty_cycle_fully_on();
+                    set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, 0, 100, 0);
                 } else {
-                    let _ = pwm_red.set_duty_cycle_fully_on();
-                    let _ = pwm_green.set_duty_cycle_fully_off();
+                    set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, 100, 0, 0);
                 }
                 led_on = !led_on;
                 Timer::after(AFFIRM_BLINK_INTERVAL).await;
             }
             led_on = false;
+            set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, 0, 0, 0);
         }
 
         // Get current system state
@@ -91,16 +131,23 @@ pub async fn rgb_led_indicate(mut pwm_red: Pwm<'static>, mut pwm_green: Pwm<'sta
         };
 
         // Calculate PWM duty cycles based on battery level
-        // Green is typically brighter, so we reduce its intensity to .4
-        let (green_pwm, red_pwm) = if battery_level >= 50 {
+        if battery_level.is_none() {
+            // No battery level info: solid blue
+            set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, 0, 0, 100);
+            continue;
+        }
+
+        let batt_lvl = battery_level.unwrap_or_default();
+
+        let (green_pwm, red_pwm) = if batt_lvl >= 50 {
             // Upper half: Green fades to yellow
-            let blend_factor = (battery_level - 50) * 2; // Scale 50-100 to 0-100
+            let blend_factor = (batt_lvl - 50) * 2; // Scale 50-100 to 0-100
             let green = (100_f32 * 0.4) as u8; // Reduce green intensity
             let red = ((100 - blend_factor) as f32) as u8; // Keep red at full
             (green, red)
         } else {
             // Lower half: Yellow fades to red
-            let blend_factor = battery_level * 2; // Scale 0-50 to 0-100
+            let blend_factor = batt_lvl * 2; // Scale 0-50 to 0-100
             let green = ((blend_factor as f32) * 0.4) as u8; // Reduce green intensity
             let red = 100; // Keep red at full
             (green, red)
@@ -109,18 +156,15 @@ pub async fn rgb_led_indicate(mut pwm_red: Pwm<'static>, mut pwm_green: Pwm<'sta
         match operation_mode {
             OperationMode::Manual => {
                 // Solid color indicating battery level
-                let _ = pwm_green.set_duty_cycle_percent(green_pwm);
-                let _ = pwm_red.set_duty_cycle_percent(red_pwm);
+                set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, red_pwm, green_pwm, 0);
             }
             OperationMode::Autonomous => {
                 // Blink pattern indicating autonomous operation
                 'autonomous_blink: loop {
                     if led_on {
-                        let _ = pwm_green.set_duty_cycle_percent(green_pwm);
-                        let _ = pwm_red.set_duty_cycle_percent(red_pwm);
+                        set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, red_pwm, green_pwm, 0);
                     } else {
-                        let _ = pwm_green.set_duty_cycle_fully_off();
-                        let _ = pwm_red.set_duty_cycle_fully_off();
+                        set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, 0, 0, 0);
                     }
 
                     led_on = !led_on;

@@ -3,50 +3,48 @@
 //! Detects obstacles using the VMA330 IR obstacle avoidance sensor.
 //!
 //! # Sensor Operation
-//! - Uses digital input with edge detection
-//! - Responds to both rising and falling edges
+//! - Port expander monitors the IR input and signals changes
+//! - This task waits for signals and emits system events
 //! - Includes debounce delay to filter noise
 //!
 //! # Operation
 //! - IR sensor outputs low (0) when obstacle detected
 //! - High (1) when no obstacle present
 //! - But we have inverted the sensor output in hardware
-//! - Edge detection ensures immediate response to changes
+//! - The port expander signals the updated state
 
-use embassy_rp::gpio::Input;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
 
-use crate::system::event::{Events, send_event};
+use crate::system::event::{Events, raise_event};
 
 /// Debounce delay to filter out noise
 const DEBOUNCE_DELAY: Duration = Duration::from_millis(100);
 
-/// Main obstacle detection task that monitors for obstacles using IR sensor
-///
-/// Uses edge detection to respond to changes in sensor state, with debouncing
-/// to filter out noise. The sensor outputs low (0) when an obstacle is detected.
-#[embassy_executor::task]
-pub async fn ir_obstacle_detect(mut ir_right: Input<'static>) {
-    // perform initial measure to ensure initial state is caught
-    Timer::after(DEBOUNCE_DELAY).await;
+/// Channel used by the port expander to signal IR state changes
+static IR_SIGNAL_CHANNEL: Channel<CriticalSectionRawMutex, bool, 4> = Channel::new();
 
-    // Read initial state. We have inverted the sensor output in hardware, so high is obstacle detected here.
-    let mut obstacle_detected = ir_right.is_high();
-    let mut last_obstacle_detected = obstacle_detected;
-    // and send initial event
-    send_event(Events::ObstacleDetected(obstacle_detected)).await;
+/// Signal IR obstacle state changes from the port expander task
+pub async fn signal_ir_obstacle(state: bool) {
+    IR_SIGNAL_CHANNEL.sender().send(state).await;
+}
+
+/// Main obstacle detection task that waits for port expander signals
+///
+/// The port expander detects input changes and signals the new state. This task
+/// debounces and raises the system event when the state changes.
+#[embassy_executor::task]
+pub async fn ir_obstacle_detect() {
+    let mut last_obstacle_detected: Option<bool> = None;
 
     loop {
-        ir_right.wait_for_any_edge().await;
+        let obstacle_detected = IR_SIGNAL_CHANNEL.receiver().receive().await;
         Timer::after(DEBOUNCE_DELAY).await;
 
-        // Read current state after debounce
-        obstacle_detected = ir_right.is_high();
-
         // Only send event if state has changed
-        if obstacle_detected != last_obstacle_detected {
-            send_event(Events::ObstacleDetected(obstacle_detected)).await;
-            last_obstacle_detected = obstacle_detected;
+        if last_obstacle_detected != Some(obstacle_detected) {
+            raise_event(Events::ObstacleDetected(obstacle_detected)).await;
+            last_obstacle_detected = Some(obstacle_detected);
         }
     }
 }

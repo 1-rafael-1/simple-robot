@@ -6,14 +6,17 @@ use crate::{
     task::motor_driver::{self, MotorCommand, Track},
 };
 
-/// Track state tracking (simplified - actual control via motor_driver task)
-pub(crate) struct TrackState {
+/// Track state tracking (simplified - actual control via `motor_driver` task)
+pub struct TrackState {
+    /// Current motor speed setting (-100 to +100)
     current_speed: i8,
+    /// Current direction (true = forward, false = backward)
     forward: bool,
 }
 
 impl TrackState {
-    pub fn new() -> Self {
+    /// Creates a new track state with default values
+    pub const fn new() -> Self {
         Self {
             current_speed: 0,
             forward: true,
@@ -25,8 +28,15 @@ impl TrackState {
     pub fn calculate_rpm(&self, pulses: u16, elapsed_ms: u32) -> f32 {
         use crate::task::drive::types::PULSES_PER_REV;
 
-        let hz = (pulses as f32 * 1000.0) / elapsed_ms as f32;
-        let motor_rpm = (hz / PULSES_PER_REV as f32) * 60.0;
+        if elapsed_ms == 0 {
+            return 0.0;
+        }
+
+        let hz = (f64::from(pulses) * 1000.0) / f64::from(elapsed_ms);
+        let motor_rpm = (hz / f64::from(PULSES_PER_REV)) * 60.0;
+        #[allow(clippy::cast_precision_loss)]
+        #[allow(clippy::cast_possible_truncation)]
+        let motor_rpm = motor_rpm as f32;
         if self.forward { motor_rpm } else { -motor_rpm }
     }
 
@@ -49,8 +59,10 @@ impl TrackState {
     pub async fn set_speed_with_tilt(&mut self, track: Track, base_speed: i8, tilt_degrees: f32) {
         let mut tilt_compensation = TiltCompensation::new(0.3, 45.0);
         let tilt_adjustment = tilt_compensation.calculate_adjustment(tilt_degrees);
-        let adjusted_speed = (base_speed as f32 * (1.0 + tilt_adjustment)) as i8;
-        self.set_speed(track, adjusted_speed.clamp(-100, 100)).await;
+        let adjusted = f32::from(base_speed) * (1.0 + tilt_adjustment);
+        #[allow(clippy::cast_possible_truncation)]
+        let adjusted_speed = libm::roundf(adjusted).clamp(-100.0, 100.0) as i8;
+        self.set_speed(track, adjusted_speed).await;
     }
 
     /// Actively stops motor using electrical braking
@@ -67,7 +79,7 @@ impl TrackState {
     }
 
     /// Returns current motor speed setting (-100 to +100)
-    pub fn current_speed(&self) -> i8 {
+    pub const fn current_speed(&self) -> i8 {
         self.current_speed
     }
 }

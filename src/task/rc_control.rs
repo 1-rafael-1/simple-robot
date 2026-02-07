@@ -7,7 +7,7 @@ use embassy_futures::select::{Either, select};
 use embassy_rp::gpio::{Input, Level};
 use embassy_time::{Duration, Timer};
 
-use crate::system::event::{ButtonId, Events, send_event};
+use crate::system::event::{ButtonId, Events, raise_event};
 
 /// Button hold threshold (ms)
 const HOLD_DURATION: Duration = Duration::from_millis(700);
@@ -24,7 +24,7 @@ pub async fn rc_button_handle(mut btn: Input<'static>, id: ButtonId) {
 /// Processes button input and generates events
 ///
 /// Generates:
-/// - ButtonPressed for short press
+/// - `ButtonPressed` for short press
 /// - ButtonHoldStart/End for long press
 async fn handle_button(button: &mut Input<'static>, id: ButtonId) {
     loop {
@@ -34,18 +34,18 @@ async fn handle_button(button: &mut Input<'static>, id: ButtonId) {
 
         if init_level != Level::High {
             continue;
-        };
+        }
 
         match select(Timer::after(HOLD_DURATION), debounce(button)).await {
             Either::First(()) => {
-                send_event(Events::ButtonHoldStart(id)).await;
+                raise_event(Events::ButtonHoldStart(id)).await;
                 button.wait_for_low().await;
-                send_event(Events::ButtonHoldEnd(id)).await;
+                raise_event(Events::ButtonHoldEnd(id)).await;
             }
             Either::Second(_) => {
-                send_event(Events::ButtonPressed(id)).await;
+                raise_event(Events::ButtonPressed(id)).await;
             }
-        };
+        }
     }
 }
 

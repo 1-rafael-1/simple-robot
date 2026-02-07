@@ -44,7 +44,7 @@ pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Events, 64> = Channel
 ///
 /// Events are queued if channel is full. If multiple events
 /// occur simultaneously, they are processed in order of arrival.
-pub async fn send_event(event: Events) {
+pub async fn raise_event(event: Events) {
     EVENT_CHANNEL.sender().send(event).await;
 }
 
@@ -92,7 +92,12 @@ pub enum Events {
     /// - level: 0-100 percent, triggers LED color updates
     /// - voltage: raw voltage in volts, used for motor driver voltage compensation
     /// - Single event reduces event channel load
-    BatteryMeasured { level: u8, voltage: f32 },
+    BatteryMeasured {
+        /// Battery charge level (0-100%)
+        level: u8,
+        /// Battery voltage in volts
+        voltage: f32,
+    },
 
     /// Button press detected
     /// - Short press (< 1 second)
@@ -108,6 +113,20 @@ pub enum Events {
     /// - Long press ended
     /// - Completes hold actions
     ButtonHoldEnd(ButtonId),
+
+    /// Rotary encoder turn
+    /// - Clockwise = increment, `CounterClockwise` = decrement
+    RotaryTurned(RotaryDirection),
+
+    /// Rotary encoder button press
+    /// - Short press
+    RotaryButtonPressed,
+
+    /// Rotary encoder button hold initiated
+    RotaryButtonHoldStart,
+
+    /// Rotary encoder button hold released
+    RotaryButtonHoldEnd,
 
     /// System inactivity timeout
     /// - No user input for extended period
@@ -131,7 +150,7 @@ pub enum Events {
     ImuMeasurementTaken(ImuMeasurement),
 
     /// Precise rotation completed
-    /// - Signals that a RotateExact command finished
+    /// - Signals that a `RotateExact` command finished
     /// - Used for sequencing movements
     RotationCompleted,
 
@@ -150,15 +169,28 @@ pub enum Events {
     /// - Triggered during calibration procedures to update display
     /// - Contains optional header (line 0) and up to 3 status lines (lines 1-3)
     CalibrationStatus {
+        /// Optional header text (line 0)
         header: Option<heapless::String<20>>,
+        /// Optional status line 1
         line1: Option<heapless::String<20>>,
+        /// Optional status line 2
         line2: Option<heapless::String<20>>,
+        /// Optional status line 3
         line3: Option<heapless::String<20>>,
     },
 }
 
+/// Rotary encoder direction
+#[derive(Debug, Clone, Copy, Format, Eq, PartialEq)]
+pub enum RotaryDirection {
+    /// Encoder turned clockwise
+    Clockwise,
+    /// Encoder turned counter clockwise
+    CounterClockwise,
+}
+
 /// Remote control button identifiers
-#[derive(Debug, Clone, Copy, Format, PartialEq)]
+#[derive(Debug, Clone, Copy, Format, Eq, PartialEq)]
 pub enum ButtonId {
     /// Forward/Mode toggle button
     A,

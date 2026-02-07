@@ -9,15 +9,18 @@
 use defmt::info;
 use embassy_time::{Duration, Timer};
 
-use crate::task::{
-    drive::{
-        feedback::{clear_encoder_measurement, wait_for_encoder_event_timeout},
-        types::{
-            CALIBRATION_COAST_DURATION_MS, CALIBRATION_SAMPLE_DURATION_MS, CALIBRATION_SPEED_INDIVIDUAL,
-            CALIBRATION_SPEED_TRACK,
+use crate::{
+    system::helper::string_helper::status_text,
+    task::{
+        drive::{
+            feedback::{clear_encoder_measurement, wait_for_encoder_event_timeout},
+            types::{
+                CALIBRATION_COAST_DURATION_MS, CALIBRATION_SAMPLE_DURATION_MS, CALIBRATION_SPEED_INDIVIDUAL,
+                CALIBRATION_SPEED_TRACK,
+            },
         },
+        motor_driver::{self, MotorCommand, Track},
     },
-    motor_driver::{self, MotorCommand, Track},
 };
 
 /// Maximum track matching tolerance (1% difference between left and right tracks)
@@ -32,7 +35,8 @@ const MAX_REFINEMENT_ITERATIONS: u8 = 5;
 /// - `encoder_read`: Provides pulse count measurements
 /// - `motor_driver`: Applies speed commands and stores calibration factors
 /// - `flash_storage`: Persists calibration data
-pub(crate) async fn run_motor_calibration() {
+#[allow(clippy::too_many_lines)]
+pub async fn run_motor_calibration() {
     use heapless::String;
 
     use crate::{
@@ -43,9 +47,9 @@ pub(crate) async fn run_motor_calibration() {
     info!("=== Starting Motor Calibration ===");
 
     // Display calibration header
-    event::send_event(event::Events::CalibrationStatus {
-        header: Some(String::try_from("Motor Calibration").unwrap()),
-        line1: Some(String::try_from("Enabling drivers").unwrap()),
+    event::raise_event(event::Events::CalibrationStatus {
+        header: status_text("Motor Calibration"),
+        line1: status_text("Enabling drivers"),
         line2: None,
         line3: None,
     })
@@ -75,10 +79,10 @@ pub(crate) async fn run_motor_calibration() {
 
     // Step 1: Test left track motors individually
     info!("Step 1: Testing left track motors individually");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 1/8").unwrap()),
-        line2: Some(String::try_from("Test left motors").unwrap()),
+        line1: status_text("Step 1/8"),
+        line2: status_text("Test left motors"),
         line3: None,
     })
     .await;
@@ -87,11 +91,11 @@ pub(crate) async fn run_motor_calibration() {
     info!("  Testing left front motor");
     info!("    -> Commanding LEFT FRONT motor to 100%");
     info!("    -> All other motors OFF");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
         line1: None,
         line2: None,
-        line3: Some(String::try_from("Left front...").unwrap()),
+        line3: status_text("Left front..."),
     })
     .await;
 
@@ -115,17 +119,20 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let left_front_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
-        info!("    ENCODER READINGS: {:?}", measurement);
-        info!("    -> left_front encoder: {}", measurement.left_front);
-        info!("    -> left_rear encoder: {}", measurement.left_rear);
-        info!("    -> right_front encoder: {}", measurement.right_front);
-        info!("    -> right_rear encoder: {}", measurement.right_rear);
-        measurement.left_front
-    } else {
-        info!("    Warning: No encoder event received for left front");
-        0
-    };
+    let left_front_count = wait_for_encoder_event_timeout(500).await.map_or_else(
+        || {
+            info!("    Warning: No encoder event received for left front");
+            0
+        },
+        |measurement| {
+            info!("    ENCODER READINGS: {:?}", measurement);
+            info!("    -> left_front encoder: {}", measurement.left_front);
+            info!("    -> left_rear encoder: {}", measurement.left_rear);
+            info!("    -> right_front encoder: {}", measurement.right_front);
+            info!("    -> right_rear encoder: {}", measurement.right_rear);
+            measurement.left_front
+        },
+    );
     info!("    ✓ Left front encoder count: {}", left_front_count);
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
@@ -135,11 +142,11 @@ pub(crate) async fn run_motor_calibration() {
     info!("  Testing left rear motor");
     info!("    -> Commanding LEFT REAR motor to 100%");
     info!("    -> All other motors OFF");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
         line1: None,
         line2: None,
-        line3: Some(String::try_from("Left rear...").unwrap()),
+        line3: status_text("Left rear..."),
     })
     .await;
 
@@ -163,17 +170,20 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let left_rear_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
-        info!("    ENCODER READINGS: {:?}", measurement);
-        info!("    -> left_front encoder: {}", measurement.left_front);
-        info!("    -> left_rear encoder: {}", measurement.left_rear);
-        info!("    -> right_front encoder: {}", measurement.right_front);
-        info!("    -> right_rear encoder: {}", measurement.right_rear);
-        measurement.left_rear
-    } else {
-        info!("    Warning: No encoder event received for left rear");
-        0
-    };
+    let left_rear_count = wait_for_encoder_event_timeout(500).await.map_or_else(
+        || {
+            info!("    Warning: No encoder event received for left rear");
+            0
+        },
+        |measurement| {
+            info!("    ENCODER READINGS: {:?}", measurement);
+            info!("    -> left_front encoder: {}", measurement.left_front);
+            info!("    -> left_rear encoder: {}", measurement.left_rear);
+            info!("    -> right_front encoder: {}", measurement.right_front);
+            info!("    -> right_rear encoder: {}", measurement.right_rear);
+            measurement.left_rear
+        },
+    );
     info!("    ✓ Left rear encoder count: {}", left_rear_count);
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
@@ -181,10 +191,10 @@ pub(crate) async fn run_motor_calibration() {
 
     // Step 2: Match left track motors
     info!("Step 2: Matching left track motors");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 2/8").unwrap()),
-        line2: Some(String::try_from("Match left track").unwrap()),
+        line1: status_text("Step 2/8"),
+        line2: status_text("Match left track"),
         line3: None,
     })
     .await;
@@ -193,15 +203,15 @@ pub(crate) async fn run_motor_calibration() {
         0
     } else if left_front_count < left_rear_count {
         info!("  Left front is weaker (reference)");
-        event::send_event(event::Events::CalibrationStatus {
+        event::raise_event(event::Events::CalibrationStatus {
             header: None,
             line1: None,
             line2: None,
-            line3: Some(String::try_from("Adj left rear").unwrap()),
+            line3: status_text("Adj left rear"),
         })
         .await;
         if left_rear_count > 0 && left_front_count > 0 {
-            let factor = left_front_count as f32 / left_rear_count as f32;
+            let factor = f32::from(left_front_count) / f32::from(left_rear_count);
             if factor > 0.0 && factor <= 1.0 {
                 calibration.left_rear *= factor;
                 motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
@@ -223,15 +233,15 @@ pub(crate) async fn run_motor_calibration() {
         left_front_count
     } else {
         info!("  Left rear is weaker (reference)");
-        event::send_event(event::Events::CalibrationStatus {
+        event::raise_event(event::Events::CalibrationStatus {
             header: None,
             line1: None,
             line2: None,
-            line3: Some(String::try_from("Adj left front").unwrap()),
+            line3: status_text("Adj left front"),
         })
         .await;
         if left_front_count > 0 && left_rear_count > 0 {
-            let factor = left_rear_count as f32 / left_front_count as f32;
+            let factor = f32::from(left_rear_count) / f32::from(left_front_count);
             if factor > 0.0 && factor <= 1.0 {
                 calibration.left_front *= factor;
                 motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
@@ -255,11 +265,11 @@ pub(crate) async fn run_motor_calibration() {
 
     // Step 3: Verify left track match
     info!("Step 3: Verifying left track match");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 3/8").unwrap()),
-        line2: Some(String::try_from("Verify left track").unwrap()),
-        line3: Some(String::try_from("Testing...").unwrap()),
+        line1: status_text("Step 3/8"),
+        line2: status_text("Verify left track"),
+        line3: status_text("Testing..."),
     })
     .await;
 
@@ -283,30 +293,33 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let left_track_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
-        info!("  ENCODER READINGS (LEFT TRACK @ 60%): {:?}", measurement);
-        info!(
-            "  Left front: {}, Left rear: {}",
-            measurement.left_front, measurement.left_rear
-        );
-        // Use average of both motors for track performance
-        let avg = (measurement.left_front + measurement.left_rear) / 2;
-        info!("  ✓ Left track average: {}", avg);
-        avg
-    } else {
-        info!("    Warning: No encoder event received for left track");
-        0
-    };
+    let _left_track_count = wait_for_encoder_event_timeout(500).await.map_or_else(
+        || {
+            info!("    Warning: No encoder event received for left track");
+            0
+        },
+        |measurement| {
+            info!("  ENCODER READINGS (LEFT TRACK @ 60%): {:?}", measurement);
+            info!(
+                "  Left front: {}, Left rear: {}",
+                measurement.left_front, measurement.left_rear
+            );
+            // Use average of both motors for track performance
+            let avg = measurement.left_front.midpoint(measurement.left_rear);
+            info!("  ✓ Left track average: {}", avg);
+            avg
+        },
+    );
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
     Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
 
     // Step 4: Test right track motors individually (similar to left track)
     info!("Step 4: Testing right track motors individually");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 4/8").unwrap()),
-        line2: Some(String::try_from("Test right motors").unwrap()),
+        line1: status_text("Step 4/8"),
+        line2: status_text("Test right motors"),
         line3: None,
     })
     .await;
@@ -315,11 +328,11 @@ pub(crate) async fn run_motor_calibration() {
     info!("  Testing right front motor");
     info!("    -> Commanding RIGHT FRONT motor to 100%");
     info!("    -> All other motors OFF");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
         line1: None,
         line2: None,
-        line3: Some(String::try_from("Right front...").unwrap()),
+        line3: status_text("Right front..."),
     })
     .await;
 
@@ -343,17 +356,20 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let right_front_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
-        info!("    ENCODER READINGS: {:?}", measurement);
-        info!("    -> left_front encoder: {}", measurement.left_front);
-        info!("    -> left_rear encoder: {}", measurement.left_rear);
-        info!("    -> right_front encoder: {}", measurement.right_front);
-        info!("    -> right_rear encoder: {}", measurement.right_rear);
-        measurement.right_front
-    } else {
-        info!("    Warning: No encoder event received for right front");
-        0
-    };
+    let right_front_count = wait_for_encoder_event_timeout(500).await.map_or_else(
+        || {
+            info!("    Warning: No encoder event received for right front");
+            0
+        },
+        |measurement| {
+            info!("    ENCODER READINGS: {:?}", measurement);
+            info!("    -> left_front encoder: {}", measurement.left_front);
+            info!("    -> left_rear encoder: {}", measurement.left_rear);
+            info!("    -> right_front encoder: {}", measurement.right_front);
+            info!("    -> right_rear encoder: {}", measurement.right_rear);
+            measurement.right_front
+        },
+    );
     info!("    ✓ Right front encoder count: {}", right_front_count);
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
@@ -363,11 +379,11 @@ pub(crate) async fn run_motor_calibration() {
     info!("  Testing right rear motor");
     info!("    -> Commanding RIGHT REAR motor to 100%");
     info!("    -> All other motors OFF");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
         line1: None,
         line2: None,
-        line3: Some(String::try_from("Right rear...").unwrap()),
+        line3: status_text("Right rear..."),
     })
     .await;
 
@@ -391,17 +407,20 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let right_rear_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
-        info!("    ENCODER READINGS: {:?}", measurement);
-        info!("    -> left_front encoder: {}", measurement.left_front);
-        info!("    -> left_rear encoder: {}", measurement.left_rear);
-        info!("    -> right_front encoder: {}", measurement.right_front);
-        info!("    -> right_rear encoder: {}", measurement.right_rear);
-        measurement.right_rear
-    } else {
-        info!("    Warning: No encoder event received for right rear");
-        0
-    };
+    let right_rear_count = wait_for_encoder_event_timeout(500).await.map_or_else(
+        || {
+            info!("    Warning: No encoder event received for right rear");
+            0
+        },
+        |measurement| {
+            info!("    ENCODER READINGS: {:?}", measurement);
+            info!("    -> left_front encoder: {}", measurement.left_front);
+            info!("    -> left_rear encoder: {}", measurement.left_rear);
+            info!("    -> right_front encoder: {}", measurement.right_front);
+            info!("    -> right_rear encoder: {}", measurement.right_rear);
+            measurement.right_rear
+        },
+    );
     info!("    ✓ Right rear encoder count: {}", right_rear_count);
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
@@ -409,10 +428,10 @@ pub(crate) async fn run_motor_calibration() {
 
     // Step 5: Match right track motors
     info!("Step 5: Matching right track motors");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 5/8").unwrap()),
-        line2: Some(String::try_from("Match right track").unwrap()),
+        line1: status_text("Step 5/8"),
+        line2: status_text("Match right track"),
         line3: None,
     })
     .await;
@@ -421,15 +440,15 @@ pub(crate) async fn run_motor_calibration() {
         0
     } else if right_front_count < right_rear_count {
         info!("  Right front is weaker (reference)");
-        event::send_event(event::Events::CalibrationStatus {
+        event::raise_event(event::Events::CalibrationStatus {
             header: None,
             line1: None,
             line2: None,
-            line3: Some(String::try_from("Adj right rear").unwrap()),
+            line3: status_text("Adj right rear"),
         })
         .await;
         if right_rear_count > 0 && right_front_count > 0 {
-            let factor = right_front_count as f32 / right_rear_count as f32;
+            let factor = f32::from(right_front_count) / f32::from(right_rear_count);
             if factor > 0.0 && factor <= 1.0 {
                 calibration.right_rear *= factor;
                 motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
@@ -451,15 +470,15 @@ pub(crate) async fn run_motor_calibration() {
         right_front_count
     } else {
         info!("  Right rear is weaker (reference)");
-        event::send_event(event::Events::CalibrationStatus {
+        event::raise_event(event::Events::CalibrationStatus {
             header: None,
             line1: None,
             line2: None,
-            line3: Some(String::try_from("Adj right front").unwrap()),
+            line3: status_text("Adj right front"),
         })
         .await;
         if right_front_count > 0 && right_rear_count > 0 {
-            let factor = right_rear_count as f32 / right_front_count as f32;
+            let factor = f32::from(right_rear_count) / f32::from(right_front_count);
             if factor > 0.0 && factor <= 1.0 {
                 calibration.right_front *= factor;
                 motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
@@ -483,11 +502,11 @@ pub(crate) async fn run_motor_calibration() {
 
     // Step 6: Verify right track match
     info!("Step 6: Verifying right track match");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 6/8").unwrap()),
-        line2: Some(String::try_from("Verify right trk").unwrap()),
-        line3: Some(String::try_from("Testing...").unwrap()),
+        line1: status_text("Step 6/8"),
+        line2: status_text("Verify right trk"),
+        line3: status_text("Testing..."),
     })
     .await;
 
@@ -511,20 +530,23 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let right_track_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
-        info!("  ENCODER READINGS (RIGHT TRACK @ 60%): {:?}", measurement);
-        info!(
-            "  Right front: {}, Right rear: {}",
-            measurement.right_front, measurement.right_rear
-        );
-        // Use average of both motors for track performance
-        let avg = (measurement.right_front + measurement.right_rear) / 2;
-        info!("  ✓ Right track average: {}", avg);
-        avg
-    } else {
-        info!("    Warning: No encoder event received for right track");
-        0
-    };
+    let _right_track_count = wait_for_encoder_event_timeout(500).await.map_or_else(
+        || {
+            info!("    Warning: No encoder event received for right track");
+            0
+        },
+        |measurement| {
+            info!("  ENCODER READINGS (RIGHT TRACK @ 60%): {:?}", measurement);
+            info!(
+                "  Right front: {}, Right rear: {}",
+                measurement.right_front, measurement.right_rear
+            );
+            // Use average of both motors for track performance
+            let avg = measurement.right_front.midpoint(measurement.right_rear);
+            info!("  ✓ Right track average: {}", avg);
+            avg
+        },
+    );
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
     Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
@@ -539,10 +561,10 @@ pub(crate) async fn run_motor_calibration() {
     //
     // Each iteration applies the updated calibration and measures whether tracks now match.
     info!("Step 7: Iterative track matching (targeting 1% tolerance)");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 7/8").unwrap()),
-        line2: Some(String::try_from("Match tracks").unwrap()),
+        line1: status_text("Step 7/8"),
+        line2: status_text("Match tracks"),
         line3: None,
     })
     .await;
@@ -606,8 +628,8 @@ pub(crate) async fn run_motor_calibration() {
 
             if left_count > 0 && right_count > 0 {
                 // Calculate percentage difference
-                let max_count = left_count.max(right_count) as f32;
-                let diff = (left_count as i32 - right_count as i32).abs() as f32;
+                let max_count = f32::from(left_count.max(right_count));
+                let diff = f32::from(left_count.abs_diff(right_count));
                 let percent_diff = diff / max_count;
 
                 info!("  Difference: {}%", percent_diff * 100.0);
@@ -615,28 +637,28 @@ pub(crate) async fn run_motor_calibration() {
                 if percent_diff <= TRACK_MATCH_TOLERANCE {
                     info!("  ✓ Tracks matched within tolerance!");
                     tracks_matched = true;
-                    event::send_event(event::Events::CalibrationStatus {
+                    event::raise_event(event::Events::CalibrationStatus {
                         header: None,
                         line1: None,
                         line2: None,
-                        line3: Some(String::try_from("Tracks matched!").unwrap()),
+                        line3: status_text("Tracks matched!"),
                     })
                     .await;
                 } else {
                     // Apply correction and send to motor driver for next iteration
                     if left_count > right_count {
-                        let factor = right_count as f32 / left_count as f32;
+                        let factor = f32::from(right_count) / f32::from(left_count);
                         info!(
                             "  Adjusting left track down by factor: {} (cumulative: {} -> {})",
                             factor,
                             calibration.left_front,
                             calibration.left_front * factor
                         );
-                        event::send_event(event::Events::CalibrationStatus {
+                        event::raise_event(event::Events::CalibrationStatus {
                             header: None,
                             line1: None,
                             line2: None,
-                            line3: Some(String::try_from("Adj left track").unwrap()),
+                            line3: status_text("Adj left track"),
                         })
                         .await;
 
@@ -656,18 +678,18 @@ pub(crate) async fn run_motor_calibration() {
                         })
                         .await;
                     } else {
-                        let factor = left_count as f32 / right_count as f32;
+                        let factor = f32::from(left_count) / f32::from(right_count);
                         info!(
                             "  Adjusting right track down by factor: {} (cumulative: {} -> {})",
                             factor,
                             calibration.right_front,
                             calibration.right_front * factor
                         );
-                        event::send_event(event::Events::CalibrationStatus {
+                        event::raise_event(event::Events::CalibrationStatus {
                             header: None,
                             line1: None,
                             line2: None,
-                            line3: Some(String::try_from("Adj right track").unwrap()),
+                            line3: status_text("Adj right track"),
                         })
                         .await;
 
@@ -717,22 +739,22 @@ pub(crate) async fn run_motor_calibration() {
 
     if !tracks_matched {
         info!("  WARNING: Maximum iterations reached without achieving 1% tolerance");
-        event::send_event(event::Events::CalibrationStatus {
+        event::raise_event(event::Events::CalibrationStatus {
             header: None,
             line1: None,
             line2: None,
-            line3: Some(String::try_from("Partial match").unwrap()),
+            line3: status_text("Partial match"),
         })
         .await;
     }
 
     // Step 8: Final verification with all motors
     info!("Step 8: Final verification with all motors");
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Step 8/8").unwrap()),
-        line2: Some(String::try_from("Final verify").unwrap()),
-        line3: Some(String::try_from("All motors...").unwrap()),
+        line1: status_text("Step 8/8"),
+        line2: status_text("Final verify"),
+        line3: status_text("All motors..."),
     })
     .await;
 
@@ -764,8 +786,8 @@ pub(crate) async fn run_motor_calibration() {
         info!("    Left rear:   {}", measurement.left_rear);
         info!("    Right front: {}", measurement.right_front);
         info!("    Right rear:  {}", measurement.right_rear);
-        let left_avg = (measurement.left_front + measurement.left_rear) / 2;
-        let right_avg = (measurement.right_front + measurement.right_rear) / 2;
+        let left_avg = measurement.left_front.midpoint(measurement.left_rear);
+        let right_avg = measurement.right_front.midpoint(measurement.right_rear);
         info!("  Track averages: Left={}, Right={}", left_avg, right_avg);
     }
 
@@ -787,11 +809,11 @@ pub(crate) async fn run_motor_calibration() {
         && calibration.right_rear <= 1.0;
 
     if all_valid {
-        event::send_event(event::Events::CalibrationStatus {
+        event::raise_event(event::Events::CalibrationStatus {
             header: None,
-            line1: Some(String::try_from("Saving...").unwrap()),
-            line2: Some(String::try_from("To flash storage").unwrap()),
-            line3: Some(String::try_from("Please wait...").unwrap()),
+            line1: status_text("Saving..."),
+            line2: status_text("To flash storage"),
+            line3: status_text("Please wait..."),
         })
         .await;
 
@@ -804,11 +826,11 @@ pub(crate) async fn run_motor_calibration() {
     } else {
         info!("✗ ERROR: Calibration factors invalid - NOT saving to flash");
         info!("  Check encoder wiring and ensure motors are running during calibration");
-        event::send_event(event::Events::CalibrationStatus {
+        event::raise_event(event::Events::CalibrationStatus {
             header: None,
-            line1: Some(String::try_from("CALIB FAILED").unwrap()),
-            line2: Some(String::try_from("Invalid factors").unwrap()),
-            line3: Some(String::try_from("Check encoders").unwrap()),
+            line1: status_text("CALIB FAILED"),
+            line2: status_text("Invalid factors"),
+            line3: status_text("Check encoders"),
         })
         .await;
         Timer::after(Duration::from_millis(3000)).await; // Show error message
@@ -844,9 +866,9 @@ pub(crate) async fn run_motor_calibration() {
         &mut line3,
         format_args!("R:{:.2} {:.2}", calibration.right_front, calibration.right_rear),
     );
-    event::send_event(event::Events::CalibrationStatus {
+    event::raise_event(event::Events::CalibrationStatus {
         header: None,
-        line1: Some(String::try_from("Complete!").unwrap()),
+        line1: status_text("Complete!"),
         line2: Some(line2),
         line3: Some(line3),
     })

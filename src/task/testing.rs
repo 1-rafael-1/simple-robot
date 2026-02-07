@@ -27,7 +27,7 @@ use embassy_time::{Duration, Timer};
 use heapless::String;
 
 use crate::{
-    system::event::{Events, send_event},
+    system::event::{Events, raise_event},
     task::{
         display::{DisplayAction, display_update},
         drive::{DriveAction, DriveCommand, send_drive_command},
@@ -36,7 +36,7 @@ use crate::{
 };
 
 /// Initialize testing task
-pub fn init_testing(spawner: &embassy_executor::Spawner) {
+pub fn init_testing(spawner: embassy_executor::Spawner) {
     spawner.must_spawn(testing_sequence());
 }
 
@@ -58,21 +58,21 @@ async fn testing_sequence() {
         {
             let mut s: String<20> = String::new();
             // Example: "TGT:45.0 ACT:12.3"
-            let _ = core::fmt::write(&mut s, format_args!("TGT:{:>4.1} ACT:{:>4.1}", target_deg, current_deg));
+            let _ = core::fmt::write(&mut s, format_args!("TGT:{target_deg:>4.1} ACT:{current_deg:>4.1}"));
             display_update(DisplayAction::ShowText(s, 1)).await;
         }
 
         {
             let mut s: String<20> = String::new();
             // Example: "YAW:-123.4"
-            let _ = core::fmt::write(&mut s, format_args!("YAW:{:>6.1}", yaw_deg));
+            let _ = core::fmt::write(&mut s, format_args!("YAW:{yaw_deg:>6.1}"));
             display_update(DisplayAction::ShowText(s, 2)).await;
         }
 
         {
             let mut s: String<20> = String::new();
             // Example: "DEV:  -1.6"
-            let _ = core::fmt::write(&mut s, format_args!("DEV:{:>6.1}", deviation_deg));
+            let _ = core::fmt::write(&mut s, format_args!("DEV:{deviation_deg:>6.1}"));
             display_update(DisplayAction::ShowText(s, 3)).await;
         }
     }
@@ -86,7 +86,7 @@ async fn testing_sequence() {
 
     // Send initialization event to orchestrator
     Timer::after(Duration::from_millis(100)).await;
-    send_event(Events::Initialize).await;
+    raise_event(Events::Initialize).await;
 
     // Wait for system to stabilize and for orchestrator to load calibration from flash
     // (orchestrator automatically loads calibration on Initialize event)
@@ -116,7 +116,7 @@ async fn testing_sequence() {
         show_line(0, "TURN TEST").await;
         {
             let mut s: String<20> = String::new();
-            let _ = core::fmt::write(&mut s, format_args!("SPD:{:>3} TGT:{:>4.1}", speed, target_deg));
+            let _ = core::fmt::write(&mut s, format_args!("SPD:{speed:>3} TGT:{target_deg:>4.1}"));
             display_update(DisplayAction::ShowText(s, 1)).await;
         }
         show_line(2, "Turning...").await;
@@ -177,7 +177,7 @@ async fn testing_sequence() {
 async fn auto_calibration_sequence() {
     // Send initialization event
     Timer::after(Duration::from_millis(100)).await;
-    send_event(Events::Initialize).await;
+    raise_event(Events::Initialize).await;
 
     // Wait for system to initialize
     Timer::after(Duration::from_secs(3)).await;

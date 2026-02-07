@@ -67,7 +67,7 @@ use embassy_rp::pwm::Pwm;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Timer};
 
-use crate::system::event::{Events, send_event};
+use crate::system::event::{Events, raise_event};
 
 /// Commands for encoder reading control
 #[derive(Debug, Clone, Copy)]
@@ -76,7 +76,10 @@ pub enum EncoderCommand {
     ///
     /// # Parameters
     /// - `interval_ms`: Time between samples in milliseconds (e.g., 50 = 20Hz)
-    Start { interval_ms: u64 },
+    Start {
+        /// Sampling interval in milliseconds
+        interval_ms: u64,
+    },
 
     /// Stop encoder sampling (power saving)
     Stop,
@@ -99,8 +102,9 @@ pub enum EncoderCommand {
     AutoResetOnMotorStop(bool),
 }
 
-/// Command channel for encoder control
+/// Size of the command queue for encoder control
 const COMMAND_QUEUE_SIZE: usize = 16;
+/// Command channel for encoder control
 static ENCODER_COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, EncoderCommand, COMMAND_QUEUE_SIZE> = Channel::new();
 
 /// Send a command to the encoder task
@@ -133,20 +137,24 @@ pub struct EncoderMeasurement {
     /// Right rear motor encoder count
     pub right_rear: u16,
     /// Timestamp of measurement in milliseconds since boot
-    pub timestamp_ms: u32,
+    pub timestamp_ms: u64,
 }
 
 /// Encoder channels for all 4 motors
 struct EncoderChannels {
-    left_front: Pwm<'static>,  // GPIO 7, PWM Slice 3B
-    left_rear: Pwm<'static>,   // GPIO 21, PWM Slice 2B
-    right_front: Pwm<'static>, // GPIO 9, PWM Slice 4B
-    right_rear: Pwm<'static>,  // GPIO 27, PWM Slice 5B
+    /// Encoder input for left front motor
+    left_front: Pwm<'static>,
+    /// Encoder input for left rear motor
+    left_rear: Pwm<'static>,
+    /// Encoder input for right front motor
+    right_front: Pwm<'static>,
+    /// Encoder input for right rear motor
+    right_rear: Pwm<'static>,
 }
 
 impl EncoderChannels {
     /// Reset all encoder counters to zero
-    fn reset_all(&mut self) {
+    fn reset_all(&self) {
         self.left_front.set_counter(0);
         self.left_rear.set_counter(0);
         self.right_front.set_counter(0);
@@ -155,7 +163,7 @@ impl EncoderChannels {
 
     /// Read all encoder counts at once
     fn read_all(&self) -> EncoderMeasurement {
-        let timestamp_ms = Instant::now().as_millis() as u32;
+        let timestamp_ms = Instant::now().as_millis();
         EncoderMeasurement {
             left_front: self.left_front.counter(),
             left_rear: self.left_rear.counter(),
@@ -245,7 +253,7 @@ pub async fn encoder_read(
                     last_measurement = measurement;
 
                     // Send measurement event
-                    send_event(Events::EncoderMeasurementTaken(measurement)).await;
+                    raise_event(Events::EncoderMeasurementTaken(measurement)).await;
                 }
             }
         } else {
@@ -283,7 +291,7 @@ pub async fn encoder_read(
 ///
 /// Motors are considered stopped if all encoder counts are unchanged
 /// between two consecutive readings.
-fn motors_stopped(current: &EncoderMeasurement, previous: &EncoderMeasurement) -> bool {
+const fn motors_stopped(current: &EncoderMeasurement, previous: &EncoderMeasurement) -> bool {
     current.left_front == previous.left_front
         && current.left_rear == previous.left_rear
         && current.right_front == previous.right_front
