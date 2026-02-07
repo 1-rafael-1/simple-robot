@@ -24,6 +24,7 @@
 /// - Maximum 1500 points stored
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
+use embassy_time::{Duration, Timer};
 use embedded_graphics::{
     geometry::Size,
     mono_font::{MonoTextStyle, MonoTextStyleBuilder, ascii::FONT_7X14_BOLD as Font},
@@ -55,6 +56,10 @@ pub enum DisplayAction {
 enum DisplayError {
     /// Error for invalid text line number
     InvalidLine,
+    /// Points buffer reached its fixed capacity
+    PointsBufferFull,
+    /// Drawing operation failed (embedded-graphics draw error)
+    DrawError,
 }
 
 type DisplayDriver = Ssd1306<
@@ -102,7 +107,7 @@ const RADIUS: i32 = 45;
 /// Diameter of the sweep display in pixels
 const DIAMETER: u32 = (RADIUS * 2) as u32;
 /// Maximum distance to display (maps to RADIUS pixels)
-const MAX_DISTANCE_CM: f32 = 400.0;
+const MAX_DISTANCE_CM: f64 = 400.0;
 /// Maximum number of stored points for display, limited to define heapless Vec
 const MAX_POINTS: usize = 1500;
 
@@ -151,14 +156,14 @@ type PointsBuffer = heapless::Vec<SweepPoint, MAX_POINTS>;
 /// - Keep fixed maximum number of points (`MAX_POINTS`)
 #[embassy_executor::task]
 pub async fn display(i2c_bus: &'static I2cBusShared) {
+    const INIT_RETRIES: u8 = 5;
+    const INIT_RETRY_DELAY: Duration = Duration::from_millis(200);
+    const REINIT_BACKOFF: Duration = Duration::from_secs(2);
+
     let i2c = I2cDevice::new(i2c_bus);
     let interface = I2CDisplayInterface::new(i2c);
     let mut display =
         Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0).into_buffered_graphics_mode();
-
-    if display.init().await.is_err() {
-        panic!("Display initialization error");
-    }
 
     let text_style = MonoTextStyleBuilder::new()
         .font(&Font)
@@ -169,16 +174,64 @@ pub async fn display(i2c_bus: &'static I2cBusShared) {
     let mut last_angle: f32 = 0.0; // Move state into the task
     let mut moving_right: bool = true; // Move state into the task
 
-    display_update(DisplayAction::Clear).await;
+    // Try to initialize the display a few times. If it still fails, continue boot
+    // in "display-offline" mode: we keep draining the channel to avoid blocking
+    // producers, and periodically retry initialization.
+    let mut display_online = false;
+    for attempt in 1..=INIT_RETRIES {
+        if display.init().await.is_ok() {
+            display_online = true;
+            break;
+        }
+        defmt::warn!("display init failed (attempt {}/{})", attempt, INIT_RETRIES);
+        Timer::after(INIT_RETRY_DELAY).await;
+    }
 
-    display.clear();
-
-    if display.flush().await.is_err() {
-        panic!("Display flush error");
+    if display_online {
+        display_update(DisplayAction::Clear).await;
+        display.clear();
+        if display.flush().await.is_err() {
+            defmt::warn!("display flush failed right after init; going offline");
+            display_online = false;
+        }
+    } else {
+        defmt::warn!("display unavailable; continuing without display output");
     }
 
     loop {
         let display_action = wait().await;
+
+        if !display_online {
+            // Drain actions so senders don't block. Periodically retry init.
+            for attempt in 1..=INIT_RETRIES {
+                if display.init().await.is_ok() {
+                    display_online = true;
+                    points.clear();
+                    last_angle = 0.0;
+                    moving_right = true;
+
+                    display.clear();
+                    if display.flush().await.is_err() {
+                        defmt::warn!("display flush failed after re-init; staying offline");
+                        display_online = false;
+                    } else {
+                        defmt::warn!("display re-initialized successfully");
+                    }
+                    break;
+                }
+
+                if attempt == 1 {
+                    defmt::warn!("retrying display init...");
+                }
+                Timer::after(INIT_RETRY_DELAY).await;
+            }
+
+            if !display_online {
+                Timer::after(REINIT_BACKOFF).await;
+            }
+
+            continue;
+        }
 
         if let Err(error) = handle_display_action(
             &mut display,
@@ -188,11 +241,17 @@ pub async fn display(i2c_bus: &'static I2cBusShared) {
             &mut moving_right,
             display_action,
         ) {
-            panic!("Display action error: {:?}", error);
+            defmt::warn!(
+                "display action failed ({}); taking display offline",
+                defmt::Debug2Format(&error)
+            );
+            display_online = false;
+            continue;
         }
 
         if display.flush().await.is_err() {
-            panic!("Display flush error");
+            defmt::warn!("display flush failed; taking display offline");
+            display_online = false;
         }
     }
 }
@@ -210,7 +269,7 @@ fn handle_display_action(
         DisplayAction::ShowSweep(distance, angle) => {
             handle_show_sweep(display, points, last_angle, moving_right, distance, angle)
         }
-        DisplayAction::ShowText(text, line) => handle_show_text(display, text_style, text, line),
+        DisplayAction::ShowText(text, line) => handle_show_text(display, text_style, &text, line),
         DisplayAction::Clear => {
             display.clear();
             Ok(())
@@ -218,6 +277,7 @@ fn handle_display_action(
     }
 }
 
+/// Handles the `ShowSweep` action by updating the radar sweep visualization
 fn handle_show_sweep(
     display: &mut DisplayDriver,
     points: &mut PointsBuffer,
@@ -227,22 +287,24 @@ fn handle_show_sweep(
     angle: f32,
 ) -> Result<(), DisplayError> {
     // Clear only sweep area (below header)
-    let _ = Rectangle::new(
+    Rectangle::new(
         Point::new(0, DISPLAY_HEADER_HEIGHT),
         Size::new(DISPLAY_WIDTH as u32, (DISPLAY_HEIGHT - DISPLAY_HEADER_HEIGHT) as u32),
     )
     .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
-    .draw(display);
+    .draw(display)
+    .map_err(|_| DisplayError::DrawError)?;
 
     // Draw base half-circle
-    let _ = Arc::new(
+    Arc::new(
         Point::new(CENTER_X - RADIUS, CENTER_Y - RADIUS), // Bounding box top-left
         DIAMETER,
         Angle::from_degrees(190.0), // Start at -10° from horizontal (left)
         Angle::from_degrees(160.0), // Sweep 160° clockwise
     )
     .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
-    .draw(display);
+    .draw(display)
+    .map_err(|_| DisplayError::DrawError)?;
 
     // Convert servo angle (0-160°) to display coordinates
     // Servo: 0° = left, 160° = right
@@ -251,21 +313,26 @@ fn handle_show_sweep(
     let rad_angle = display_angle.to_radians();
 
     // Calculate sweep line endpoint
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     let line_end_x = CENTER_X + (RADIUS as f32 * rad_angle.cos()) as i32;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     let line_end_y = CENTER_Y - (RADIUS as f32 * rad_angle.sin()) as i32;
-    let _ = Line::new(Point::new(CENTER_X, CENTER_Y), Point::new(line_end_x, line_end_y))
+    Line::new(Point::new(CENTER_X, CENTER_Y), Point::new(line_end_x, line_end_y))
         .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
-        .draw(display);
+        .draw(display)
+        .map_err(|_| DisplayError::DrawError)?;
 
     // Use same angle offset for point plotting to maintain consistency
-    if distance <= MAX_DISTANCE_CM as f64 {
-        let scaled_distance = (distance as f32 / MAX_DISTANCE_CM) * RADIUS as f32;
+    if distance <= MAX_DISTANCE_CM {
+        let scaled_distance = (distance / MAX_DISTANCE_CM) * f64::from(RADIUS);
         let point = SweepPoint {
-            x: CENTER_X + (scaled_distance * rad_angle.cos()) as i32,
-            y: CENTER_Y - (scaled_distance * rad_angle.sin()) as i32,
+            #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+            x: CENTER_X + (scaled_distance * f64::from(rad_angle.cos())) as i32,
+            #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+            y: CENTER_Y - (scaled_distance * f64::from(rad_angle.sin())) as i32,
             angle: display_angle, // Store offset angle for point clearing
         };
-        let _ = points.push(point);
+        points.push(point).map_err(|_| DisplayError::PointsBufferFull)?;
     }
 
     // Track sweep direction for point clearing
@@ -292,33 +359,38 @@ fn handle_show_sweep(
     });
 
     // Add new detection point if object within range
-    if distance <= MAX_DISTANCE_CM as f64 {
+    if distance <= MAX_DISTANCE_CM {
         // Scale distance from cm to display pixels
         // Maps 0-200cm to 0-RADIUS pixels proportionally
-        let scaled_distance = (distance as f32 / MAX_DISTANCE_CM) * RADIUS as f32;
+        let scaled_distance = (distance / MAX_DISTANCE_CM) * f64::from(RADIUS);
 
         // Convert polar coordinates (distance, angle) to cartesian (x, y)
         let rad_angle = angle.to_radians();
         let point = SweepPoint {
-            x: CENTER_X + (scaled_distance * rad_angle.cos()) as i32,
-            y: CENTER_Y - (scaled_distance * rad_angle.sin()) as i32,
+            #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+            x: CENTER_X + (scaled_distance * f64::from(rad_angle.cos())) as i32,
+            #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+            y: CENTER_Y - (scaled_distance * f64::from(rad_angle.sin())) as i32,
             angle, // Store angle for later point clearing
         };
-        let _ = points.push(point); // Add to fixed-size buffer
+        points.push(point).map_err(|_| DisplayError::PointsBufferFull)?; // Add to fixed-size buffer
     }
 
     // Draw all points
     for point in points.iter() {
-        let _ = Pixel(Point::new(point.x, point.y), BinaryColor::On).draw(display);
+        Pixel(Point::new(point.x, point.y), BinaryColor::On)
+            .draw(display)
+            .map_err(|_| DisplayError::DrawError)?;
     }
 
     Ok(())
 }
 
+/// Handles the `ShowText` action by displaying the specified text on the given line
 fn handle_show_text(
     display: &mut DisplayDriver,
     text_style: MonoTextStyle<BinaryColor>,
-    text: String<20>,
+    text: &String<20>,
     line: u8,
 ) -> Result<(), DisplayError> {
     // Display text at specified line
@@ -331,12 +403,15 @@ fn handle_show_text(
     };
 
     // Clear only text line area
-    let _ = Rectangle::new(point, Size::new(DISPLAY_WIDTH as u32, 16))
+    Rectangle::new(point, Size::new(DISPLAY_WIDTH as u32, 16))
         .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
-        .draw(display);
+        .draw(display)
+        .map_err(|_| DisplayError::DrawError)?;
 
     // Draw text
-    let _ = Text::with_baseline(&text, point, text_style, Baseline::Top).draw(display);
+    Text::with_baseline(text, point, text_style, Baseline::Top)
+        .draw(display)
+        .map_err(|_| DisplayError::DrawError)?;
 
     Ok(())
 }
