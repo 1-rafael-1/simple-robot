@@ -185,7 +185,7 @@ There are two modules, `system` and `task`. The `system` module contains rather 
 
 The `main.rs` file is the entry point of the program but does nothing besides initializing some resources and then spawning all the tasks.
 
-For wiring and future expansion, see `docs/PIN_ASSIGNMENTS.md`. It records the active GPIO usage and also the planned reservations (RGB via PIO PWM on GPIO4/6/8, EC11 on GPIO22/23/24, ultrasonic on GPIO5/14/15, IR on GPIO16/17), so there is a single source of truth for what is still safe to use.
+
 
 
 ## Acknowledgments & Attribution

@@ -110,13 +110,13 @@ const MAG_MIN_UT: f32 = 20.0;
 /// Magnetometer upper validation threshold in microteslas (μT).
 const MAG_MAX_UT: f32 = 200.0;
 
-// Magnetometer diagnostics logging
-// Log at low rate to avoid spamming RTT/defmt while still giving enough signal to debug yaw issues.
+/// Magnetometer diagnostics logging interval in milliseconds.
+/// Log at low rate to avoid spamming RTT/defmt while still giving enough signal to debug yaw issues.
 #[cfg(feature = "telemetry_logs")]
 const MAG_DIAG_LOG_INTERVAL_MS: u32 = 500;
 
-// IMU loop diagnostics logging
-// Used to debug timing/cadence differences with/without debugger attached.
+/// IMU loop diagnostics logging interval in milliseconds.
+/// Used to debug timing/cadence differences with/without debugger attached.
 #[cfg(feature = "telemetry_logs")]
 const IMU_LOOP_DIAG_LOG_INTERVAL_MS: u32 = 500;
 
@@ -465,9 +465,13 @@ fn should_use_magnetometer(mag_data: &Vector3<f32>) -> bool {
     mag_magnitude > MAG_MIN_UT && mag_magnitude < MAG_MAX_UT
 }
 
+/// Logs magnetometer diagnostics for debugging yaw drift issues.
+///
+/// This function is only compiled when the `telemetry_logs` feature is enabled.
 #[cfg(feature = "telemetry_logs")]
 fn log_mag_diagnostics(mag_data: &Vector3<f32>, use_magnetometer: bool) {
     let mag_magnitude = mag_data.norm();
+    #[allow(clippy::cast_possible_truncation)]
     let timestamp_ms = Instant::now().as_millis() as u32;
     if timestamp_ms % MAG_DIAG_LOG_INTERVAL_MS < 25 {
         info!(
@@ -750,6 +754,7 @@ async fn run_imu_command_loop(
                                     // - Logs current fusion mode, so we can confirm Axis6 is active in testing
                                     #[cfg(feature = "telemetry_logs")]
                                     {
+                                        #[allow(clippy::cast_possible_truncation)]
                                         let timestamp_ms = imu_measurement.timestamp_ms as u32;
                                         if timestamp_ms.wrapping_sub(last_loop_diag_ts_ms)
                                             >= IMU_LOOP_DIAG_LOG_INTERVAL_MS
