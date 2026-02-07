@@ -35,7 +35,8 @@ const MAX_REFINEMENT_ITERATIONS: u8 = 5;
 /// - `encoder_read`: Provides pulse count measurements
 /// - `motor_driver`: Applies speed commands and stores calibration factors
 /// - `flash_storage`: Persists calibration data
-pub(crate) async fn run_motor_calibration() {
+#[allow(clippy::too_many_lines)]
+pub async fn run_motor_calibration() {
     use heapless::String;
 
     use crate::{
@@ -118,17 +119,20 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let left_front_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
-        info!("    ENCODER READINGS: {:?}", measurement);
-        info!("    -> left_front encoder: {}", measurement.left_front);
-        info!("    -> left_rear encoder: {}", measurement.left_rear);
-        info!("    -> right_front encoder: {}", measurement.right_front);
-        info!("    -> right_rear encoder: {}", measurement.right_rear);
-        measurement.left_front
-    } else {
-        info!("    Warning: No encoder event received for left front");
-        0
-    };
+    let left_front_count = wait_for_encoder_event_timeout(500).await.map_or_else(
+        || {
+            info!("    Warning: No encoder event received for left front");
+            0
+        },
+        |measurement| {
+            info!("    ENCODER READINGS: {:?}", measurement);
+            info!("    -> left_front encoder: {}", measurement.left_front);
+            info!("    -> left_rear encoder: {}", measurement.left_rear);
+            info!("    -> right_front encoder: {}", measurement.right_front);
+            info!("    -> right_rear encoder: {}", measurement.right_rear);
+            measurement.left_front
+        },
+    );
     info!("    ✓ Left front encoder count: {}", left_front_count);
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
@@ -166,17 +170,20 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let left_rear_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
-        info!("    ENCODER READINGS: {:?}", measurement);
-        info!("    -> left_front encoder: {}", measurement.left_front);
-        info!("    -> left_rear encoder: {}", measurement.left_rear);
-        info!("    -> right_front encoder: {}", measurement.right_front);
-        info!("    -> right_rear encoder: {}", measurement.right_rear);
-        measurement.left_rear
-    } else {
-        info!("    Warning: No encoder event received for left rear");
-        0
-    };
+    let left_rear_count = wait_for_encoder_event_timeout(500).await.map_or_else(
+        || {
+            info!("    Warning: No encoder event received for left rear");
+            0
+        },
+        |measurement| {
+            info!("    ENCODER READINGS: {:?}", measurement);
+            info!("    -> left_front encoder: {}", measurement.left_front);
+            info!("    -> left_rear encoder: {}", measurement.left_rear);
+            info!("    -> right_front encoder: {}", measurement.right_front);
+            info!("    -> right_rear encoder: {}", measurement.right_rear);
+            measurement.left_rear
+        },
+    );
     info!("    ✓ Left rear encoder count: {}", left_rear_count);
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
@@ -204,7 +211,7 @@ pub(crate) async fn run_motor_calibration() {
         })
         .await;
         if left_rear_count > 0 && left_front_count > 0 {
-            let factor = left_front_count as f32 / left_rear_count as f32;
+            let factor = f32::from(left_front_count) / f32::from(left_rear_count);
             if factor > 0.0 && factor <= 1.0 {
                 calibration.left_rear *= factor;
                 motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
@@ -234,7 +241,7 @@ pub(crate) async fn run_motor_calibration() {
         })
         .await;
         if left_front_count > 0 && left_rear_count > 0 {
-            let factor = left_rear_count as f32 / left_front_count as f32;
+            let factor = f32::from(left_rear_count) / f32::from(left_front_count);
             if factor > 0.0 && factor <= 1.0 {
                 calibration.left_front *= factor;
                 motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
@@ -286,20 +293,23 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let _left_track_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
-        info!("  ENCODER READINGS (LEFT TRACK @ 60%): {:?}", measurement);
-        info!(
-            "  Left front: {}, Left rear: {}",
-            measurement.left_front, measurement.left_rear
-        );
-        // Use average of both motors for track performance
-        let avg = (measurement.left_front + measurement.left_rear) / 2;
-        info!("  ✓ Left track average: {}", avg);
-        avg
-    } else {
-        info!("    Warning: No encoder event received for left track");
-        0
-    };
+    let _left_track_count = wait_for_encoder_event_timeout(500).await.map_or_else(
+        || {
+            info!("    Warning: No encoder event received for left track");
+            0
+        },
+        |measurement| {
+            info!("  ENCODER READINGS (LEFT TRACK @ 60%): {:?}", measurement);
+            info!(
+                "  Left front: {}, Left rear: {}",
+                measurement.left_front, measurement.left_rear
+            );
+            // Use average of both motors for track performance
+            let avg = measurement.left_front.midpoint(measurement.left_rear);
+            info!("  ✓ Left track average: {}", avg);
+            avg
+        },
+    );
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
     Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
@@ -346,17 +356,20 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let right_front_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
-        info!("    ENCODER READINGS: {:?}", measurement);
-        info!("    -> left_front encoder: {}", measurement.left_front);
-        info!("    -> left_rear encoder: {}", measurement.left_rear);
-        info!("    -> right_front encoder: {}", measurement.right_front);
-        info!("    -> right_rear encoder: {}", measurement.right_rear);
-        measurement.right_front
-    } else {
-        info!("    Warning: No encoder event received for right front");
-        0
-    };
+    let right_front_count = wait_for_encoder_event_timeout(500).await.map_or_else(
+        || {
+            info!("    Warning: No encoder event received for right front");
+            0
+        },
+        |measurement| {
+            info!("    ENCODER READINGS: {:?}", measurement);
+            info!("    -> left_front encoder: {}", measurement.left_front);
+            info!("    -> left_rear encoder: {}", measurement.left_rear);
+            info!("    -> right_front encoder: {}", measurement.right_front);
+            info!("    -> right_rear encoder: {}", measurement.right_rear);
+            measurement.right_front
+        },
+    );
     info!("    ✓ Right front encoder count: {}", right_front_count);
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
@@ -394,17 +407,20 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let right_rear_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
-        info!("    ENCODER READINGS: {:?}", measurement);
-        info!("    -> left_front encoder: {}", measurement.left_front);
-        info!("    -> left_rear encoder: {}", measurement.left_rear);
-        info!("    -> right_front encoder: {}", measurement.right_front);
-        info!("    -> right_rear encoder: {}", measurement.right_rear);
-        measurement.right_rear
-    } else {
-        info!("    Warning: No encoder event received for right rear");
-        0
-    };
+    let right_rear_count = wait_for_encoder_event_timeout(500).await.map_or_else(
+        || {
+            info!("    Warning: No encoder event received for right rear");
+            0
+        },
+        |measurement| {
+            info!("    ENCODER READINGS: {:?}", measurement);
+            info!("    -> left_front encoder: {}", measurement.left_front);
+            info!("    -> left_rear encoder: {}", measurement.left_rear);
+            info!("    -> right_front encoder: {}", measurement.right_front);
+            info!("    -> right_rear encoder: {}", measurement.right_rear);
+            measurement.right_rear
+        },
+    );
     info!("    ✓ Right rear encoder count: {}", right_rear_count);
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
@@ -432,7 +448,7 @@ pub(crate) async fn run_motor_calibration() {
         })
         .await;
         if right_rear_count > 0 && right_front_count > 0 {
-            let factor = right_front_count as f32 / right_rear_count as f32;
+            let factor = f32::from(right_front_count) / f32::from(right_rear_count);
             if factor > 0.0 && factor <= 1.0 {
                 calibration.right_rear *= factor;
                 motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
@@ -462,7 +478,7 @@ pub(crate) async fn run_motor_calibration() {
         })
         .await;
         if right_front_count > 0 && right_rear_count > 0 {
-            let factor = right_rear_count as f32 / right_front_count as f32;
+            let factor = f32::from(right_rear_count) / f32::from(right_front_count);
             if factor > 0.0 && factor <= 1.0 {
                 calibration.right_front *= factor;
                 motor_driver::send_motor_command(MotorCommand::UpdateCalibration {
@@ -514,20 +530,23 @@ pub(crate) async fn run_motor_calibration() {
 
     Timer::after(Duration::from_millis(CALIBRATION_SAMPLE_DURATION_MS)).await;
 
-    let _right_track_count = if let Some(measurement) = wait_for_encoder_event_timeout(500).await {
-        info!("  ENCODER READINGS (RIGHT TRACK @ 60%): {:?}", measurement);
-        info!(
-            "  Right front: {}, Right rear: {}",
-            measurement.right_front, measurement.right_rear
-        );
-        // Use average of both motors for track performance
-        let avg = (measurement.right_front + measurement.right_rear) / 2;
-        info!("  ✓ Right track average: {}", avg);
-        avg
-    } else {
-        info!("    Warning: No encoder event received for right track");
-        0
-    };
+    let _right_track_count = wait_for_encoder_event_timeout(500).await.map_or_else(
+        || {
+            info!("    Warning: No encoder event received for right track");
+            0
+        },
+        |measurement| {
+            info!("  ENCODER READINGS (RIGHT TRACK @ 60%): {:?}", measurement);
+            info!(
+                "  Right front: {}, Right rear: {}",
+                measurement.right_front, measurement.right_rear
+            );
+            // Use average of both motors for track performance
+            let avg = measurement.right_front.midpoint(measurement.right_rear);
+            info!("  ✓ Right track average: {}", avg);
+            avg
+        },
+    );
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
     Timer::after(Duration::from_millis(CALIBRATION_COAST_DURATION_MS)).await;
@@ -609,8 +628,8 @@ pub(crate) async fn run_motor_calibration() {
 
             if left_count > 0 && right_count > 0 {
                 // Calculate percentage difference
-                let max_count = left_count.max(right_count) as f32;
-                let diff = (left_count as i32 - right_count as i32).abs() as f32;
+                let max_count = f32::from(left_count.max(right_count));
+                let diff = f32::from(left_count.abs_diff(right_count));
                 let percent_diff = diff / max_count;
 
                 info!("  Difference: {}%", percent_diff * 100.0);
@@ -628,7 +647,7 @@ pub(crate) async fn run_motor_calibration() {
                 } else {
                     // Apply correction and send to motor driver for next iteration
                     if left_count > right_count {
-                        let factor = right_count as f32 / left_count as f32;
+                        let factor = f32::from(right_count) / f32::from(left_count);
                         info!(
                             "  Adjusting left track down by factor: {} (cumulative: {} -> {})",
                             factor,
@@ -659,7 +678,7 @@ pub(crate) async fn run_motor_calibration() {
                         })
                         .await;
                     } else {
-                        let factor = left_count as f32 / right_count as f32;
+                        let factor = f32::from(left_count) / f32::from(right_count);
                         info!(
                             "  Adjusting right track down by factor: {} (cumulative: {} -> {})",
                             factor,
@@ -767,8 +786,8 @@ pub(crate) async fn run_motor_calibration() {
         info!("    Left rear:   {}", measurement.left_rear);
         info!("    Right front: {}", measurement.right_front);
         info!("    Right rear:  {}", measurement.right_rear);
-        let left_avg = (measurement.left_front + measurement.left_rear) / 2;
-        let right_avg = (measurement.right_front + measurement.right_rear) / 2;
+        let left_avg = measurement.left_front.midpoint(measurement.left_rear);
+        let right_avg = measurement.right_front.midpoint(measurement.right_rear);
         info!("  Track averages: Left={}, Right={}", left_avg, right_avg);
     }
 

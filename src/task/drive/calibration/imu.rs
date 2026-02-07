@@ -34,7 +34,7 @@ use crate::{
 /// - So we need interference measurements with calibration applied
 ///
 /// **Example**:
-/// - If left_front has calibration factor 0.8
+/// - If `left_front` has calibration factor 0.8
 /// - Command "100%" becomes 80% actual (due to calibration)
 /// - IMU needs to know interference at 80% actual, not 100% raw
 /// - This way, interference compensation matches real-world operation
@@ -44,6 +44,8 @@ use crate::{
 /// - This ensures IMU measures interference at correctly calibrated speeds
 /// - If motor calibration changes later, IMU calibration should be re-run
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::similar_names)]
+#[allow(clippy::cast_precision_loss)]
 pub async fn run_imu_calibration() {
     use heapless::String;
 
@@ -214,7 +216,7 @@ pub async fn run_imu_calibration() {
             if i % 600 == 0 {
                 let seconds_left = (mag_samples - i) / 100;
                 let mut line = String::new();
-                let _ = write!(line, "{}s left", seconds_left);
+                let _ = write!(line, "{seconds_left}s left");
                 event::raise_event(event::Events::CalibrationStatus {
                     header: None,
                     line1: None,
@@ -228,9 +230,9 @@ pub async fn run_imu_calibration() {
     }
 
     // Calculate hard iron bias (center of min/max sphere)
-    let mag_x_bias = (mag_x_max + mag_x_min) / 2.0;
-    let mag_y_bias = (mag_y_max + mag_y_min) / 2.0;
-    let mag_z_bias = (mag_z_max + mag_z_min) / 2.0;
+    let mag_x_bias = f32::midpoint(mag_x_max, mag_x_min);
+    let mag_y_bias = f32::midpoint(mag_y_max, mag_y_min);
+    let mag_z_bias = f32::midpoint(mag_z_max, mag_z_min);
 
     info!("  ✓ Magnetometer calibration complete!");
     info!("  Hard iron bias (offset to center):");
