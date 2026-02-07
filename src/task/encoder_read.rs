@@ -76,7 +76,10 @@ pub enum EncoderCommand {
     ///
     /// # Parameters
     /// - `interval_ms`: Time between samples in milliseconds (e.g., 50 = 20Hz)
-    Start { interval_ms: u64 },
+    Start {
+        /// Sampling interval in milliseconds
+        interval_ms: u64,
+    },
 
     /// Stop encoder sampling (power saving)
     Stop,
@@ -288,7 +291,7 @@ pub async fn encoder_read(
 ///
 /// Motors are considered stopped if all encoder counts are unchanged
 /// between two consecutive readings.
-fn motors_stopped(current: &EncoderMeasurement, previous: &EncoderMeasurement) -> bool {
+const fn motors_stopped(current: &EncoderMeasurement, previous: &EncoderMeasurement) -> bool {
     current.left_front == previous.left_front
         && current.left_rear == previous.left_rear
         && current.right_front == previous.right_front
