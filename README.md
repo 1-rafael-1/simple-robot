@@ -9,6 +9,18 @@ Check out the v1-robot navigating autonomously, download the demo video here: [A
 
 > Note: The initial version of this robot is preserved in the [`v1` tag](../../tree/v1). That version represents a simple but functional autonomous robot using basic components. The main branch now tracks the development of an improved version.
 
+## Current Status
+
+**v2 Complete Overhaul - Hardware Phase**
+
+The robot is undergoing a complete redesign with a custom PCB. The new PCB has been ordered and is awaiting delivery. Once it arrives, firmware development will begin in earnest.
+
+Current schematic and PCB designs can be found in the [KiCad directory](misc/KiCad/simple-robot):
+- [Schematic Image](misc/KiCad/simple-robot/schematic.jpg)
+- [PCB Image](misc/KiCad/simple-robot/simple-robot.jpg)
+
+The previous TODO list and BOM information below are from an earlier iteration and no longer reflect the current state of the project.
+
 ## Licensing Overview
 
 This project uses multiple licenses depending on the component:
@@ -48,50 +60,7 @@ Here is a list of the features of the robot, that may some day be implemented:
 - Battery Management
   - Show battery level on RGB LED
 
-It became so crowded on a breadboard, that I decided to make a PCB for it. This turned out to be a fun experience and after a few ... detours... I ended up with a working PCB. Here is my current list of improvements, that grows longer every day:
-
-- [ ] Sensor improvements:
-  - [x] Replace HC-SR04 ultrasonic sensor with IR sensor for more reliable obstacle detection
-    - [x] Add a second IR sensor because the chassis & tracks is too wide to be covered by one sensor.
-  - [x] Add servo-mounted HC-SR04 as a poor man's LIDAR system for better spatial awareness
-  - [ ] Do something with the data... right now it only shows on the display
-  - [X] Integrate MPU6500 IMU for improved position control and orientation sensing.
-- [x] Remote control improvements:
-  - [x] Re-wire everything to decouple the RC receiver as much as possible from the motor driver and other noisy components -> for better reception when motors are running
-- [X] General circuit improvements:
-  - [x] Get rid of the voltage dividers for the RC receiver and the sensors, replace with level shifters instead
-- [X] Mobility improvements:
-  - [x] Replace the simple DC motors with better ones that have higher torque and encoders
-  - [x] Wire up the encoders
-  - [x] Alter code to use encoders for better control and feedback, i.e. drive straight lines
-- [ ] Power management improvements:
-  - [x] Improve the battery indicator by refining the color scheme of the battery indicator
-  - [ ] Add a charger IC to charge and especially to protect the battery from deep discharge
-  - [ ] Gracefully power down when the battery is low
-  - [x] Some sort of on/off switch would be kind of nice, even if plugging the ground cable into the breadboard as a switch is nerdy fun
-- [ ] Mechanics improvements:
-  - [ ] There must be a solution for tightening the tracks, which are too long by a few mm and sometimes come loose
-  - [x] The base frame does not fit well with motors that have encoders -> needs to be adapted
-- [ ] Circuit & Wiring Improvements
-  - [x] Get to grips with KiCad and make an initial Schematic
-  - [x] Make a PCB and get it manufactured
-  - [X] Solder the components on the PCB and test it
-- [ ] Documentation Improvements
-  - [x] Update the readme with the new features
-  - [ ] Add more detailed instructions on how to assemble the robot
-  - [ ] Add more detailed instructions on how to power the robot
-- [ ] Complete implementation
-  - [ ] Implement monitor_motion : Correction for torque bias turning
-  - [ ] Implement monitor_motion : Correction for angled exact turning
-  - [ ] Implement drive : Remove old compensation code, throw out IMU and Encoder data received in favor of the new correction data
-  - [ ] Implement drive : Implement the compensation as received from monitor_motion
-  - [ ] Implement state and rc control :
-    - [ ] Autonomous simple mode (drive, ir sensors avoid collision, random turns)
-    - [ ] Autonomous advanced mode (drive, ir sensors avoid collision, us sweep data used to plot a course)
-
-I am not yet sure how many of these improvements I can implement in a reasonable time frame. Maybe I will archive a v2 at some point along the way.
-
-I will update the readme with these improvements once they are implemented. Let's get started!
+It became so crowded on a breadboard, that I decided to make a PCB for it. This turned out to be a fun experience and led to designing a custom PCB for v2. The new board has been ordered and we're awaiting its arrival to begin the next phase of development.
 
 ## Schematic
 
@@ -101,15 +70,15 @@ You can find the KiCad project here: [misc/KiCad/simple-robot](misc/KiCad/simple
 
 An excellent resource I found perfect to learn KiCad is a series of Youtube videos: [KiCad Tutorial: Beginning to End](https://www.youtube.com/watch?v=vLnu21fS22s&list=PLUOaI24LpvQPls1Ru_qECJrENwzD7XImd). This is crisp and to the point but easy to follow for a beginner like me.
 
-![robot-schematic](misc/media/schematic_picture.png)
-*The schematic*
+![robot-schematic](misc/KiCad/simple-robot/schematic.jpg)
+*The v2 schematic (current design)*
 
-![robot-pcb](misc/media/pcb_picture.png)
-*The PCB*
+![robot-pcb](misc/KiCad/simple-robot/simple-robot.jpg)
+*The v2 PCB layout (current design)*
 
-## Stuff used
+## Stuff used (v1 iteration - historical reference)
 
-Here is an overview of things used to make the robot. This is not supposed to be an exact BOM, but should give a good idea what to get. For an idea of what to connect to what, you can look at [resources.rs](src/system/resources.rs).
+> **Note:** The component list below reflects the v1 iteration of this robot. The v2 design uses a custom PCB with an updated component selection. This BOM is kept for historical reference only. The current v2 BOM will be documented once the new PCB arrives and assembly is complete.
 
 | Component | Description |
 |:--|:--|
