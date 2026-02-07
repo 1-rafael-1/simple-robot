@@ -12,7 +12,7 @@ use crate::task::{
 ///
 /// Maintains rotation progress and calculates differential motor speeds
 /// needed to achieve the target rotation angle using IMU feedback.
-pub(crate) struct RotationState {
+pub struct RotationState {
     /// Target rotation angle in degrees
     pub(crate) target_angle: f32,
     /// Accumulated rotation so far (in degrees)
@@ -31,7 +31,7 @@ pub(crate) struct RotationState {
 
 impl RotationState {
     /// Creates new rotation tracking state
-    pub fn new(target_angle: f32, direction: RotationDirection, motion: RotationMotion) -> Self {
+    pub const fn new(target_angle: f32, direction: RotationDirection, motion: RotationMotion) -> Self {
         let base_speed = match motion {
             RotationMotion::Stationary { speed: _ } => 0,
             RotationMotion::WhileMoving(speed) => speed,
@@ -79,8 +79,20 @@ impl RotationState {
         (self.accumulated_angle - self.target_angle).abs() <= ROTATION_TOLERANCE_DEG
     }
 
+    /// Clamp speed value to valid u8 range (0-100)
+    #[allow(clippy::cast_possible_truncation)]
+    fn clamp_speed_u8(value: f32) -> u8 {
+        let clamped = value.clamp(0.0, 100.0);
+        if clamped.is_nan() {
+            0
+        } else {
+            let truncated = clamped as i32;
+            u8::try_from(truncated).unwrap_or(0)
+        }
+    }
+
     /// Calculates appropriate motor speeds for current rotation state
-    /// Returns (left_speed, right_speed)
+    /// Returns (`left_speed`, `right_speed`)
     pub fn calculate_motor_speeds(&self) -> (i8, i8) {
         // Signed error: positive => undershoot (need more rotation), negative => overshoot.
         let error_deg = self.target_angle - self.accumulated_angle;
@@ -104,11 +116,11 @@ impl RotationState {
                 // We still reduce speed near the target to limit oscillation, but never below ROTATION_SPEED_MIN.
                 let requested = speed.clamp(0, 100);
                 if remaining_degrees < 10.0 {
-                    let min = ROTATION_SPEED_MIN.min(requested.max(ROTATION_SPEED_MIN));
+                    let min = ROTATION_SPEED_MIN;
                     let max = requested.max(min);
                     let speed_range = max - min;
                     let speed_factor = remaining_degrees / 10.0;
-                    (min as f32 + (speed_range as f32 * speed_factor)) as u8
+                    Self::clamp_speed_u8(f32::from(min) + (f32::from(speed_range) * speed_factor))
                 } else {
                     requested
                 }
@@ -119,24 +131,25 @@ impl RotationState {
                     // Linear interpolation between min and max speed
                     let speed_range = ROTATION_SPEED_MAX - ROTATION_SPEED_MIN;
                     let speed_factor = remaining_degrees / 10.0;
-                    (ROTATION_SPEED_MIN as f32 + (speed_range as f32 * speed_factor)) as u8
+                    Self::clamp_speed_u8(f32::from(ROTATION_SPEED_MIN) + (f32::from(speed_range) * speed_factor))
                 } else {
                     ROTATION_SPEED_MAX
                 }
             }
         };
+        let rotation_speed_signed = i8::try_from(rotation_speed).unwrap_or(i8::MAX);
 
         match self.motion {
             RotationMotion::Stationary { speed: _ } => {
                 // Simple differential drive for in-place rotation (with overshoot reversal)
                 match effective_direction {
-                    RotationDirection::Clockwise => (rotation_speed as i8, -(rotation_speed as i8)),
-                    RotationDirection::CounterClockwise => (-(rotation_speed as i8), rotation_speed as i8),
+                    RotationDirection::Clockwise => (rotation_speed_signed, -rotation_speed_signed),
+                    RotationDirection::CounterClockwise => (-rotation_speed_signed, rotation_speed_signed),
                 }
             }
             RotationMotion::WhileMoving(_) => {
                 // Combine base motion with rotation
-                let rotation_diff = rotation_speed.min(SPEED_DIFF_MAX as u8) as i8;
+                let rotation_diff = rotation_speed_signed.min(SPEED_DIFF_MAX);
 
                 match effective_direction {
                     RotationDirection::Clockwise => {
@@ -151,7 +164,7 @@ impl RotationState {
     }
 
     /// Returns the base speed for maintaining motion after rotation
-    pub fn continuation_speed(&self) -> Option<i8> {
+    pub const fn continuation_speed(&self) -> Option<i8> {
         match self.motion {
             RotationMotion::Stationary { speed: _ } => None,
             RotationMotion::WhileMoving(_) => Some(self.base_speed),
@@ -162,6 +175,6 @@ impl RotationState {
 /// Detect if robot is performing a stationary rotation (turn in place)
 ///
 /// Returns true if left and right tracks have equal but opposite speeds.
-pub(crate) fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
+pub const fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
     left_speed == -right_speed && left_speed != 0
 }

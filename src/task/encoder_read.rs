@@ -99,8 +99,9 @@ pub enum EncoderCommand {
     AutoResetOnMotorStop(bool),
 }
 
-/// Command channel for encoder control
+/// Size of the command queue for encoder control
 const COMMAND_QUEUE_SIZE: usize = 16;
+/// Command channel for encoder control
 static ENCODER_COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, EncoderCommand, COMMAND_QUEUE_SIZE> = Channel::new();
 
 /// Send a command to the encoder task
@@ -133,20 +134,24 @@ pub struct EncoderMeasurement {
     /// Right rear motor encoder count
     pub right_rear: u16,
     /// Timestamp of measurement in milliseconds since boot
-    pub timestamp_ms: u32,
+    pub timestamp_ms: u64,
 }
 
 /// Encoder channels for all 4 motors
 struct EncoderChannels {
-    left_front: Pwm<'static>,  // GPIO 7, PWM Slice 3B
-    left_rear: Pwm<'static>,   // GPIO 21, PWM Slice 2B
-    right_front: Pwm<'static>, // GPIO 9, PWM Slice 4B
-    right_rear: Pwm<'static>,  // GPIO 27, PWM Slice 5B
+    /// Encoder input for left front motor
+    left_front: Pwm<'static>,
+    /// Encoder input for left rear motor
+    left_rear: Pwm<'static>,
+    /// Encoder input for right front motor
+    right_front: Pwm<'static>,
+    /// Encoder input for right rear motor
+    right_rear: Pwm<'static>,
 }
 
 impl EncoderChannels {
     /// Reset all encoder counters to zero
-    fn reset_all(&mut self) {
+    fn reset_all(&self) {
         self.left_front.set_counter(0);
         self.left_rear.set_counter(0);
         self.right_front.set_counter(0);
@@ -155,7 +160,7 @@ impl EncoderChannels {
 
     /// Read all encoder counts at once
     fn read_all(&self) -> EncoderMeasurement {
-        let timestamp_ms = Instant::now().as_millis() as u32;
+        let timestamp_ms = Instant::now().as_millis();
         EncoderMeasurement {
             left_front: self.left_front.counter(),
             left_rear: self.left_rear.counter(),

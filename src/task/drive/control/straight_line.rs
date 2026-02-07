@@ -1,7 +1,7 @@
 //! Straight-line motion control with drift correction
 
 /// Tracks straight-line motion correction
-pub(crate) struct StraightLineState {
+pub struct StraightLineState {
     /// Initial yaw angle when straight motion started
     target_yaw: f32,
     /// Previous yaw error for derivative calculation
@@ -18,7 +18,8 @@ impl StraightLineState {
     /// Derivative control factor
     const D_FACTOR: f32 = 0.05;
 
-    pub fn new(initial_yaw: f32) -> Self {
+    /// Creates a new straight line state with the given initial yaw
+    pub const fn new(initial_yaw: f32) -> Self {
         Self {
             target_yaw: initial_yaw,
             last_error: None,
@@ -27,7 +28,8 @@ impl StraightLineState {
     }
 
     /// Calculates motor speed corrections to maintain straight line
-    /// Returns (left_adjustment, right_adjustment) as factors to multiply with base speed
+    /// Returns (`left_adjustment`, `right_adjustment`) as factors to multiply with base speed
+    #[allow(clippy::cast_possible_truncation)]
     pub fn calculate_correction(&mut self, current_yaw: f32, timestamp_ms: u32) -> (f32, f32) {
         let mut yaw_error = current_yaw - self.target_yaw;
 
@@ -43,10 +45,11 @@ impl StraightLineState {
 
         // Calculate D term (rate of change of error)
         let d_correction = if let Some(last_error) = self.last_error {
-            let dt = (timestamp_ms - self.last_update_ms) as f32 / 1000.0;
+            let dt_ms = f64::from(timestamp_ms.wrapping_sub(self.last_update_ms));
+            let dt = dt_ms * 0.001;
             if dt > 0.0 {
-                let error_rate = (yaw_error - last_error) / dt;
-                error_rate * Self::D_FACTOR
+                let error_rate = f64::from(yaw_error - last_error) / dt;
+                (error_rate * f64::from(Self::D_FACTOR)) as f32
             } else {
                 0.0
             }

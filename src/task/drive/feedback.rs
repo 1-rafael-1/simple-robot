@@ -20,6 +20,7 @@ pub(super) static LATEST_ENCODER_MEASUREMENT: Mutex<CriticalSectionRawMutex, Opt
 /// Channel for receiving IMU measurements from orchestrator
 /// Capacity of 16 allows buffering during calibration sequences (100Hz sampling)
 const IMU_FEEDBACK_QUEUE_SIZE: usize = 16;
+/// The orchestrator sends IMU measurements here during calibration to provide real-time feedback to the drive task.
 pub(super) static IMU_FEEDBACK_CHANNEL: Channel<CriticalSectionRawMutex, ImuMeasurement, IMU_FEEDBACK_QUEUE_SIZE> =
     Channel::new();
 
@@ -43,7 +44,7 @@ pub(super) static LATEST_ACCEL_MEASUREMENT: Mutex<CriticalSectionRawMutex, Optio
 
 /// Update the latest encoder measurement
 ///
-/// Called by orchestrator to forward encoder events from the encoder_read task.
+/// Called by orchestrator to forward encoder events from the `encoder_read` task.
 /// Stores the measurement in a mutex so the drive task can read it on demand.
 pub async fn send_encoder_measurement(measurement: EncoderMeasurement) {
     let mut latest = LATEST_ENCODER_MEASUREMENT.lock().await;
@@ -170,19 +171,19 @@ pub(super) async fn clear_accel_measurement() {
 /// Used during IMU calibration to get stable baseline and interference measurements.
 /// Waits for fresh magnetometer data from IMU task at 50Hz sampling rate.
 pub(super) async fn measure_mag_average(samples: u16) -> Vector3<f32> {
-    let mut sum = Vector3::new(0.0, 0.0, 0.0);
+    let mut sum = Vector3::<f64>::new(0.0, 0.0, 0.0);
     let mut count = 0;
 
     for _ in 0..samples {
         if let Some(mag) = get_latest_mag_measurement().await {
-            sum += mag;
+            sum += mag.cast::<f64>();
             count += 1;
         }
         Timer::after(Duration::from_millis(20)).await; // 50Hz
     }
 
     if count > 0 {
-        sum / count as f32
+        (sum / f64::from(count)).cast::<f32>()
     } else {
         Vector3::new(0.0, 0.0, 0.0)
     }
@@ -213,7 +214,7 @@ pub(super) async fn wait_for_mag_event_timeout(timeout_ms: u64) -> Option<Vector
 
 /// Wait for a fresh encoder measurement with timeout
 ///
-/// Polls for a new encoder measurement, waiting up to timeout_ms.
+/// Polls for a new encoder measurement, waiting up to `timeout_ms`.
 /// Returns None if timeout occurs before a measurement is available.
 pub(super) async fn wait_for_encoder_event_timeout(timeout_ms: u64) -> Option<EncoderMeasurement> {
     use embassy_time::{Duration, Instant, Timer};

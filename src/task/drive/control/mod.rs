@@ -4,10 +4,10 @@
 //! used for precise motion control, including rotation, straight-line
 //! driving, tilt compensation, and motor state management.
 
-pub(crate) mod motor_state;
-pub(crate) mod rotation;
-pub(crate) mod straight_line;
-pub(crate) mod tilt;
+pub mod motor_state;
+pub mod rotation;
+pub mod straight_line;
+pub mod tilt;
 
 // Re-export commonly used types for convenience
-pub(crate) use rotation::RotationState;
+pub use rotation::RotationState;
