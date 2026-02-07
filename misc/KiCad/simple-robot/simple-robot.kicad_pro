@@ -58,7 +58,12 @@
           "width": 0.0
         }
       ],
-      "drc_exclusions": [],
+      "drc_exclusions": [
+        [
+          "silk_overlap|150520000|69370000|9d8c92c5-d798-44d5-95b6-fdf99476b0df|d9af5dba-2582-4baa-9b8f-6ad8dfc1c10a",
+          ""
+        ]
+      ],
       "meta": {
         "version": 2
       },
@@ -191,7 +196,9 @@
         0.0,
         0.1,
         0.2,
-        0.5
+        0.5,
+        0.7,
+        0.8
       ],
       "tuning_pattern_settings": {
         "diff_pair_defaults": {
@@ -598,7 +605,7 @@
       "netlist": "",
       "plot": "plots/",
       "pos_files": "",
-      "specctra_dsn": "",
+      "specctra_dsn": "simple-robot.dsn",
       "step": "",
       "svg": "",
       "vrml": ""
