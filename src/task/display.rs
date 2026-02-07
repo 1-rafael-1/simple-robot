@@ -322,19 +322,6 @@ fn handle_show_sweep(
         .draw(display)
         .map_err(|_| DisplayError::DrawError)?;
 
-    // Use same angle offset for point plotting to maintain consistency
-    if distance <= MAX_DISTANCE_CM {
-        let scaled_distance = (distance / MAX_DISTANCE_CM) * f64::from(RADIUS);
-        let point = SweepPoint {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-            x: CENTER_X + (scaled_distance * f64::from(rad_angle.cos())) as i32,
-            #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-            y: CENTER_Y - (scaled_distance * f64::from(rad_angle.sin())) as i32,
-            angle: display_angle, // Store offset angle for point clearing
-        };
-        points.push(point).map_err(|_| DisplayError::PointsBufferFull)?;
-    }
-
     // Track sweep direction for point clearing
     // Large angle changes (>90°) indicate direction reversal
     // Otherwise compare with last angle to determine direction
@@ -373,7 +360,12 @@ fn handle_show_sweep(
             y: CENTER_Y - (scaled_distance * f64::from(rad_angle.sin())) as i32,
             angle, // Store angle for later point clearing
         };
-        points.push(point).map_err(|_| DisplayError::PointsBufferFull)?; // Add to fixed-size buffer
+        // If buffer is full, drop the oldest point to make room (normal steady-state behavior)
+        if points.push(point).is_err() {
+            // Buffer is full, remove oldest point and try again
+            points.remove(0);
+            let _ = points.push(point); // This should succeed now, but ignore if it still fails
+        }
     }
 
     // Draw all points

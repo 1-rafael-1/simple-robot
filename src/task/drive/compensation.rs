@@ -256,13 +256,13 @@ pub fn apply_compensation_action(action: CompensationAction, left_speed: i8, rig
 /// Add `delta` to `value` while clamping to [-100, 100].
 #[allow(clippy::cast_possible_truncation)]
 fn add_clamped(value: i8, delta: i8) -> i8 {
-    i16::from(value + delta).clamp(-100, 100) as i8
+    (i16::from(value) + i16::from(delta)).clamp(-100, 100) as i8
 }
 
 /// Subtract `delta` from `value` while clamping to [-100, 100].
 #[allow(clippy::cast_possible_truncation)]
 fn sub_clamped(value: i8, delta: i8) -> i8 {
-    i16::from(value - delta).clamp(-100, 100) as i8
+    (i16::from(value) - i16::from(delta)).clamp(-100, 100) as i8
 }
 
 /// Increase speed magnitude by `delta` while preserving sign (symmetric forward/reverse).

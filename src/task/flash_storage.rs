@@ -106,7 +106,7 @@ pub struct ImuCalibration {
     /// Magnetometer Z-axis bias
     pub mag_z_bias: f32,
 
-    /// x-Axiss Motor interference correction factor at 50% power
+    /// x-Axis Motor interference correction factor at 50% power
     pub mag_x_interference_50: [f32; 3],
     /// y-Axis Motor interference correction factor at 50% power
     pub mag_y_interference_50: [f32; 3],
@@ -460,7 +460,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
     let mut storage = MapStorage::<StorageKey, _, _>::new(flash, MapConfig::new(flash_range.clone()), NoCache::new());
 
     // Create scratch buffer for serialization/deserialization
-    // Motor calibration needs 16 bytes, IMU calibration needs 36 bytes
+    // Motor calibration needs 16 bytes, IMU calibration needs 108 bytes
     // Using 128 bytes to be safe and align with common practice
     let mut data_buffer: [u8; 128] = [0; 128];
 

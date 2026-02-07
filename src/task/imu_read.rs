@@ -645,7 +645,7 @@ async fn sample_once(
     drive::send_accel_measurement(accel_data).await;
 
     // Convert gyroscope from degrees/s to radians/s for AHRS
-    let gyro_rad = Vector3::new(gyro_x.to_degrees(), gyro_y.to_degrees(), gyro_z.to_degrees());
+    let gyro_rad = Vector3::new(gyro_x.to_radians(), gyro_y.to_radians(), gyro_z.to_radians());
 
     // NOTE: In 6-axis mode we must NOT read the magnetometer at all.
     // This avoids I2C/mag failures from stalling IMU output during turns.

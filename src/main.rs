@@ -187,7 +187,7 @@ async fn main(spawner: Spawner) {
     // Initialize port expander task
     init_port_expander(spawner, i2c_bus, p.PIN_20);
 
-    // Initialize the rgb indicattor led
+    // Initialize the rgb indicator led
     init_rgb_led(
         spawner,
         &mut common,
