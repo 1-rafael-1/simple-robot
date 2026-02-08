@@ -337,8 +337,9 @@ fn handle_show_sweep(
     // Clear points near sweep line based on direction
     // Points are removed when the sweep line approaches within CLEAR_ZONE degrees
     // Different retention logic based on sweep direction to properly clear points
+    // Use display_angle for consistency with point storage (points store display_angle)
     points.retain(|point| {
-        let angle_diff = (point.angle - angle).rem_euclid(180.0);
+        let angle_diff = (point.angle - display_angle).rem_euclid(180.0);
         if *moving_right {
             angle_diff > CLEAR_ZONE && angle_diff < 180.0
         } else {
@@ -353,13 +354,14 @@ fn handle_show_sweep(
         let scaled_distance = (distance / MAX_DISTANCE_CM) * f64::from(RADIUS);
 
         // Convert polar coordinates (distance, angle) to cartesian (x, y)
-        let rad_angle = angle.to_radians();
+        // Use display_angle (with 10° offset) to match sweep line positioning
+        let point_rad_angle = display_angle.to_radians();
         let point = SweepPoint {
             #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-            x: CENTER_X + (scaled_distance * f64::from(rad_angle.cos())) as i32,
+            x: CENTER_X + (scaled_distance * f64::from(point_rad_angle.cos())) as i32,
             #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-            y: CENTER_Y - (scaled_distance * f64::from(rad_angle.sin())) as i32,
-            angle, // Store angle for later point clearing
+            y: CENTER_Y - (scaled_distance * f64::from(point_rad_angle.sin())) as i32,
+            angle: display_angle, // Store display_angle for consistent point clearing
         };
         // If buffer is full, drop the oldest point to make room (normal steady-state behavior)
         if points.push(point).is_err() {

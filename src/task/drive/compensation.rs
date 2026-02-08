@@ -6,11 +6,12 @@
 //! - It determines an action to compensate without exceeding +/-100 motor command limits
 //!
 //! Design notes:
-//! - The current encoder task resets counters at the start of sampling and publishes
-//!   absolute counts since last reset. In that mode, you can treat the measurement
-//!   values as deltas for the sampling window.
-//! - If your encoder task ever changes to publish cumulative counts, you can use
-//!   `calculate_delta_u16()` with stored previous readings.
+//! - The encoder task publishes cumulative hardware PWM counter values (since last
+//!   explicit reset). Callers must compute per-sample deltas themselves using
+//!   `calculate_delta_u16()` with stored previous readings before passing values
+//!   to `calculate_track_averages()`.
+//! - The drift compensation step in `drive/mod.rs` stores the previous measurement
+//!   and computes deltas with wraparound handling each tick.
 
 use crate::task::{
     drive::types::{DRIFT_COMPENSATION_GAIN, DRIFT_COMPENSATION_MAX, DRIFT_TOLERANCE_PERCENT},
@@ -81,11 +82,11 @@ pub enum CompensationAction {
     DecreaseRight(i8),
 }
 
-/// Convert an `EncoderMeasurement` (which is assumed to represent pulses for the window)
-/// into `TrackSpeedData` with per-track averages.
+/// Convert an `EncoderMeasurement` into `TrackSpeedData` with per-track averages.
 ///
-/// If you later need wraparound handling for cumulative counts, use `calculate_delta_u16()`
-/// externally and feed deltas here instead.
+/// **Important**: The caller is responsible for providing per-window delta values, not
+/// raw cumulative hardware counters. Use `calculate_delta_u16()` to compute deltas
+/// from consecutive cumulative readings before calling this function.
 pub fn calculate_track_averages(measurement: EncoderMeasurement) -> TrackSpeedData {
     let left_front = measurement.left_front;
     let left_rear = measurement.left_rear;

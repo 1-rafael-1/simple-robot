@@ -103,7 +103,7 @@ use crate::{
     },
     task::{
         drive::feedback::IMU_FEEDBACK_CHANNEL,
-        encoder_read,
+        encoder_read::{self, EncoderMeasurement},
         imu_read::ImuMeasurement,
         motor_driver::{self, MotorCommand},
     },
@@ -203,6 +203,10 @@ struct DriftCompensationState {
     last_applied_ms: u64,
     /// Timestamp of the last processed encoder measurement (ms)
     last_encoder_timestamp_ms: u64,
+    /// Previous encoder measurement for computing per-sample deltas.
+    /// Encoder hardware counters are cumulative since last reset, so we must
+    /// subtract the previous reading to get pulses for the current window.
+    last_encoder_measurement: Option<EncoderMeasurement>,
 }
 
 impl DriftCompensationState {
@@ -216,6 +220,7 @@ impl DriftCompensationState {
             adjusted_right: 0,
             last_applied_ms: 0,
             last_encoder_timestamp_ms: 0,
+            last_encoder_measurement: None,
         }
     }
 }
@@ -377,7 +382,24 @@ async fn run_drift_compensation_step(drift: &mut DriftCompensationState, rotatio
         }
         drift.last_encoder_timestamp_ms = measurement.timestamp_ms;
 
-        let data = crate::task::drive::compensation::calculate_track_averages(measurement);
+        // Compute per-sample deltas from cumulative hardware counters.
+        // The encoder task publishes cumulative counts since last reset, so we
+        // subtract the previous reading (with wraparound handling) to get pulses
+        // for the current sampling window only.
+        // First sample after start/reset: treat cumulative as delta (counters
+        // were just reset, so this is correct for the first window).
+        let delta_measurement = drift
+            .last_encoder_measurement
+            .map_or(measurement, |prev| EncoderMeasurement {
+                left_front: compensation::calculate_delta_u16(measurement.left_front, prev.left_front),
+                left_rear: compensation::calculate_delta_u16(measurement.left_rear, prev.left_rear),
+                right_front: compensation::calculate_delta_u16(measurement.right_front, prev.right_front),
+                right_rear: compensation::calculate_delta_u16(measurement.right_rear, prev.right_rear),
+                timestamp_ms: measurement.timestamp_ms,
+            });
+        drift.last_encoder_measurement = Some(measurement);
+
+        let data = crate::task::drive::compensation::calculate_track_averages(delta_measurement);
 
         // If nothing moved (very low speed or stopped), ignore the sample.
         if data.all_zero() {
@@ -537,8 +559,10 @@ impl DriveLoop {
             self.drift.adjusted_left = left_clamped;
             self.drift.adjusted_right = right_clamped;
 
-            // Start encoder sampling at configured interval and reset counters so
-            // measurements represent per-window deltas.
+            // Start encoder sampling at configured interval and reset counters.
+            // Delta computation happens in run_drift_compensation_step using
+            // stored previous readings (last_encoder_measurement).
+            self.drift.last_encoder_measurement = None;
             encoder_read::send_command(encoder_read::EncoderCommand::Start {
                 interval_ms: crate::task::drive::types::DRIFT_COMPENSATION_INTERVAL_MS,
             })
