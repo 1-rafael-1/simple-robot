@@ -116,7 +116,7 @@ I replaced the initial MPU9250/MPU6050 I never truly got to work with the ICM209
 - <https://github.com/1-rafael-1/ICM-20948-rs>
 - Also on <https://crates.io/crates/icm20948-rs>
 
-The driver supports async I2C operations and includes examples for RP2350. For orientation tracking. This was to a degree vibe-coded because that is truly out of my league, but it seems to work okay so far. I am sure there are many things that could be done better, but it is a start and I can now get good orientation data from the IMU, which is a big step forward for the project.
+The driver supports async I2C operations and includes examples for RP2350. This was to a degree vibe-coded because that is truly out of my league, but it seems to work okay so far. I am sure there are many things that could be done better, but it is a start and I can now get good orientation data from the IMU, which is a big step forward for the project.
 
 ## The code
 
