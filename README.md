@@ -1,6 +1,6 @@
 # simple-robot
 
-A no-longer-too-simple robot with different sensors and autonomous as well as remote controlled movement written in Rust.
+A no-longer-too-simple robot with different sensors and autonomous as well as remote-controlled movement written in Rust. This is a WIP.
 
 ![Robot Side View](misc/media/right.jpg)
 *Side view showing the robot's profile - picture of the v2 iteration, still WIP.*
@@ -9,135 +9,76 @@ Check out the v1-robot navigating autonomously, download the demo video here: [A
 
 > Note: The initial version of this robot is preserved in the [`v1` tag](../../tree/v1). That version represents a simple but functional autonomous robot using basic components. The main branch now tracks the development of an improved version.
 
+## Current Status
+
+**v2 Complete Overhaul - Hardware Phase**
+
+The robot is undergoing a complete redesign with a second custom PCB. The new PCB has been ordered and is awaiting delivery. Once it arrives, firmware development will begin in earnest.
+
+Current schematic and PCB designs can be found in the [KiCad directory](misc/KiCad/simple-robot):
+- [Schematic Image](misc/KiCad/simple-robot/schematic.jpg)
+- [PCB Image](misc/KiCad/simple-robot/simple-robot.jpg)
+
+The previous TODO list and BOM information below are from an earlier iteration and no longer reflect the current state of the project.
+
 ## Licensing Overview
 
-This project is licensed under the MIT License with one exception:
+This project uses multiple licenses depending on the component:
 
-- **MIT License** - Applies to all content: Rust code, custom 3D models, PCB designs, and documentation (see [LICENSE](LICENSE))
-- **Exception: Original Proto-Tank Design Files** - Located in `misc/chassis/proto-tank/`, licensed under CC BY 4.0. See [misc/chassis/ATTRIBUTION.md](misc/chassis/ATTRIBUTION.md) for details
+- **Firmware code** (`src/`, `build.rs`, `Cargo.toml`, etc.): Licensed under **MIT License** (see `LICENSE-MIT.md`)
+- **3D-printed chassis designs** (`misc/chassis/`): Based on the Proto-Tank Chassis by fustyles, licensed under **CC BY-SA 4.0** (see attribution below)
+- **Schematic and hardware design** (`misc/media/schematic_picture.png`): Licensed under **CC BY-SA 4.0** (see `LICENSE-CC-BY-SA-4.0.md`)
+- **Documentation** (`docs/`, `README.md`): Licensed under **CC BY-SA 4.0**
 
-For complete licensing information, refer to:
-- [LICENSE](LICENSE) file (MIT - applies to everything except original Proto-Tank files)
-- [misc/chassis/ATTRIBUTION.md](misc/chassis/ATTRIBUTION.md) (CC BY 4.0 for original Proto-Tank)
+Please review the individual license files and attribution sections for detailed information.
 
-## What is it?
+---
 
-This is a hobby project for my 9-year-old son, who wanted me to build a robot for him. The thing started as a rather simple machine (v1) and then I got a little carried away.
+## What should this one day be?
 
-In v1 the robot could move autonomously and avoid obstacles in a very simple way. That meant driving straight until an obstacle is detected, back up a little and then make a random turn. It was fun to watch and my son was happy with it.
+This started out as a hobby project for my 10-year-old son, who wanted me to build a robot for him. The thing started as a rather simple machine (v1) and then I got a little carried away.
 
-Enter v2: I was unhappy with the ultrasonic sensor, I was unhappy with the straight driving, which was more a banana curve, I was unhappy with the turning, which was in reality just done by spending a random time on the turning motion. So one thing led to another and I ended up with a massive project that is still not finished. It has become that sort of project, where finishing one thing leads to the discovery of two more things that need to be done. Sounds awful? It is not. It is fun. And I am learning a lot!
+In v1, the robot could move autonomously and avoid obstacles in a very simple way. That meant driving straight until an obstacle is detected, back up a little and then make a random turn. It was fun to watch and my son was happy with it. You could start and stop it with a remote control, and there even was some means to rc the robot around, but that was not the main point of the project.
 
-Here is a list of the features of the robot, that may some day be implemented:
+This was so much fun that I am now working on a version with much-improved capabilities. The overall goal is to arrive at a system that can 
 
-- Remote-controlled movement
-  - Forward 4 speeds, backward 4 speeds, left/right biased turns. Emergency stop on obstacle detection.
-- Autonomous movement with obstacle avoidance
-  - Forward movement, obstacle detection, stop, back up, random turn, resume forward movement.
-- Autonomous movement with obstacle avoidance and spatial awareness
-  - Forward movement, drive until obstacle, back up, use servo-mounted HC-SR04 to scan the forward area, plot a course around the obstacle, resume forward movement.
-- General motion features
-  - use encoders and IMU to drive straight lines and exact turns
-  - use IMU to compensate for pitch and roll and also emergency stop on too steep incline
-- System Display
-  - On sensor sweep show a plot on the display
-  - On IMU data show pitch and roll on the display
-  - Show general drive information on the display
-- Battery Management
-  - Show battery level on RGB LED
++ be controlled by a simple remote control
++ have the same dumb obstacle avoidance mode as before
++ have a more advanced autonomous mode where it uses spatial awareness obtained by the IMU and the ultrasonic sensor to navigate around obstacles
++ have a follow-me mode where it follows an object in front of it, using a small AI module & camera
++ have an autonomous object finding mode where it searches for a given object until it finds it, using the same AI module & camera as before
 
-It became so crowded on a breadboard, that I decided to make a PCB for it. This turned out to be a fun experience and after a few ... detours... I ended up with a working PCB. Here is my current list of improvements, that grows longer every day:
+People have pointed out to me various things. The gist is that there are of course ready-made chassis solutions, ready-made RTOS for robotics and even probably complete systems available and that I am setting out to solve things that can be solved with much less effort by using existing things in code as well as hardware. This is all true and I do not dispute it. My motivation is different, though: I am not truly that much interested in having the actual robot, I have no use case at all for it, in fact. I just truly enjoy the process of building, figuring out how to do things, learning a ton of new stuff and it passes my rare spare time in a rewarding way.
 
-- [ ] Sensor improvements:
-  - [x] Replace HC-SR04 ultrasonic sensor with IR sensor for more reliable obstacle detection
-    - [x] Add a second IR sensor because the chassis & tracks is too wide to be covered by one sensor.
-  - [x] Add servo-mounted HC-SR04 as a poor man's LIDAR system for better spatial awareness
-  - [ ] Do something with the data... right now it only shows on the display
-  - [X] Integrate MPU6500 IMU for improved position control and orientation sensing.
-- [x] Remote control improvements:
-  - [x] Re-wire everything to decouple the RC receiver as much as possible from the motor driver and other noisy components -> for better reception when motors are running
-- [X] General circuit improvements:
-  - [x] Get rid of the voltage dividers for the RC receiver and the sensors, replace with level shifters instead
-- [X] Mobility improvements:
-  - [x] Replace the simple DC motors with better ones that have higher torque and encoders
-  - [x] Wire up the encoders
-  - [x] Alter code to use encoders for better control and feedback, i.e. drive straight lines
-- [ ] Power management improvements:
-  - [x] Improve the battery indicator by refining the color scheme of the battery indicator
-  - [ ] Add a charger IC to charge and especially to protect the battery from deep discharge
-  - [ ] Gracefully power down when the battery is low
-  - [x] Some sort of on/off switch would be kind of nice, even if plugging the ground cable into the breadboard as a switch is nerdy fun
-- [ ] Mechanics improvements:
-  - [ ] There must be a solution for tightening the tracks, which are too long by a few mm and sometimes come loose
-  - [x] The base frame does not fit well with motors that have encoders -> needs to be adapted
-- [ ] Circuit & Wiring Improvements
-  - [x] Get to grips with KiCad and make an initial Schematic
-  - [x] Make a PCB and get it manufactured
-  - [X] Solder the components on the PCB and test it
-- [ ] Documentation Improvements
-  - [x] Update the readme with the new features
-  - [ ] Add more detailed instructions on how to assemble the robot
-  - [ ] Add more detailed instructions on how to power the robot
-- [ ] Complete implementation
-  - [ ] Implement monitor_motion : Correction for torque bias turning
-  - [ ] Implement monitor_motion : Correction for angled exact turning
-  - [ ] Implement drive : Remove old compensation code, throw out IMU and Encoder data received in favor of the new correction data
-  - [ ] Implement drive : Implement the compensation as received from monitor_motion
-  - [ ] Implement state and rc control :
-    - [ ] Autonomous simple mode (drive, ir sensors avoid collision, random turns)
-    - [ ] Autonomous advanced mode (drive, ir sensors avoid collision, us sweep data used to plot a course)
+## So where are we now?
 
-I am not yet sure how many of these improvements I can implement in a reasonable time frame. Maybe I will archive a v2 at some point along the way.
+I am in the process of a complete overhaul of everything. I figured out that I will need to go through these steps to get to the final result:
 
-I will update the readme with these improvements once they are implemented. Let's get started!
+1. Do the platform things first. That means the first milestone is to get to a chassis that can do the very basics reliably. This means we must be able to drive straight lines and do turns with some degree of precision. This sounds very basic and it is, but I am finding this to be challenging already. A home-printed chassis and tracks as well as cheap dc motors mean that from the start there must be calibration for imperfection and a lot of sensor feedback to get close to the goal. 
+At this point I have the code mostly in place to do this and breadboarded enough hardware to test it. It sort of works now, but there are a few things unproven and likely needing more work. My turns still overshoot and the straight lines are wobbly. I am hoping this is mostly down to not calibrating the 9-axis IMU properly yet, the magnetometer requires to flip and move the contraption around and a breadboarded ugliness of modules and wires does not allow for that. So all my tests were 6-axis only yet and the straight lines were no IMU support at all, just motor encoders.
+2. In order to get 1. done all the modules I use need to go onto a PCB. The physical mess of wires alone is an issue by itself and also I measured the ground bounce of doom on the breadboard. I am suspecting the I2C bus also dropped out a few times and all that being incredibly noisy, there is no thinking about RC control. So at this point I have made an overhauled schematic and my first 4-layer PCB design. This is ordered and I am waiting for it to arrive.
+3. While waiting for 2. I cleaned the code up to some degree. What I will do next is to design the chassis parts that will allow me to mount the new PCB. I also need to design something to fix the battery pack in place and finally also mounts for the front sensor array. That is a few things, so the servo & HC-SR04, two IR proximity sensors and the camera for the AI module must go somewhere. While at it the AI board and RF transceiver module need to be mounted as well. My FreeCAD skills are not great, so this will take time :-)
+4. Once all that is done and printed and the PCB arrives, a few sessions of soldering and assembly will be needed. Going to be a struggle because I already know I am going to make some mistakes.
+5. With all that done and working (hopefully) I can start to implement more complex driving modes. The first one will be to get the dumb obstacle avoidance mode of V1 working with the new platform. While doing that some sort of user control will be implemented, we have the transceiver and also a rotary encoder on the PCB and an OLED display, so some basic menu can be made for selections, resetting and initiating calibration and such stuff.
+6. Once that is done, the more advanced autonomous mode can be implemented, which will use the IMU and the ultrasonic sensor to navigate around obstacles. First instance of making some sort of spatial matrix and learning about how to make the robot know where it actually is and how that relates to obstacles it detected. Will need the ultrasonic sweeping servo for that, and will revive the code for that slumbering here for a long while.
+7. After that, the follow-me mode can be implemented, which will use the camera and the AI module to follow an object in front of it. I believe the module can give not only the fact of detection but also position in the camera view, so we should be able to perform turns and speed adjustments to keep the object in the center of the view.
+8. It might turn out to be easier to implement the autonomous object finding mode before the follow-me mode, but that is the last milestone anyway. This will use the same camera and AI module as the follow-me mode, but instead of following an object it will search for a given object until it finds it. That means some sort of search pattern needs to be implemented, so scanning around for the object and moving to some place if not found and repeating until it is found. If I can manage some sort of control about where we already looked and where we have not.
+
+At the end of it all and in case of success we will have a thing that is barely as smart as a vacuum cleaner robot :-)
 
 ## Schematic
 
-While adding more and more things to this project I realized that I needed a schematic to keep track of all the connections and components. So I spent some time learning KiCad 8 and made one, which eventually led to designing a custom PCB for the project.
+You can find the KiCad project here: [misc/KiCad/simple-robot](misc/KiCad/simple-robot). Some of the boards I used had no symbols & footprints and so I created them as I went. You can find them here: [misc/KiCad/symbols](misc/KiCad/symbols). The Pi Pico symbol I found online here: [ncarandini/KiCad-RP-Pico](https://github.com/ncarandini/KiCad-RP-Pico).
 
-You can find the KiCad project here: [misc/KiCad/simple-robot](misc/KiCad/simple-robot). Some of the boards I used had no symbols & footprints and so I created them as i went. You can find them here: [misc/KiCad/symbols](misc/KiCad/symbols). The Pi Pico symbol I found online here: [/ncarandini/KiCad-RP-Pico]/(<https://github.com/ncarandini/KiCad-RP-Pico>).
+![robot-schematic](misc/KiCad/simple-robot/schematic.jpg)
+*The v2 schematic (current design)*
 
-An excellent resource I found perfect to learn KiCad is a series of Youtube videos: [KiCad Tutorial: Beginning to End](https://www.youtube.com/watch?v=vLnu21fS22s&list=PLUOaI24LpvQPls1Ru_qECJrENwzD7XImd). This is crisp and to the point but easy to follow for a beginner like me.
-
-![robot-schematic](misc/media/schematic_picture.png)
-*The schematic*
-
-![robot-pcb](misc/media/pcb_picture.png)
-*The PCB*
-
-## Stuff used
-
-Here is an overview of things used to make the robot. This is not supposed to be an exact BOM, but should give a good idea what to get. For an idea of what to connect to what, you can look at [resources.rs](src/system/resources.rs).
-
-| Component | Description |
-|:--|:--|
-|Raspberry Pi Pico 2|Yeah, vastly overpowered for this project, could be many other alternatives, I am sure.|
-|IC2262/2272 RC Module|RC transmitter and receiver unit bundle. Search for "IC2262/2272 rc ebay" and like a thousand of these pop up. I used a 433MHz variant including sender and receiver. Uses 5V power and output, so either use voltage dividers or logic level shifter to connect to the Pico.|
-|4-channel Logic level shifter|To route the RC receivers output to the GPIO. I used a cheap bi-directional one that stops working reliably >100Khz, but since we only need the occasional press on the remote put through, cheap and slow is fine.|
-|HC-SR04|Ultrasonic distance sensor. Can be triggered with 3.3V, but works better when powered by 5V. That way it puts out 5V on the echo line, so using a voltage divider to connect that back to the Pico.|
-|TB6612FNG|Motor driver module. Control driven with 3.3V, 6V power and 6V on the motor power lines.|
-|6V DC geared motor with gearbox and encoder|One for left and right each. DFRobot FIT0450.|
-|U3V16F5|Step-up converter that can convert 2.5-5V to steady 5V. Plenty of other options besides this very device.|
-|U3V16F6|Step-up converter that can convert 2.5-5V to steady 6V.|
-|2 18650 Li-Ion batteries|In my case here 3350mAh and 4.2V max, 2.5V min.|
-|2 battery holders|Wired parallel. One 18650 drains pretty quickly but two give decent life.|
-|slide switch|Wired and glued to the battery holders so that I can cut power.|
-|RGB LED|Whatever thing that can be driven by PWM on red and green pin each.|
-|6 104 ceramic (100nF) capacitors|Across power supply lines of RC receiver, across power supply of servo, display, rc receiver, IMU, both sides of level shifter|
-|2 47uF electrolytic capacitors|Across power output of 5V step-up converter. The RC receiver will not be happy with the power ripple otherwise.|
-|470uF electrolytic capacitor|Across the motor power input of the motor driver. Motor switching will send power spikes down the supply so much as to kick out the debugger and what else it hurt I could not observe.|
-|2 330Ω Resistors|For the RGB LED.|
-|10KΩ resistor, 20KΩ resistor|For the voltage divider for the HC-SR04 echo line.|
-|9g micro servo|For the sweeping sensor|
-|2 IR sensors|For obstacle detection. I used VMA330, but other options will also work.|
-|2 1N5817 Schottky diodes|To combine the IR sensors onto one GPIO|
-|CD4049 hex converter|Used to repair my bad design for the IR sensors. These are sending high when no obstacle, while i exppected them to send low then. That way the circuit would not work and the output needs to be inverted.|
-|ICM20948|9-axis Inertial Measurement Unit (IMU)|
-|Header pins|They go everywhere, under most of the boards, onto the PCB for more connections.... get plenty.|
+![robot-pcb](misc/KiCad/simple-robot/simple-robot.jpg)
+*The v2 PCB layout (current design)*
 
 ## 3D Printing
 
-The robot chassis and various mounting components are designed to be 3D printed. I printed all parts in PLA and they worked quite well. The 3D models are stored in the `misc/chassis` directory with both FreeCAD source files (.FCStd) and print-ready formats (.3mf, .stl).
+The robot chassis and various mounting components are designed to be 3D printed. I printed all parts in PLA and they worked quite okay so far. The 3D models are stored in the `misc/chassis` directory with both FreeCAD source files (.FCStd) and print-ready formats (.3mf, .stl).
 
 For convenient printing with a Bambu Lab 3D printer, two Bambu Studio print projects are included:
 
@@ -153,7 +94,6 @@ The individual component files are also available if you prefer to customize you
 - track pin.3mf (individual track pin component)
 
 For more details on the chassis components, file formats, and assembly, see [misc/chassis/README.md](misc/chassis/README.md).
-
 
 ## Side quests that became necessary
 
@@ -171,49 +111,28 @@ Testing the ultrasonic sensor I found it gets even more unreliable when moving. 
 
 A little less fun.
 
-I replaced the MPU9250/MPU6050 with the ICM20948, a more modern 9-axis IMU from the same manufacturer (TDK InvenSense). The ICM20948 offers better performance and I created a driver for it:
+I replaced the initial MPU9250/MPU6050 I never truly got to work with the ICM20948, a more modern 9-axis IMU from the same manufacturer (TDK InvenSense). The ICM20948 offers better performance and I created a driver for it:
 
 - <https://github.com/1-rafael-1/ICM-20948-rs>
 - Also on <https://crates.io/crates/icm20948-rs>
 
-The driver supports async I2C operations and includes extensive examples for RP2350. For orientation tracking, I implemented a full 9-axis AHRS (Attitude and Heading Reference System) using the Madgwick filter, which fuses data from all three sensors:
-
-- **Gyroscope**: Fast response, accurate short-term orientation changes
-- **Accelerometer**: Stable gravity reference, corrects long-term drift in roll/pitch
-- **Magnetometer**: Absolute heading reference, prevents yaw drift
-
-**AHRS Configuration for Tracked Robot:**
-- Beta = 0.15: Balanced setting for motor vibration rejection and responsiveness
-- 100 Hz update rate: Fast enough for motion control
-- DLPF settings optimized for brushed motor vibration filtering
-- Gyroscope bias calibration on startup
-
-**Size comparison after the swap:**
-- Original (MPU6050-DMP): 104,164 bytes
-- ICM20948 with AHRS: 109,028 bytes
-- **Cost: 4,864 bytes (4.7% increase)**
-
-The slight size increase is worth it for proper quaternion-based orientation with no yaw drift, which is essential for accurate turning and straight-line driving. The magnetometer provides absolute heading, eliminating the gyro drift issues that plagued the MPU6050.
-
-This was fun again :-)
+The driver supports async I2C operations and includes examples for RP2350. This was to a degree vibe-coded because that is truly out of my league, but it seems to work okay so far. I am sure there are many things that could be done better, but it is a start and I can now get good orientation data from the IMU, which is a big step forward for the project.
 
 ## The code
 
-The code is written in Rust and makes heavy use of the Embassy framework. I opted for a very modular approach, where mostly everything is an async task. These tasks all report into a central orchestration task, which then decides what to do next and is the only task that is allowed to send things to other tasks.
+The code is written in Rust and makes heavy use of the Embassy framework. I opted for a very modular approach, where mostly everything is an async task. These tasks all report into a central orchestration task, which then decides what to do next and is the only task that is allowed to send things to other tasks. Or should be, if I did not mess up somewhere.
 
-The orchestration is based on events, which are sent from the tasks to the orchestration task. I opted to keep all tasks running all the time, even if they are not needed at the moment. Such tasks are signaled to either work or await. I found it easier to reason about the system that way. It is also easy to add/remove/refactor tasks that way.
+The orchestration is based on events, which are raised from the tasks to the orchestration task. I opted to keep all tasks running all the time, even if they are not needed at the moment. Such tasks are signaled to either work or await. I found it easier to reason about the system that way. It is also easy to add/remove/refactor tasks that way.
 
-There are two modules, `system` and `task`. The `system` module contains rather general things like the resources assignmanet, the event system and state. The `task` module contains the tasks that are run by the system.
+There are two modules, `system` and `task`. The `system` module contains rather general things like the event system and state. The `task` module contains the tasks that are run by the system.
 
 The `main.rs` file is the entry point of the program but does nothing besides initializing some resources and then spawning all the tasks.
 
-## Things that went wrong so far
+Right now I am using just one core of the RP2350 and the nominal 150 MHz clock speed. The firmware uses just a few percent of the flash space and about 20% of the RAM. So there should be plenty of room to fit the system into. 
 
-- PCB design: Through-hole width must be 1.04mm, not the default 0.7mm. Doesn't fit, cannot be repaired. It is not expensive, but it is annoying, because delivery is the most costly and most time-consuming part of the process. So a small mistake, corrected in an hour, set me back two weeks.
-- Soldering: I had to do it all twice, because at some point solder would not flow where it should and heating stuff too high & too long made a mess out of the first board, leading to odd unwanted connectivity. And most annoyingly i put in the step-up-converters the wrong way around, unsoldering them damaged the PCB even more. Turns out wiping the board down with Isopropanol before soldering is a good idea. Also, sometimes a fiber glass pen is a good thing to have around. A clean soldering iron tip is a must, at the lowest temperature sufficient to heat solder&noard enough.
-- Overconfidence: I did not bother to check if the IR sensors output high or low when detecting an obstacle. Expected them to send normally low signals, but they send normally high signals. My original plan was to connect them both to only one GPIO, routing each through a diode. I was low on free GPIOs and this saves one. As it is with normally high signals, detection does not work, of course. So I had to get a CD4049 hex inverter and wire the sensors through that. That works, but it is annoying - I now have some additional external circuitry that could have easily fitted on the PCB. Looks ugly and clumsy. Want to know the best part? I actually do have one GPIO left... :-) The next version of the PCB (if there ever is one) will have the IR sensors connected directly to the GPIOs each.
+At the moment a bottleneck I might see coming is the I2C bus, there is just one that serves the IMU, the port expander and the OLED. In theory a much larger number of devices can be on one bus but I do not yet know if the relatively big chunks of data to the OLED and the frequency of the IMU data will be friends. I hope it works out, because I am out of pins on the Pico2 and so moving things to a second bus will be not easy. So if that fails I am in trouble.
 
-Besides that I have had quite a few more minor moments of if-i-only-had-known-that-before. But that is the fun part of the hobby, isn't it?
+As for computation power I believe I will be fine. If I find that whatever we do saturates core0 there is a second core I could use. Embassy allows for multiple executors to co-exist and tasks could be shoved onto core1. And if that is not enough the RP2350 can be overclocked easily. Plenty of headroom, likely not required.
 
 ## Acknowledgments & Attribution
 
@@ -227,6 +146,74 @@ See [misc/chassis/ATTRIBUTION.md](misc/chassis/ATTRIBUTION.md) for full attribut
 
 ## Disclaimer
 
-I am a hobbyist, I have no formal electronics education and am still quite new to the hobby. So expect imperfections. I am also still new to Rust and Embedded. By now I have a basic understanding of how things work and what are higher level things in embedded.
+I am a hobbyist, I have no formal electronics education and am still relatively new to the hobby (2.5 years now). I am also still as new to Rust and Embedded. By now I have a basic understanding of how things work and of what are higher level things in embedded. Enough for maker-level, far off from actual professional level. So expect imperfections.
 
-I use AI when coding, which has proven to be an excellent teaching tool for learning a new language. It allows me to explore more advanced concepts than I could on my own, making self-teaching much easier than it was just a year or two ago. That being said: The code is my take on how to do this, actual professionals will find a thousand things one could do better. In case you find a thing that could be better: Happy to know about it! :-)
+I use AI when coding, which has proven to be an excellent teaching tool for learning a new language. It allows me to explore more advanced concepts than I could on my own, making self-teaching much easier than it was just a year or two ago. That being said: The code is my take on how to do this, actual professionals will find a thousand things one could do better. In case you find a thing that could be better: Happy to hear about it, get in touch! :-)
+
+## Component Summary
+
+The following is a summary of the components used in the v2 schematic (see [KiCad project](misc/KiCad/simple-robot)).
+
+### Microcontroller
+
+| Ref | Component | Notes |
+|-----|-----------|-------|
+| U1 | Raspberry Pi Pico 2 (RP2350) | Main controller |
+
+### Sensors
+
+| Ref | Component | Notes |
+|-----|-----------|-------|
+| I1 | ICM-20948 module | 9-axis IMU (accelerometer, gyroscope, magnetometer), I2C |
+| J11 | HC-SR04 ultrasonic sensor | Connected via JST 4-pin, with servo sweeper |
+| J12, J13 | IR obstacle detection sensors (×2) | Right-front and left-front |
+| J14 | Grove Vision AI v2 | Camera/AI module, JST 4-pin |
+
+### Motor Control
+
+| Ref | Component | Notes |
+|-----|-----------|-------|
+| MD1, MD2 | TB6612FNG motor driver carriers (×2) | Left track & right track |
+| J6–J9 | Motor encoders (×4) | LF, LR, RF, RR via JST 3-pin |
+| J1, J2, J4, J5 | DC motor connectors (×4) | JST 2-pin |
+
+### Communication & IO Expansion
+
+| Ref | Component | Notes |
+|-----|-----------|-------|
+| P1 | PCA9555 I2C port expander | 16-bit GPIO expander |
+| LS_1, LS_2, LS_3 | Bi-directional level shifters (×3) | 3.3V ↔ 5V |
+| U2 | CD4049UB | Hex inverting buffer (DIP-16) |
+
+### User Interface
+
+| Ref | Component | Notes |
+|-----|-----------|-------|
+| OLED1 | SSD1306 OLED display module | I2C |
+| SW1 | Rotary encoder with push switch | User input |
+| LED1 | 5mm RGB LED (common cathode) | Status indicator |
+| — | RF receiver | Remote control, via JST 3-pin |
+
+### Power
+
+| Ref | Component | Notes |
+|-----|-----------|-------|
+| B1 | LM2596 DC-DC buck converter module | Steps battery voltage down |
+| J10 | Screw terminal (2-pin) | Battery input |
+| D1, D3 | 1N5819 Schottky diodes (×2) | Power path protection |
+
+### Passive Components
+
+| Ref | Component | Notes |
+|-----|-----------|-------|
+| C2–C16, C19–C24, C26 | 100nF ceramic capacitors (×20) | Decoupling |
+| C18 | 4700µF 16V electrolytic | Bulk decoupling (motors) |
+| C1, C7 | 220µF polarized (×2) | |
+| C17 | 220µF 10V | |
+| C25 | 10µF 16V | |
+| R2, R3 | 47Ω (×2) | |
+| R5, R6 | 1kΩ (×2) | |
+| R8 | 10kΩ | |
+| R4, R7 | 20kΩ (×2) | |
+| R10, R11 | 220Ω (×2) | LED current limiting |
+| R9 | 330Ω | LED current limiting |

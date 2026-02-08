@@ -8,6 +8,11 @@ description = "A simple tracked robot that can move around in RC or autonomous m
 readme = "README.md"
 repository = "https://github.com/1-rafael-1/simple-robot"
 
+[features]
+# Gate high-frequency diagnostic logging (IMU loop diag, MAG diag, rotation tick logs).
+# Keep this OFF by default so release runs without a log consumer don't spend time formatting/queuing logs.
+telemetry_logs = []
+
 [profile.dev]
 lto = true
 codegen-units = 1
@@ -23,6 +28,27 @@ debug-assertions = false
 incremental = true
 lto = 'fat'
 opt-level = 's'
+
+[lints.clippy]
+# Enable all main clippy lints (with lower priority so individual lints can override)
+all = { level = "warn", priority = 1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+
+# Deny specific lints (treat as errors) - these have priority 0 and will override the groups above
+unwrap_used = "deny"
+expect_used = "deny"
+
+# Warn on specific lints
+panic = "warn"
+missing_docs_in_private_items = "warn"
+cargo_common_metadata = "allow"
+
+# Allow specific lints
+future_not_send = "allow" # embassy tasks are not Send
+multiple_crate_versions = "allow" # not worth the effort, we get a minimal binary size increase that does not matter here
 
 [dependencies]
 embassy-rp = { version = "0.9.0", features = [
@@ -53,9 +79,8 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 nanorand = { version = "0.8.0", features = [
     "wyrand",
 ], default-features = false }
-hcsr04_async = { version = "^0.4.0", features = ["blocking_trigger"] }
+hcsr04_async = { version = "^0.5.0", features = ["blocking_trigger"] }
 moving_median = "0.3.0"
-tb6612fng = "1.0.0"
 ssd1306-async = { git = "https://github.com/kalkyl/ssd1306-async" }
 embedded-graphics = "0.8.1"
 static_cell = { version = "2.1.1", features = [] }
@@ -65,6 +90,10 @@ libm = "0.2"
 icm20948-rs = { version = "0.1.1", features = ["async", "defmt"] }
 ahrs = { version = "0.8", default-features = false }
 nalgebra = { version = "0.34", default-features = false, features = ["libm"] }
+port-expander = "0.6.5"
+embedded-hal-async = "1.0.0"
+sequential-storage = "7.1.0"
+embedded-storage-async = "0.4.1"
 
 # [patch.crates-io]
 # embassy-rp = { git = "https://github.com/embassy-rs/embassy" }

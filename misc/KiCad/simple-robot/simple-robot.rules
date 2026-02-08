@@ -1,0 +1,88 @@
+
+(rules PCB simple-robot.dsn
+  (snap_angle 
+    fortyfive_degree
+  )
+  (autoroute_settings
+    (fanout off)
+    (autoroute on)
+    (postroute off)
+    (vias on)
+    (via_costs 50)
+    (plane_via_costs 5)
+    (start_ripup_costs 100)
+    (start_pass_no 1)
+    (layer_rule Front
+      (active on)
+      (preferred_direction horizontal)
+      (preferred_direction_trace_costs 1.0)
+      (against_preferred_direction_trace_costs 3.5)
+    )
+    (layer_rule Back
+      (active on)
+      (preferred_direction vertical)
+      (preferred_direction_trace_costs 1.0)
+      (against_preferred_direction_trace_costs 3.5)
+    )
+  )
+  (rule
+    (width 250.0)
+    (clearance 250.0)
+    (clearance 125.0 (type smd_to_turn_gap))
+    (clearance 62.6 (type smd))
+    (clearance 250.0 (type "kicad_default"))
+  )
+  (padstack "Via[0-1]_800:400_um"
+    (shape
+      (circle Front 800.0 0.0 0.0)
+    )
+    (shape
+      (circle Back 800.0 0.0 0.0)
+    )
+    (attach off)
+  )
+  (via 
+    "Via[0-1]_800:400_um" "Via[0-1]_800:400_um" default
+  )
+  (via 
+    "Via[0-1]_800:400_um-kicad_default" "Via[0-1]_800:400_um" "kicad_default"
+  )
+  (via_rule
+    default "Via[0-1]_800:400_um"
+  )
+  (via_rule
+    "kicad_default" "Via[0-1]_800:400_um-kicad_default"
+  )
+  (class default
+    (clearance_class default)
+    (via_rule default)
+    (rule
+      (width 250.0)
+    )
+    (circuit 
+      (use_layer Front Back)
+    )
+  )
+  (class "kicad_default"
+    +BATT +5V +3V3 "Net-(J1--)" "Net-(J1-+)" "Net-(J2--)" "Net-(J2-+)" "Net-(J4-+)"
+    GND "Net-(J4--)" "Net-(J5-+)" "Net-(J5--)" "Net-(J6-SIG)" "Net-(J7-SIG)" "Net-(J8-SIG)" "Net-(J9-SIG)"
+    "RC_B" "RC_D" "RC_C" "RC_A" "ENC_LF" "ENC_RR" "ENC_LR" "ENC_RF"
+    "Net-(LS_3-HV1)" "Net-(LS_3-HV4)" "Net-(LS_3-HV3)" "US_ECHO" "unconnected-(LS_3-HV2-Pad8)" "US_TRIG" "US_SERVO" "unconnected-(LS_3-LV2-Pad2)"
+    "Net-(D1-A)" "IR_OBST" "LMOT_R_REV" "unconnected-(I1-NCS-Pad5)" "unconnected-(I1-FSY-Pad8)" "unconnected-(I1-INT-Pad7)" "LMOT_F_FWD" "Net-(D3-A)"
+    "M_LF_PWM" "LMOT_R_FWD" "LMOT_STB" "M_LR_PWM" "LMOT_F_REV" "RMOT_R_FWD" "RMOT_F_FWD" "RMOT_F_REV"
+    "RMOT_STB" "M_RR_PWM" "M_RF_PWM" "RMOT_R_REV" "Net-(J12-SIG)" "Net-(J13-SIG)" "Net-(J14-Pad3)" "Net-(J14-Pad4)"
+    "I2C SCL" "I2C SDA" "unconnected-(I1-ADA-Pad10)" "unconnected-(I1-ACL-Pad9)" "unconnected-(U2-Pad13)" "unconnected-(U2-Pad12)" "unconnected-(U2-Pad9)" "unconnected-(U2-Pad11)"
+    "Net-(J15-D3)" "Net-(LED1-B)" "Net-(LED1-G)" "Net-(LED1-R)" "P_SENSE" "LED_G" "LED_R" "LED_B"
+    "ROT_ENC_PUSH" "ROT_ENC_A" "ROT_ENC_B" "Net-(J15-D2)" "unconnected-(U2-Pad14)" "Net-(J15-D0)" "PE_INT" "unconnected-(U1-RUN-Pad30)"
+    "unconnected-(U1-VBUS-Pad40)" "Net-(J15-D1)" "GV_TX" "unconnected-(U1-ADC_VREF-Pad35)" "unconnected-(U1-AGND-Pad33)" "unconnected-(U1-3V3_EN-Pad37)" "unconnected-(U2-Pad10)" "unconnected-(U2-Pad4)"
+    "unconnected-(U2-Pad15)" "unconnected-(U2-Pad5)" "GV_RX" "unconnected-(U2-Pad16)"
+    (clearance_class "kicad_default")
+    (via_rule "kicad_default")
+    (rule
+      (width 250.0)
+    )
+    (circuit 
+      (use_layer Front Back)
+    )
+  )
+)

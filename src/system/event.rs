@@ -29,10 +29,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 
 use crate::{
     system::state::OperationMode,
-    task::{
-        drive::DriveAction, encoder_read::EncoderMeasurement, imu_read::ImuMeasurement,
-        monitor_motion::MotionCorrectionInstruction,
-    },
+    task::{encoder_read::EncoderMeasurement, imu_read::ImuMeasurement},
 };
 
 /// Multi-producer, single-consumer event channel
@@ -41,13 +38,13 @@ use crate::{
 /// - Memory usage
 /// - Event processing latency
 /// - System responsiveness
-pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Events, 10> = Channel::new();
+pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Events, 64> = Channel::new();
 
 /// Sends an event to the system channel
 ///
 /// Events are queued if channel is full. If multiple events
 /// occur simultaneously, they are processed in order of arrival.
-pub async fn send_event(event: Events) {
+pub async fn raise_event(event: Events) {
     EVENT_CHANNEL.sender().send(event).await;
 }
 
@@ -62,6 +59,20 @@ pub async fn wait() -> Events {
 /// System-wide events that can occur during robot operation
 #[derive(Debug, Clone)]
 pub enum Events {
+    /// System initialization requested
+    /// - Triggered at startup or after reset
+    /// - Coordinates initial setup across tasks
+    Initialize,
+
+    /// Calibration data loaded from flash storage
+    /// - Triggered when flash storage completes reading calibration data
+    /// - Carries Option: Some(data) if found, None if not found in flash
+    /// - Allows orchestrator to update system state accordingly
+    CalibrationDataLoaded(
+        crate::task::flash_storage::CalibrationKind,
+        Option<crate::task::flash_storage::CalibrationDataKind>,
+    ),
+
     /// Operation mode change requested
     /// - Triggered by button holds or system conditions
     /// - Carries target operation mode
@@ -77,11 +88,16 @@ pub enum Events {
     /// - Used to coordinate next movement decision
     ObstacleAvoidanceAttempted,
 
-    /// New battery level reading
-    /// - Value range: 0-100 percent
-    /// - Triggers LED color updates
-    /// - May affect operation decisions
-    BatteryLevelMeasured(u8),
+    /// Battery measurement (level percentage and raw voltage)
+    /// - level: 0-100 percent, triggers LED color updates
+    /// - voltage: raw voltage in volts, used for motor driver voltage compensation
+    /// - Single event reduces event channel load
+    BatteryMeasured {
+        /// Battery charge level (0-100%)
+        level: u8,
+        /// Battery voltage in volts
+        voltage: f32,
+    },
 
     /// Button press detected
     /// - Short press (< 1 second)
@@ -98,19 +114,28 @@ pub enum Events {
     /// - Completes hold actions
     ButtonHoldEnd(ButtonId),
 
+    /// Rotary encoder turn
+    /// - Clockwise = increment, `CounterClockwise` = decrement
+    RotaryTurned(RotaryDirection),
+
+    /// Rotary encoder button press
+    /// - Short press
+    RotaryButtonPressed,
+
+    /// Rotary encoder button hold initiated
+    RotaryButtonHoldStart,
+
+    /// Rotary encoder button hold released
+    RotaryButtonHoldEnd,
+
     /// System inactivity timeout
     /// - No user input for extended period
     /// - Triggers power saving measures
     InactivityTimeout,
 
-    /// Drive command was executed
-    /// - Signals that motor speeds have been set
-    /// - Triggers encoder measurement
-    DriveCommandExecuted(DriveAction),
-
     /// Encoder measurement completed
     /// - Contains latest pulse counts and timing
-    /// - Used for speed adjustments
+    /// - Used for speed adjustments and calibration
     EncoderMeasurementTaken(EncoderMeasurement),
 
     /// Ultrasonic sensor reading received
@@ -125,14 +150,13 @@ pub enum Events {
     ImuMeasurementTaken(ImuMeasurement),
 
     /// Precise rotation completed
-    /// - Signals that a RotateExact command finished
+    /// - Signals that a `RotateExact` command finished
     /// - Used for sequencing movements
     RotationCompleted,
 
-    /// Motion correction needed
-    /// - Signals that the robot needs to correct its current drive settings
-    MotionCorrectionRequired(MotionCorrectionInstruction),
-
+    // /// Motion correction needed
+    // /// - Signals that the robot needs to correct its current drive settings
+    // MotionCorrectionRequired(MotionCorrectionInstruction),
     /// Start or stop motion data collection
     /// - Signals that the robot must start or stop motion data collection
     StartStopMotionDataCollection(bool),
@@ -140,10 +164,33 @@ pub enum Events {
     /// Start or stop ultrasonic sweep
     /// - Signals that the robot needs to start or stop ultrasonic sweep
     StartStopUltrasonicSweep(bool),
+
+    /// Calibration status update
+    /// - Triggered during calibration procedures to update display
+    /// - Contains optional header (line 0) and up to 3 status lines (lines 1-3)
+    CalibrationStatus {
+        /// Optional header text (line 0)
+        header: Option<heapless::String<20>>,
+        /// Optional status line 1
+        line1: Option<heapless::String<20>>,
+        /// Optional status line 2
+        line2: Option<heapless::String<20>>,
+        /// Optional status line 3
+        line3: Option<heapless::String<20>>,
+    },
+}
+
+/// Rotary encoder direction
+#[derive(Debug, Clone, Copy, Format, Eq, PartialEq)]
+pub enum RotaryDirection {
+    /// Encoder turned clockwise
+    Clockwise,
+    /// Encoder turned counter clockwise
+    CounterClockwise,
 }
 
 /// Remote control button identifiers
-#[derive(Debug, Clone, Copy, Format, PartialEq)]
+#[derive(Debug, Clone, Copy, Format, Eq, PartialEq)]
 pub enum ButtonId {
     /// Forward/Mode toggle button
     A,

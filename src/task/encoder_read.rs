@@ -1,251 +1,299 @@
-//! Quadrature encoder feedback for motor speed control
+//! Encoder reading task for motor speed measurement
 //!
-//! Provides wheel speed measurements using shaft-mounted quadrature encoders.
-//! Readings are taken continuously while motors are running to enable closed-loop
-//! speed control and motion correction.
+//! This module provides a dedicated task for reading encoder pulse counts from all four motors.
+//! It separates sensing (encoder reading) from actuation (motor control), following the same
+//! architecture pattern as the IMU sensor task.
 //!
-//! The encoder measurements flow from this task to the motion monitor,
-//! which combines them with IMU data to detect and correct motion errors.
+//! # Architecture
 //!
-//! # Operation
-//! - Uses PWM input capture to count encoder pulses in fixed time windows
-//! - Applies median filtering to smooth speed measurements
-//! - Converts raw pulse counts to output shaft RPS/RPM
-//! - Handles noise via deadband when motors are stopped
-//! - Can be started/stopped on demand via control signals
+//! The encoder task operates independently from motor control:
+//! - **Sensing**: Reads encoder pulse counts at configurable intervals
+//! - **Events**: Publishes measurements via the event system
+//! - **Commands**: Accepts control commands (start/stop/reset)
+//! - **Power Management**: Can be stopped when not needed
 //!
-//! # Configuration
-//! - 60ms measurement windows for reliable readings at low speeds
-//! - 8 pulses per motor revolution with 120:1 gear ratio
-//! - 5-sample median filter window
-//! - 0.1 RPS (6 RPM) deadband threshold
+//! # Usage Patterns
+//!
+//! ## Basic Sampling
+//! ```rust
+//! // Start reading at 20Hz (50ms interval)
+//! encoder_read::send_command(EncoderCommand::Start { interval_ms: 50 }).await;
+//!
+//! // Stop when done
+//! encoder_read::send_command(EncoderCommand::Stop).await;
+//! ```
+//!
+//! ## Delta Tracking (Measuring Motion)
+//! ```rust
+//! // Reset counters before a maneuver
+//! encoder_read::send_command(EncoderCommand::Reset).await;
+//!
+//! // Perform the maneuver
+//! motor_driver::send_command(SetSpeed { speed: 50 }).await;
+//! Timer::after(Duration::from_secs(2)).await;
+//!
+//! // Read the measurement - absolute counts ARE the delta since reset
+//! let measurement = wait_for_encoder_event().await;
+//! let pulses = measurement.left_front;  // This is the delta!
+//! ```
+//!
+//! ## Auto-Reset for Stop-and-Go
+//! ```rust
+//! // Enable auto-reset when motors stop
+//! encoder_read::send_command(EncoderCommand::AutoResetOnMotorStop(true)).await;
+//!
+//! // Now encoders automatically reset each time motors stop
+//! // Useful for measuring individual drive segments
+//! ```
+//!
+//! # Encoder Hardware
+//!
+//! - **Type**: Quadrature encoders (using single channel for simplicity)
+//! - **Resolution**: 8 pulses per motor revolution
+//! - **Gear Ratio**: 120:1 (960 pulses per output shaft revolution)
+//! - **Reading Method**: PWM input mode counting rising edges
+//! - **Counter Size**: 16-bit (0-65535, wraps around)
+//!
+//! # Sampling Rate Guidelines
+//!
+//! - **20-50 Hz** (20-50ms): Good for most control loops
+//! - **10 Hz** (100ms): Power-saving mode, suitable for monitoring
+//! - **100 Hz** (10ms): High-frequency feedback for precise control
+//!
+//! Note: Faster sampling increases CPU load but provides better time resolution
 
-use defmt::{Format, info};
-use embassy_rp::pwm::{Config, Pwm};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+use defmt::info;
+use embassy_rp::pwm::Pwm;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Timer};
-use moving_median::MovingMedian;
 
-use crate::system::event::{Events, send_event};
-
-/// Sampling configuration
-/// /// Measurement timing is calculated for reliable readings at low speeds:
-/// - At 20% speed: ~1400 RPM = 23.33 RPS
-/// - In 100ms window: 2.33 rotations
-/// - With 8 pulses/rev: ~18 pulses per measurement
-/// - Minimum window for 10 pulses (considered still reliable): 54ms
-/// - Using 60ms for some headroom, at higher speeds we will be fine anyway
-const SAMPLE_INTERVAL: Duration = Duration::from_millis(60);
-
-/// Number of samples to use for median filtering
-const MEDIAN_WINDOW_SIZE: usize = 5;
-
-/// Encoder pulses per revolution
-const PULSES_PER_MOTOR_REV: u16 = 8;
-/// Motor gear ratio
-const GEAR_RATIO: u16 = 120;
-/// Encoder pulses per motor revolution
-const PULSES_PER_OUTPUT_REV: u16 = PULSES_PER_MOTOR_REV * GEAR_RATIO; // 960
-
-/// Combined encoder measurement data
-#[derive(Clone, Copy, Debug, Format)]
-pub struct EncoderMeasurement {
-    pub left: WheelSpeed,
-    pub right: WheelSpeed,
-    pub timestamp: Instant,
-}
-
-/// Wheel speed measurement
-#[derive(Clone, Copy, Debug, Format)]
-pub struct WheelSpeed {
-    /// Speed in revolutions per second at the output shaft
-    pub rps: f32,
-    /// Speed in RPM at the output shaft (for human readability)
-    pub rpm: f32,
-    /// Raw data for debugging
-    pub raw: EncoderDataRaw,
-}
-
-/// Raw encoder data
-#[derive(Clone, Copy, Debug, Format)]
-pub struct EncoderDataRaw {
-    /// Raw pulse count in measurement window
-    pub pulse_count: u16,
-    /// Measurement window duration in milliseconds
-    pub elapsed_ms: u32,
-}
-
-/// Median filter for speed measurements
-pub struct SpeedFilter {
-    filter: MovingMedian<f32, MEDIAN_WINDOW_SIZE>,
-}
-
-impl SpeedFilter {
-    /// Create a new speed filter
-    pub fn new() -> Self {
-        Self {
-            filter: MovingMedian::new(),
-        }
-    }
-
-    /// Add a new speed value to the filter
-    pub fn update(&mut self, speed: f32) -> f32 {
-        self.filter.add_value(speed);
-        self.filter.median()
-    }
-
-    /// Reset the filter
-    pub fn reset(&mut self) {
-        self.filter.clear();
-    }
-}
-
-impl WheelSpeed {
-    pub fn from_encoder_data(data: EncoderDataRaw, filter: &mut SpeedFilter) -> Self {
-        // Convert pulse count to output shaft revolutions
-        let revolutions = data.pulse_count as f32 / PULSES_PER_OUTPUT_REV as f32;
-        let seconds = data.elapsed_ms as f32 / 1000.0;
-
-        // Calculate raw RPS
-        let raw_rps = revolutions / seconds;
-
-        // Apply median filter
-        let filtered_rps = filter.update(raw_rps);
-
-        Self {
-            rps: filtered_rps,
-            rpm: filtered_rps * 60.0,
-            raw: data,
-        }
-    }
-
-    /// Apply a deadband to handle noise when motor is stopped
-    /// Based on the motor's lowest speed (60 RPM @ 3V = 1 RPS)
-    /// Using 0.1 RPS as threshold (6 RPM)
-    pub fn with_deadband(self) -> Self {
-        const DEADBAND_THRESHOLD: f32 = 0.1;
-
-        if self.rps.abs() < DEADBAND_THRESHOLD {
-            Self {
-                rps: 0.0,
-                rpm: 0.0,
-                raw: self.raw,
-            }
-        } else {
-            self
-        }
-    }
-}
+use crate::system::event::{Events, raise_event};
 
 /// Commands for encoder reading control
-enum EncoderCommand {
-    /// Start encoder readings
-    Start,
-    /// Stop encoder readings
+#[derive(Debug, Clone, Copy)]
+pub enum EncoderCommand {
+    /// Start continuous encoder sampling
+    ///
+    /// # Parameters
+    /// - `interval_ms`: Time between samples in milliseconds (e.g., 50 = 20Hz)
+    Start {
+        /// Sampling interval in milliseconds
+        interval_ms: u64,
+    },
+
+    /// Stop encoder sampling (power saving)
     Stop,
+
+    /// Reset all encoder counters to zero
+    ///
+    /// Useful for measuring deltas during maneuvers. After reset, the next
+    /// measurement will show how many pulses occurred since the reset.
+    Reset,
+
+    /// Enable/disable automatic reset when motors stop
+    ///
+    /// When enabled, encoders automatically reset to zero whenever all motors
+    /// are stopped (speed = 0). This is convenient for stop-and-go driving
+    /// where you want to measure each segment independently.
+    ///
+    /// # Parameters
+    /// - `true`: Enable auto-reset
+    /// - `false`: Disable auto-reset (default)
+    AutoResetOnMotorStop(bool),
 }
 
-/// Control signal to trigger encoder measurements after specified duration
-static ENCODER_CONTROL: Signal<CriticalSectionRawMutex, EncoderCommand> = Signal::new();
+/// Size of the command queue for encoder control
+const COMMAND_QUEUE_SIZE: usize = 16;
+/// Command channel for encoder control
+static ENCODER_COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, EncoderCommand, COMMAND_QUEUE_SIZE> = Channel::new();
 
-/// Start continuous encoder readings
-pub fn start_encoder_readings() {
-    ENCODER_CONTROL.signal(EncoderCommand::Start);
+/// Send a command to the encoder task
+pub async fn send_command(command: EncoderCommand) {
+    ENCODER_COMMAND_CHANNEL.sender().send(command).await;
 }
 
-/// Stop encoder readings
-pub fn stop_encoder_readings() {
-    ENCODER_CONTROL.signal(EncoderCommand::Stop);
+/// Receive a command (internal use by encoder task)
+async fn receive_command() -> EncoderCommand {
+    ENCODER_COMMAND_CHANNEL.receiver().receive().await
 }
 
-/// Configures PWM inputs for encoder pulse counting
+/// Try to receive a command without blocking (internal use by encoder task)
+fn try_receive_command() -> Option<EncoderCommand> {
+    ENCODER_COMMAND_CHANNEL.receiver().try_receive().ok()
+}
+
+/// Encoder measurement data
 ///
-/// This function should be called from main.rs to set up PWM input configuration.
-/// Returns a PWM Config object for encoder pulse counting on rising edges.
-pub fn configure_encoder_pwm() -> Config {
-    let mut config = Config::default();
-    config.divider = 1.into();
-    config.phase_correct = false;
-    config
+/// Contains pulse counts from all four motors and a timestamp.
+/// Counts are 16-bit values (0-65535) that wrap around on overflow.
+#[derive(Debug, Clone, Copy, defmt::Format)]
+pub struct EncoderMeasurement {
+    /// Left front motor encoder count
+    pub left_front: u16,
+    /// Left rear motor encoder count
+    pub left_rear: u16,
+    /// Right front motor encoder count
+    pub right_front: u16,
+    /// Right rear motor encoder count
+    pub right_rear: u16,
+    /// Timestamp of measurement in milliseconds since boot
+    pub timestamp_ms: u64,
 }
 
-/// Primary encoder measurement task
+/// Encoder channels for all 4 motors
+struct EncoderChannels {
+    /// Encoder input for left front motor
+    left_front: Pwm<'static>,
+    /// Encoder input for left rear motor
+    left_rear: Pwm<'static>,
+    /// Encoder input for right front motor
+    right_front: Pwm<'static>,
+    /// Encoder input for right rear motor
+    right_rear: Pwm<'static>,
+}
+
+impl EncoderChannels {
+    /// Reset all encoder counters to zero
+    fn reset_all(&self) {
+        self.left_front.set_counter(0);
+        self.left_rear.set_counter(0);
+        self.right_front.set_counter(0);
+        self.right_rear.set_counter(0);
+    }
+
+    /// Read all encoder counts at once
+    fn read_all(&self) -> EncoderMeasurement {
+        let timestamp_ms = Instant::now().as_millis();
+        EncoderMeasurement {
+            left_front: self.left_front.counter(),
+            left_rear: self.left_rear.counter(),
+            right_front: self.right_front.counter(),
+            right_rear: self.right_rear.counter(),
+            timestamp_ms,
+        }
+    }
+}
+
+/// Encoder reading task
 ///
-/// Takes periodic measurements using PWM input capture on rising edges.
+/// Manages encoder sampling and publishes measurements via events.
+/// Supports start/stop, manual reset, and auto-reset on motor stop.
+///
+/// # Parameters
+/// - `encoder_left_front`: PWM channel configured as encoder input for left front motor
+/// - `encoder_left_rear`: PWM channel configured as encoder input for left rear motor
+/// - `encoder_right_front`: PWM channel configured as encoder input for right front motor
+/// - `encoder_right_rear`: PWM channel configured as encoder input for right rear motor
 #[embassy_executor::task]
-pub async fn encoder_read(left_encoder: Pwm<'static>, right_encoder: Pwm<'static>) {
-    let mut left_filter = SpeedFilter::new();
-    let mut right_filter = SpeedFilter::new();
+pub async fn encoder_read(
+    encoder_left_front: Pwm<'static>,
+    encoder_left_rear: Pwm<'static>,
+    encoder_right_front: Pwm<'static>,
+    encoder_right_rear: Pwm<'static>,
+) {
+    info!("Encoder read task started");
 
-    'command: loop {
-        // Wait for next command, consuming it
-        match ENCODER_CONTROL.wait().await {
-            EncoderCommand::Start => {
-                info!("Starting encoder measurement");
-                'read: loop {
-                    // Check if we should read the next command, because we possibly have a new command
-                    if ENCODER_CONTROL.signaled() {
-                        break 'read;
+    let mut encoders = EncoderChannels {
+        left_front: encoder_left_front,
+        left_rear: encoder_left_rear,
+        right_front: encoder_right_front,
+        right_rear: encoder_right_rear,
+    };
+
+    // Task state
+    let mut sampling = false;
+    let mut interval_ms = 50u64; // Default 20Hz
+    let mut auto_reset_on_stop = false;
+    let mut last_measurement = encoders.read_all();
+
+    loop {
+        if sampling {
+            // Wait for either timeout or command
+            let timeout = Timer::after(Duration::from_millis(interval_ms));
+
+            // Check for commands without blocking
+            if let Some(command) = try_receive_command() {
+                match command {
+                    EncoderCommand::Start {
+                        interval_ms: new_interval,
+                    } => {
+                        info!(
+                            "Encoder sampling already active, updating interval to {}ms",
+                            new_interval
+                        );
+                        interval_ms = new_interval;
                     }
-
-                    // Start measurement window
-                    let start = Instant::now();
-                    left_encoder.set_counter(0);
-                    right_encoder.set_counter(0);
-
-                    // Read more frequently to debug
-                    for i in 0..6 {
-                        Timer::after(Duration::from_millis(10)).await;
-                        let interim_count = left_encoder.counter();
-                        info!("Interim count {}: {}", i, interim_count);
+                    EncoderCommand::Stop => {
+                        info!("Stopping encoder sampling");
+                        sampling = false;
                     }
+                    EncoderCommand::Reset => {
+                        info!("Resetting encoder counters");
+                        encoders.reset_all();
+                    }
+                    EncoderCommand::AutoResetOnMotorStop(enabled) => {
+                        info!("Auto-reset on motor stop: {}", enabled);
+                        auto_reset_on_stop = enabled;
+                    }
+                }
+            } else {
+                // No command, wait for sampling interval
+                timeout.await;
 
-                    // Read encoder measurements, starting with a delay for motor stabilization
-                    Timer::after(SAMPLE_INTERVAL).await;
+                // Read encoders
+                let measurement = encoders.read_all();
 
-                    // Read encoder measurements
-                    let end = Instant::now();
-                    let left_pulses = left_encoder.counter();
-                    let right_pulses = right_encoder.counter();
-                    let elapsed = end - start;
-                    let elapsed_ms = elapsed.as_millis() as u32;
-                    info!("Encoder: L={} R={} in {}ms", left_pulses, right_pulses, elapsed_ms);
+                // Check for auto-reset condition
+                if auto_reset_on_stop && motors_stopped(&measurement, &last_measurement) {
+                    info!("Motors stopped, auto-resetting encoders");
+                    encoders.reset_all();
+                    // Read again after reset
+                    last_measurement = encoders.read_all();
+                } else {
+                    last_measurement = measurement;
 
-                    // Package measurement data
-                    let measurement = EncoderMeasurement {
-                        left: WheelSpeed::from_encoder_data(
-                            EncoderDataRaw {
-                                pulse_count: left_pulses,
-                                elapsed_ms,
-                            },
-                            &mut left_filter,
-                        )
-                        .with_deadband(),
-                        right: WheelSpeed::from_encoder_data(
-                            EncoderDataRaw {
-                                pulse_count: right_pulses,
-                                elapsed_ms,
-                            },
-                            &mut right_filter,
-                        )
-                        .with_deadband(),
-                        timestamp: Instant::now(),
-                    };
-
-                    // Signal measurement completion
-                    send_event(Events::EncoderMeasurementTaken(measurement)).await;
+                    // Send measurement event
+                    raise_event(Events::EncoderMeasurementTaken(measurement)).await;
                 }
             }
-            EncoderCommand::Stop => {
-                info!("Stopping encoder measurement");
-
-                // reset filters
-                left_filter.reset();
-                right_filter.reset();
-
-                // Return to waiting for next command
-                continue 'command;
+        } else {
+            // Not sampling, wait for start command
+            match receive_command().await {
+                EncoderCommand::Start {
+                    interval_ms: new_interval,
+                } => {
+                    info!("Starting encoder sampling at {}ms interval", new_interval);
+                    interval_ms = new_interval;
+                    sampling = true;
+                    // Take initial reading
+                    last_measurement = encoders.read_all();
+                }
+                EncoderCommand::Stop => {
+                    // Already stopped, ignore
+                }
+                EncoderCommand::Reset => {
+                    info!("Resetting encoder counters (while stopped)");
+                    encoders.reset_all();
+                }
+                EncoderCommand::AutoResetOnMotorStop(enabled) => {
+                    info!(
+                        "Auto-reset on motor stop: {} (will take effect when sampling starts)",
+                        enabled
+                    );
+                    auto_reset_on_stop = enabled;
+                }
             }
         }
     }
+}
+
+/// Check if motors have stopped by comparing consecutive measurements
+///
+/// Motors are considered stopped if all encoder counts are unchanged
+/// between two consecutive readings.
+const fn motors_stopped(current: &EncoderMeasurement, previous: &EncoderMeasurement) -> bool {
+    current.left_front == previous.left_front
+        && current.left_rear == previous.left_rear
+        && current.right_front == previous.right_front
+        && current.right_rear == previous.right_rear
 }

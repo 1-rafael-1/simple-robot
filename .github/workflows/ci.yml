@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "dev"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "dev"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -41,11 +41,17 @@ jobs:
       - name: Check formatting
         run: cargo +nightly fmt --all -- --check
 
-      - name: Run clippy
+      - name: Run clippy (default features)
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --target thumbv8m.main-none-eabihf -- -D warnings -A dead_code
+          args: --target thumbv8m.main-none-eabihf -- -D warnings
+
+      - name: Run clippy (all features)
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --target thumbv8m.main-none-eabihf --all-features -- -D warnings
 
       - name: Build
         uses: actions-rs/cargo@v1

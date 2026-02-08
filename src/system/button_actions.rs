@@ -100,17 +100,9 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
         }
         (event::ButtonId::B, ButtonActionType::HoldEnd) => {
             // Precise 90-degree clockwise rotation
-            // If we're moving, maintain that motion during rotation
-            let left_motor = drive::LEFT_MOTOR.lock().await;
-            let current_speed = left_motor.as_ref().unwrap().current_speed();
-
-            let motion = if current_speed > 0 {
-                RotationMotion::WhileForward(current_speed as u8)
-            } else if current_speed < 0 {
-                RotationMotion::WhileBackward(-current_speed as u8)
-            } else {
-                RotationMotion::Stationary
-            };
+            // TODO: Track motor state to enable rotation while moving
+            // For now, always use stationary rotation
+            let motion = RotationMotion::Stationary;
 
             drive::send_drive_command(DriveCommand::Drive(DriveAction::RotateExact {
                 degrees: 90.0,
@@ -130,17 +122,9 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
         }
         (event::ButtonId::C, ButtonActionType::HoldEnd) => {
             // Precise 90-degree counter-clockwise rotation
-            // If we're moving, maintain that motion during rotation
-            let left_motor = drive::LEFT_MOTOR.lock().await;
-            let current_speed = left_motor.as_ref().unwrap().current_speed();
-
-            let motion = if current_speed > 0 {
-                RotationMotion::WhileForward(current_speed as u8)
-            } else if current_speed < 0 {
-                RotationMotion::WhileBackward(-current_speed as u8)
-            } else {
-                RotationMotion::Stationary
-            };
+            // TODO: Track motor state to enable rotation while moving
+            // For now, always use stationary rotation
+            let motion = RotationMotion::Stationary;
 
             drive::send_drive_command(DriveCommand::Drive(DriveAction::RotateExact {
                 degrees: 90.0,
