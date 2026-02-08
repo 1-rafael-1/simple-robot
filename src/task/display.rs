@@ -62,6 +62,7 @@ enum DisplayError {
     DrawError,
 }
 
+/// SSD1306 display driver type used by the display task.
 type DisplayDriver = Ssd1306<
     I2CInterface<
         I2cDevice<

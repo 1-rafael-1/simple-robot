@@ -106,18 +106,23 @@ pub async fn battery_charge_read(mut adc: Adc<'static, AdcAsync>, mut channel: C
             (voltage - BATTERY_VOLTAGE_LOWER) / (BATTERY_VOLTAGE_UPPER - BATTERY_VOLTAGE_LOWER)
         };
 
+        let battery_percent_f32: f32 = (battery_level * 100.0).clamp(0.0, 100.0);
+
+        // Convert to integer percentage for events (0..=100).
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let battery_percent: u8 = battery_percent_f32 as u8;
+
         defmt::debug!(
             "Battery: ADC raw={}, voltage={}V, level={}%",
             adc_raw,
             voltage,
-            (battery_level * 100.0) as u8
+            battery_percent_f32
         );
 
         // Send consolidated battery measurement event (single event instead of two)
         // Battery monitoring is critical for safety - must not drop events
         event::raise_event(event::Events::BatteryMeasured {
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-            level: (battery_level * 100.0) as u8,
+            level: battery_percent,
             voltage,
         })
         .await;

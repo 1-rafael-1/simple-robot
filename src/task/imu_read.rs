@@ -163,6 +163,7 @@ pub enum AhrsFusionMode {
     Axis9,
 }
 
+/// Control commands sent to the IMU task.
 enum ImuCommand {
     /// Start IMU readings
     Start,
