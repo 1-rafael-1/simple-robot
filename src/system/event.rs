@@ -99,20 +99,20 @@ pub enum Events {
         voltage: f32,
     },
 
-    /// Button press detected
+    /// RC Button press detected
     /// - Short press (< 1 second)
     /// - Maps to immediate actions
-    ButtonPressed(ButtonId),
+    RCButtonPressed(RCButtonId),
 
     /// Button hold initiated
     /// - Long press started
     /// - Used for mode changes
-    ButtonHoldStart(ButtonId),
+    ButtonHoldStart(RCButtonId),
 
     /// Button hold released
     /// - Long press ended
     /// - Completes hold actions
-    ButtonHoldEnd(ButtonId),
+    ButtonHoldEnd(RCButtonId),
 
     /// Rotary encoder turn
     /// - Clockwise = increment, `CounterClockwise` = decrement
@@ -191,7 +191,7 @@ pub enum RotaryDirection {
 
 /// Remote control button identifiers
 #[derive(Debug, Clone, Copy, Format, Eq, PartialEq)]
-pub enum ButtonId {
+pub enum RCButtonId {
     /// Forward/Mode toggle button
     A,
     /// Right turn button

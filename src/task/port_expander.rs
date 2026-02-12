@@ -54,8 +54,8 @@ use embedded_hal_async::i2c::I2c;
 
 use crate::{
     I2cBusShared,
-    system::event::{ButtonId, Events, raise_event},
-    task::ir_obstacle_detect::signal_ir_obstacle,
+    system::event::{Events, RCButtonId, raise_event},
+    task::{ir_obstacle_detect::signal_ir_obstacle, rotary_encoder::trigger_button_signal},
 };
 
 /// PCA9555 I2C address (A0=high, A1=A2=low -> 0x21)
@@ -136,16 +136,18 @@ pub enum PortExpanderCommand {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Format)]
 struct InputState {
-    /// Button A (active-low in hardware).
-    button_a: bool,
-    /// Button B (active-low in hardware).
-    button_b: bool,
-    /// Button C (active-low in hardware).
-    button_c: bool,
-    /// Button D (active-low in hardware).
-    button_d: bool,
+    /// RC Button A (active-low in hardware).
+    rc_button_a: bool,
+    /// RC Button B (active-low in hardware).
+    rc_button_b: bool,
+    /// RC Button C (active-low in hardware).
+    rc_button_c: bool,
+    /// RC Button D (active-low in hardware).
+    rc_button_d: bool,
     /// IR obstacle signal (active-high in hardware).
     ir_obstacle: bool,
+    /// Rotary encoder push button (active-low in hardware).
+    rotary_encoder_button: bool,
 }
 
 impl InputState {
@@ -153,31 +155,36 @@ impl InputState {
     /// Note: RC buttons are inverted by NOT gates in hardware (active-LOW)
     const fn from_port1(value: u8) -> Self {
         Self {
-            button_a: (value & 0b0000_0001) == 0, // Inverted: LOW = pressed
-            button_b: (value & 0b0000_0010) == 0, // Inverted: LOW = pressed
-            button_c: (value & 0b0000_0100) == 0, // Inverted: LOW = pressed
-            button_d: (value & 0b0000_1000) == 0, // Inverted: LOW = pressed
+            rc_button_a: (value & 0b0000_0001) == 0, // Inverted: LOW = pressed
+            rc_button_b: (value & 0b0000_0010) == 0, // Inverted: LOW = pressed
+            rc_button_c: (value & 0b0000_0100) == 0, // Inverted: LOW = pressed
+            rc_button_d: (value & 0b0000_1000) == 0, // Inverted: LOW = pressed
             // IR sensor output is inverted in hardware: HIGH = obstacle detected
             ir_obstacle: (value & 0b0100_0000) != 0,
+            // Rotary encoder button is inverted: LOW = pressed
+            rotary_encoder_button: (value & 0b1000_0000) == 0,
         }
     }
 
     /// Compare and send events for changed inputs
     async fn send_changes(&self, previous: &Self) {
-        if self.button_a != previous.button_a && self.button_a {
-            raise_event(Events::ButtonPressed(ButtonId::A)).await;
+        if self.rc_button_a != previous.rc_button_a && self.rc_button_a {
+            raise_event(Events::RCButtonPressed(RCButtonId::A)).await;
         }
-        if self.button_b != previous.button_b && self.button_b {
-            raise_event(Events::ButtonPressed(ButtonId::B)).await;
+        if self.rc_button_b != previous.rc_button_b && self.rc_button_b {
+            raise_event(Events::RCButtonPressed(RCButtonId::B)).await;
         }
-        if self.button_c != previous.button_c && self.button_c {
-            raise_event(Events::ButtonPressed(ButtonId::C)).await;
+        if self.rc_button_c != previous.rc_button_c && self.rc_button_c {
+            raise_event(Events::RCButtonPressed(RCButtonId::C)).await;
         }
-        if self.button_d != previous.button_d && self.button_d {
-            raise_event(Events::ButtonPressed(ButtonId::D)).await;
+        if self.rc_button_d != previous.rc_button_d && self.rc_button_d {
+            raise_event(Events::RCButtonPressed(RCButtonId::D)).await;
         }
         if self.ir_obstacle != previous.ir_obstacle {
             signal_ir_obstacle(self.ir_obstacle).await;
+        }
+        if self.rotary_encoder_button != previous.rotary_encoder_button {
+            trigger_button_signal(self.rotary_encoder_button).await;
         }
     }
 }
@@ -199,11 +206,12 @@ impl PortExpanderState {
             port0_output: 0x00,
             port1_output: 0x00, // No pull-ups - external pull-downs needed for RC inputs
             last_input_state: InputState {
-                button_a: false,
-                button_b: false,
-                button_c: false,
-                button_d: false,
+                rc_button_a: false,
+                rc_button_b: false,
+                rc_button_c: false,
+                rc_button_d: false,
                 ir_obstacle: false,
+                rotary_encoder_button: false,
             },
         }
     }
