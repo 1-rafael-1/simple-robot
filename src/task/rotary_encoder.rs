@@ -11,10 +11,7 @@
 //! The button is connected to the port expander, so it is read via a signal triggered by the expander's interrupt when the button state changes.
 
 use embassy_futures::select::{Either, select};
-use embassy_rp::{
-    gpio::{Input, Level},
-    pio_programs::rotary_encoder::{Direction as PioDirection, PioEncoder},
-};
+use embassy_rp::pio_programs::rotary_encoder::{Direction as PioDirection, PioEncoder};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 
@@ -26,11 +23,13 @@ const HOLD_DURATION: Duration = Duration::from_millis(700);
 /// Button debounce delay (ms)
 const DEBOUNCE_DURATION: Duration = Duration::from_millis(30);
 
-/// Button Signal
-/// Since we are using the port expander for the button, we must use a signal instead of a gpio input directly. The signal will be used to trigger the debounce logic when the button is pressed or released.
+/// Button signal.
+/// Since we are using the port expander for the button, we must use a signal instead of a GPIO input directly.
+/// The signal is used to trigger the debounce logic when the button is pressed or released.
 pub static BTN_SIGNAL: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 
-/// Triggers the button signal with the current state of the button (pressed or released). Updates the button state in the mutex and then signals any waiting tasks to wake up and process the new state.
+/// Triggers the button signal with the current state of the button (pressed or released).
+/// Updates the button state in the mutex and then signals any waiting tasks to wake up and process the new state.
 pub async fn trigger_button_signal(pressed: bool) {
     // Update the button state
     {
@@ -41,12 +40,12 @@ pub async fn trigger_button_signal(pressed: bool) {
     BTN_SIGNAL.signal(pressed);
 }
 
-/// Waits for the next button signal
+/// Waits for the next button signal.
 async fn wait_for_button_signal() {
     BTN_SIGNAL.wait().await;
 }
 
-/// Button state protected by a mutex
+/// Button state protected by a mutex.
 pub static BUTTON_STATE: Mutex<CriticalSectionRawMutex, ButtonState> = Mutex::new(ButtonState { pressed: false });
 
 /// Represents the current state of the rotary encoder button (pressed or released).
@@ -75,7 +74,7 @@ pub async fn rotary_encoder_button() {
         let pressed = debounce().await;
 
         // Active-low: pressed when LOW.
-        if pressed {
+        if !pressed {
             continue;
         }
 
@@ -95,21 +94,19 @@ pub async fn rotary_encoder_button() {
 /// Ensures stable button state after any edge.
 async fn debounce() -> bool {
     loop {
-        // what state do we have right now?
-        let st_state = {
-            let mut btn_state = BUTTON_STATE.lock().await;
+        // Wait for the next edge from the expander, then verify stable state.
+        wait_for_button_signal().await;
+        Timer::after(DEBOUNCE_DURATION).await;
+
+        let state_after_debounce = {
+            let btn_state = BUTTON_STATE.lock().await;
             btn_state.pressed
         };
 
-        // wait for the next signal (edge) to occur
-        wait_for_button_signal().await;
-        Timer::after(DEBOUNCE_DURATION).await;
-        let end_state = {
-            let mut btn_state = BUTTON_STATE.lock().await;
-            btn_state.pressed
-        };
-        if st_state != end_state {
-            break end_state;
+        // If another edge happened during debounce, keep waiting.
+        let edge_happened_during_debounce = BTN_SIGNAL.signaled();
+        if !edge_happened_during_debounce {
+            break state_after_debounce;
         }
     }
 }
@@ -118,12 +115,12 @@ async fn debounce() -> bool {
 async fn wait_for_released() {
     loop {
         let pressed = {
-            let mut btn_state = BUTTON_STATE.lock().await;
+            let btn_state = BUTTON_STATE.lock().await;
             btn_state.pressed
         };
         if !pressed {
             break;
         }
-        Timer::after(Duration::from_millis(5)).await;
+        wait_for_button_signal().await;
     }
 }
