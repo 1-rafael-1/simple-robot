@@ -42,7 +42,7 @@ async fn handle_event(event: Events) {
         Events::ObstacleDetected(detected) => handle_obstacle_detected(detected).await,
         Events::ObstacleAvoidanceAttempted => handle_obstacle_avoidance_attempted().await,
         Events::BatteryMeasured { level, voltage } => handle_battery_measured(level, voltage).await,
-        Events::ButtonPressed(button_id) => handle_button_pressed(button_id).await,
+        Events::RCButtonPressed(button_id) => handle_button_pressed(button_id).await,
         Events::ButtonHoldStart(button_id) => handle_button_hold_start(button_id).await,
         Events::ButtonHoldEnd(button_id) => handle_button_hold_end(button_id).await,
         Events::RotaryTurned(_) => info!("Rotary turned"),
@@ -231,7 +231,7 @@ async fn handle_obstacle_avoidance_attempted() {
 
 /// Handle button press events
 #[allow(clippy::unused_async)]
-async fn handle_button_pressed(_button_id: crate::system::event::ButtonId) {
+async fn handle_button_pressed(_button_id: crate::system::event::RCButtonId) {
     info!("Button pressed");
     // TODO: Implement button actions
     // - Map to drive commands
@@ -240,7 +240,7 @@ async fn handle_button_pressed(_button_id: crate::system::event::ButtonId) {
 
 /// Handle button hold start events
 #[allow(clippy::unused_async)]
-async fn handle_button_hold_start(_button_id: crate::system::event::ButtonId) {
+async fn handle_button_hold_start(_button_id: crate::system::event::RCButtonId) {
     info!("Button hold started");
     // TODO: Implement hold start actions
     // - Prepare for mode change
@@ -249,7 +249,7 @@ async fn handle_button_hold_start(_button_id: crate::system::event::ButtonId) {
 
 /// Handle button hold end events
 #[allow(clippy::unused_async)]
-async fn handle_button_hold_end(_button_id: crate::system::event::ButtonId) {
+async fn handle_button_hold_end(_button_id: crate::system::event::RCButtonId) {
     info!("Button hold ended");
     // TODO: Implement hold end actions
     // - Complete mode change

@@ -91,14 +91,13 @@ struct RgbLedPins {
 }
 
 /// EC11 rotary encoder pins
+///
+/// Note: Button pin is connected to the port expander and handled there
 struct Ec11Pins {
     /// Pin A
     a: Peri<'static, embassy_rp::peripherals::PIN_10>,
     /// Pin B
     b: Peri<'static, embassy_rp::peripherals::PIN_11>,
-    /// Button pin
-    // ToDo: route through port expander!
-    button: Peri<'static, embassy_rp::peripherals::PIN_24>,
 }
 
 /// RC Control button pins
@@ -209,7 +208,6 @@ async fn main(spawner: Spawner) {
         Ec11Pins {
             a: p.PIN_10,
             b: p.PIN_11,
-            button: p.PIN_24,
         },
     );
 
@@ -316,25 +314,24 @@ fn init_rotary_encoder(
 ) {
     let encoder_program = PioEncoderProgram::new(common);
     let encoder = PioEncoder::new(common, sm3, pins.a, pins.b, &encoder_program);
-    let encoder_button = Input::new(pins.button, Pull::Up);
 
     spawner.must_spawn(task::rotary_encoder::rotary_encoder_turns(encoder));
-    spawner.must_spawn(task::rotary_encoder::rotary_encoder_button(encoder_button));
+    spawner.must_spawn(task::rotary_encoder::rotary_encoder_button());
 }
 
 /// Initialize all four RC button inputs
 fn init_rc_buttons(spawner: Spawner, pins: RCButtonPins) {
     let btn_a = Input::new(pins.a, Pull::Down);
-    spawner.must_spawn(task::rc_control::rc_button_handle(btn_a, system::event::ButtonId::A));
+    spawner.must_spawn(task::rc_control::rc_button_handle(btn_a, system::event::RCButtonId::A));
 
     let btn_b = Input::new(pins.b, Pull::Down);
-    spawner.must_spawn(task::rc_control::rc_button_handle(btn_b, system::event::ButtonId::B));
+    spawner.must_spawn(task::rc_control::rc_button_handle(btn_b, system::event::RCButtonId::B));
 
     let btn_c = Input::new(pins.c, Pull::Down);
-    spawner.must_spawn(task::rc_control::rc_button_handle(btn_c, system::event::ButtonId::C));
+    spawner.must_spawn(task::rc_control::rc_button_handle(btn_c, system::event::RCButtonId::C));
 
     let btn_d = Input::new(pins.d, Pull::Down);
-    spawner.must_spawn(task::rc_control::rc_button_handle(btn_d, system::event::ButtonId::D));
+    spawner.must_spawn(task::rc_control::rc_button_handle(btn_d, system::event::RCButtonId::D));
 }
 
 /// Initialize motor driver with PWM channels and encoders
