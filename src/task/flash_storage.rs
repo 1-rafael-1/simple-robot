@@ -654,8 +654,8 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                                 imu: ImuCalibration::default(),
                                 imu_flags: flags,
                             });
-                            drop(data);
                         }
+                        drop(data);
 
                         raise_event(Events::ImuCalibrationFlagsLoaded(Some(flags))).await;
                     }
