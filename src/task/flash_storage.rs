@@ -44,6 +44,24 @@ static FLASH_COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, FlashCommand, COM
 static CALIBRATION_DATA: embassy_sync::mutex::Mutex<CriticalSectionRawMutex, Option<CalibrationData>> =
     embassy_sync::mutex::Mutex::new(None);
 
+/// Return the latest cached calibration data snapshot, if available.
+pub async fn get_cached_calibration_data() -> Option<CalibrationData> {
+    let data = CALIBRATION_DATA.lock().await;
+    *data
+}
+
+/// Return the latest cached IMU calibration values, if available.
+pub async fn get_cached_imu_calibration() -> Option<ImuCalibration> {
+    let data = CALIBRATION_DATA.lock().await;
+    data.as_ref().map(|cal| cal.imu)
+}
+
+/// Return the latest cached IMU calibration flags, if available.
+pub async fn get_cached_imu_flags() -> Option<ImuCalibrationFlags> {
+    let data = CALIBRATION_DATA.lock().await;
+    data.as_ref().map(|cal| cal.imu_flags)
+}
+
 /// Send a flash storage command
 pub async fn send_flash_command(command: FlashCommand) {
     FLASH_COMMAND_CHANNEL.send(command).await;
@@ -78,8 +96,14 @@ pub enum FlashCommand {
     /// Save calibration data to flash
     SaveData(CalibrationDataKind),
 
+    /// Save IMU calibration flags to flash
+    SaveImuFlags(ImuCalibrationFlags),
+
     /// Request calibration data (responds via signal)
     GetData(CalibrationKind),
+
+    /// Request IMU calibration flags
+    GetImuFlags,
 }
 
 /// IMU calibration data structure
@@ -121,6 +145,17 @@ pub struct ImuCalibration {
     pub mag_z_interference_100: [f32; 3],
 }
 
+/// IMU calibration completion flags persisted separately from calibration values.
+#[derive(Debug, Clone, Copy, Format, Default, PartialEq, Eq)]
+pub struct ImuCalibrationFlags {
+    /// Gyroscope calibration completed.
+    pub gyro: bool,
+    /// Accelerometer calibration completed.
+    pub accel: bool,
+    /// Magnetometer calibration completed.
+    pub mag: bool,
+}
+
 impl Default for ImuCalibration {
     fn default() -> Self {
         Self {
@@ -150,6 +185,8 @@ pub struct CalibrationData {
     pub motor: MotorCalibration,
     /// IMU calibration data
     pub imu: ImuCalibration,
+    /// IMU calibration completion flags
+    pub imu_flags: ImuCalibrationFlags,
 }
 
 /// Storage keys for sequential-storage
@@ -158,6 +195,7 @@ pub struct CalibrationData {
 enum StorageKey {
     MotorCalibration = 0,
     ImuCalibration = 1,
+    ImuFlags = 2,
 }
 
 impl Key for StorageKey {
@@ -179,6 +217,7 @@ impl Key for StorageKey {
         match buffer[0] {
             0 => Ok((Self::MotorCalibration, 1)),
             1 => Ok((Self::ImuCalibration, 1)),
+            2 => Ok((Self::ImuFlags, 1)),
             _ => Err(SerializationError::InvalidFormat),
         }
     }
@@ -442,6 +481,39 @@ impl Value<'_> for ImuCalibration {
     }
 }
 
+/// Serialize IMU calibration flags to bytes
+impl Value<'_> for ImuCalibrationFlags {
+    fn serialize_into(&self, buffer: &mut [u8]) -> Result<usize, SerializationError> {
+        if buffer.len() < 3 {
+            return Err(SerializationError::BufferTooSmall);
+        }
+
+        buffer[0] = u8::from(self.gyro);
+        buffer[1] = u8::from(self.accel);
+        buffer[2] = u8::from(self.mag);
+
+        Ok(3)
+    }
+
+    fn deserialize_from(buffer: &[u8]) -> Result<(Self, usize), SerializationError>
+    where
+        Self: Sized,
+    {
+        if buffer.len() < 3 {
+            return Err(SerializationError::BufferTooSmall);
+        }
+
+        Ok((
+            Self {
+                gyro: buffer[0] != 0,
+                accel: buffer[1] != 0,
+                mag: buffer[2] != 0,
+            },
+            3,
+        ))
+    }
+}
+
 /// Flash storage task
 ///
 /// This task handles all flash read/write operations for calibration data.
@@ -492,6 +564,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                                 *data = Some(CalibrationData {
                                     motor: motor_cal,
                                     imu: ImuCalibration::default(),
+                                    imu_flags: ImuCalibrationFlags::default(),
                                 });
                             }
                             drop(data);
@@ -533,6 +606,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                                 *data = Some(CalibrationData {
                                     motor: MotorCalibration::default(),
                                     imu: imu_cal,
+                                    imu_flags: ImuCalibrationFlags::default(),
                                 });
                             }
                             drop(data);
@@ -558,6 +632,74 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                 }
             },
 
+            FlashCommand::GetImuFlags => {
+                info!("Loading IMU calibration flags from flash...");
+
+                match storage
+                    .fetch_item::<ImuCalibrationFlags>(&mut data_buffer, &StorageKey::ImuFlags)
+                    .await
+                {
+                    Ok(Some(flags)) => {
+                        info!(
+                            "IMU calibration flags loaded: gyro={} accel={} mag={}",
+                            flags.gyro, flags.accel, flags.mag
+                        );
+
+                        let mut data = CALIBRATION_DATA.lock().await;
+                        if let Some(ref mut cal) = *data {
+                            cal.imu_flags = flags;
+                        } else {
+                            *data = Some(CalibrationData {
+                                motor: MotorCalibration::default(),
+                                imu: ImuCalibration::default(),
+                                imu_flags: flags,
+                            });
+                        }
+                        drop(data);
+
+                        raise_event(Events::ImuCalibrationFlagsLoaded(Some(flags))).await;
+                    }
+                    Ok(None) => {
+                        info!("No IMU calibration flags found in flash");
+                        raise_event(Events::ImuCalibrationFlagsLoaded(None)).await;
+                    }
+                    Err(e) => {
+                        error!("Failed to load IMU calibration flags: {}", defmt::Debug2Format(&e));
+                        raise_event(Events::ImuCalibrationFlagsLoaded(None)).await;
+                    }
+                }
+            }
+
+            FlashCommand::SaveImuFlags(flags) => {
+                info!("Saving IMU calibration flags to flash...");
+
+                let mut data = CALIBRATION_DATA.lock().await;
+                if let Some(ref mut cal) = *data {
+                    cal.imu_flags = flags;
+                } else {
+                    *data = Some(CalibrationData {
+                        motor: MotorCalibration::default(),
+                        imu: ImuCalibration::default(),
+                        imu_flags: flags,
+                    });
+                }
+                drop(data);
+
+                match storage
+                    .store_item(&mut data_buffer, &StorageKey::ImuFlags, &flags)
+                    .await
+                {
+                    Ok(()) => {
+                        info!("IMU calibration flags saved successfully");
+                        raise_event(Events::ImuCalibrationFlagsLoaded(Some(flags))).await;
+                    }
+                    Err(e) => {
+                        error!("Failed to save IMU calibration flags: {}", defmt::Debug2Format(&e));
+                        raise_event(Events::ImuCalibrationFlagsLoaded(None)).await;
+                    }
+                }
+            }
+
             FlashCommand::SaveData(data_kind) => {
                 match data_kind {
                     CalibrationDataKind::Motor(motor_cal) => {
@@ -571,6 +713,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                             *data = Some(CalibrationData {
                                 motor: motor_cal,
                                 imu: ImuCalibration::default(),
+                                imu_flags: ImuCalibrationFlags::default(),
                             });
                         }
                         drop(data);
@@ -581,6 +724,11 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                         {
                             Ok(()) => {
                                 info!("Motor calibration saved successfully");
+                                raise_event(Events::CalibrationDataLoaded(
+                                    CalibrationKind::Motor,
+                                    Some(CalibrationDataKind::Motor(motor_cal)),
+                                ))
+                                .await;
                             }
                             Err(e) => {
                                 error!("Failed to save motor calibration: {}", defmt::Debug2Format(&e));
@@ -598,6 +746,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                             *data = Some(CalibrationData {
                                 motor: MotorCalibration::default(),
                                 imu: imu_cal,
+                                imu_flags: ImuCalibrationFlags::default(),
                             });
                         }
                         drop(data);
@@ -608,6 +757,11 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                         {
                             Ok(()) => {
                                 info!("IMU calibration saved successfully");
+                                raise_event(Events::CalibrationDataLoaded(
+                                    CalibrationKind::Imu,
+                                    Some(CalibrationDataKind::Imu(imu_cal)),
+                                ))
+                                .await;
                             }
                             Err(e) => {
                                 error!("Failed to save IMU calibration: {}", defmt::Debug2Format(&e));

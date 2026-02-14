@@ -29,7 +29,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 
 use crate::{
     system::state::OperationMode,
-    task::{encoder_read::EncoderMeasurement, imu_read::ImuMeasurement},
+    task::{encoder_read::EncoderMeasurement, flash_storage, imu_read::ImuMeasurement},
 };
 
 /// Multi-producer, single-consumer event channel
@@ -72,6 +72,10 @@ pub enum Events {
         crate::task::flash_storage::CalibrationKind,
         Option<crate::task::flash_storage::CalibrationDataKind>,
     ),
+
+    /// IMU calibration flags loaded from flash storage
+    /// - Provides per-sensor calibration completion status
+    ImuCalibrationFlagsLoaded(Option<flash_storage::ImuCalibrationFlags>),
 
     /// Operation mode change requested
     /// - Triggered by button holds or system conditions
@@ -127,6 +131,9 @@ pub enum Events {
 
     /// Rotary encoder button hold released
     RotaryButtonHoldEnd,
+
+    /// Testing sequence finished
+    TestingCompleted,
 
     /// System inactivity timeout
     /// - No user input for extended period

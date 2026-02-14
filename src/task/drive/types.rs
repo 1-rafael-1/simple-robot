@@ -12,6 +12,19 @@ pub const DRIFT_COMPENSATION_GAIN: f32 = 0.5;
 /// Maximum compensation per adjustment (percent points of speed command)
 pub const DRIFT_COMPENSATION_MAX: i8 = 5;
 
+/// IMU calibration target selection.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ImuCalibrationKind {
+    /// Calibrate gyroscope (stationary).
+    Gyro,
+    /// Calibrate accelerometer (stationary).
+    Accel,
+    /// Calibrate magnetometer (manual rotation).
+    Mag,
+    /// Calibrate gyroscope, accelerometer, and magnetometer (full sequence).
+    Full,
+}
+
 /// Combined motor control and sensor feedback commands
 #[derive(Debug, Clone)]
 pub enum DriveCommand {
@@ -20,7 +33,7 @@ pub enum DriveCommand {
     /// Run motor calibration procedure
     RunMotorCalibration,
     /// Run IMU calibration procedure
-    RunImuCalibration,
+    RunImuCalibration(ImuCalibrationKind),
 }
 
 /// Motion control commands with associated parameters

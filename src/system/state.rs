@@ -37,6 +37,51 @@ pub enum CalibrationStatus {
     NotAvailable,
 }
 
+/// Top-level UI mode
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Format)]
+pub enum UiMode {
+    /// Main menu display
+    MainMenu,
+    /// System info screen (scrollable)
+    SystemInfo {
+        /// Current scroll offset into the system info line list
+        scroll_offset: u8,
+    },
+    /// Calibration submenu
+    CalibrateMenu,
+    /// Test sequence running
+    RunningTest,
+    /// Optional: calibration running state
+    Calibrating {
+        /// Selected calibration kind
+        kind: CalibrationSelection,
+    },
+}
+
+/// Main menu selections
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Format)]
+pub enum MenuSelection {
+    /// Show system info screen
+    SystemInfo,
+    /// Enter calibration submenu
+    Calibrate,
+    /// Run the test sequence
+    TestMode,
+}
+
+/// Calibration submenu selections
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Format)]
+pub enum CalibrationSelection {
+    /// Motor calibration
+    Motor,
+    /// Magnetometer calibration
+    Mag,
+    /// Accelerometer calibration
+    Accel,
+    /// Gyroscope calibration
+    Gyro,
+}
+
 /// Global system state protected by a mutex
 ///
 /// Initialized to:
@@ -54,6 +99,9 @@ pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::ne
     standby: false,
     motor_calibration_status: CalibrationStatus::NotLoaded,
     imu_calibration_status: CalibrationStatus::NotLoaded,
+    mag_calibration_status: CalibrationStatus::NotLoaded,
+    accel_calibration_status: CalibrationStatus::NotLoaded,
+    gyro_calibration_status: CalibrationStatus::NotLoaded,
     left_track_speed: 0,
     right_track_speed: 0,
 });
@@ -92,11 +140,26 @@ pub struct SystemState {
     /// - Loaded: Calibration data loaded from flash and applied
     /// - `NotAvailable`: No calibration data in flash (needs calibration run)
     pub motor_calibration_status: CalibrationStatus,
-    /// IMU calibration status
+    /// IMU calibration status (aggregate)
     /// - `NotLoaded`: Haven't queried flash yet
     /// - Loaded: Calibration data loaded from flash and applied
     /// - `NotAvailable`: No calibration data in flash (needs calibration run)
     pub imu_calibration_status: CalibrationStatus,
+    /// Magnetometer calibration status
+    /// - `NotLoaded`: Haven't queried flash yet
+    /// - Loaded: Calibration data loaded from flash and applied
+    /// - `NotAvailable`: No calibration data in flash (needs calibration run)
+    pub mag_calibration_status: CalibrationStatus,
+    /// Accelerometer calibration status
+    /// - `NotLoaded`: Haven't queried flash yet
+    /// - Loaded: Calibration data loaded from flash and applied
+    /// - `NotAvailable`: No calibration data in flash (needs calibration run)
+    pub accel_calibration_status: CalibrationStatus,
+    /// Gyroscope calibration status
+    /// - `NotLoaded`: Haven't queried flash yet
+    /// - Loaded: Calibration data loaded from flash and applied
+    /// - `NotAvailable`: No calibration data in flash (needs calibration run)
+    pub gyro_calibration_status: CalibrationStatus,
     /// Current left track speed (-100 to +100)
     /// - Negative values: reverse
     /// - 0: stopped

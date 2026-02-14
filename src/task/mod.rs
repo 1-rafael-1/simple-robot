@@ -17,3 +17,4 @@ pub mod rotary_encoder;
 pub mod sweep_ultrasonic;
 pub mod testing;
 pub mod track_inactivity;
+pub mod ui_menu;
