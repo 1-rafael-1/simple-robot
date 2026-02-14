@@ -124,7 +124,7 @@ pub use feedback::{
     send_accel_measurement, send_gyro_measurement, send_mag_measurement, try_send_encoder_measurement,
     try_send_imu_measurement,
 };
-pub use types::{DriveAction, DriveCommand};
+pub use types::{DriveAction, DriveCommand, ImuCalibrationKind};
 
 /// Command signal for drive control
 ///
@@ -494,9 +494,9 @@ impl DriveLoop {
                 run_motor_calibration().await;
                 info!("Motor calibration procedure completed");
             }
-            DriveCommand::RunImuCalibration => {
+            DriveCommand::RunImuCalibration(kind) => {
                 info!("Starting IMU calibration procedure");
-                run_imu_calibration().await;
+                run_imu_calibration(kind).await;
                 info!("IMU calibration procedure completed");
             }
         }

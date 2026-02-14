@@ -23,6 +23,7 @@
 //!
 //! Call `init_testing()` from main to spawn the test task.
 
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 use heapless::String;
 
@@ -30,21 +31,38 @@ use crate::{
     system::event::{Events, raise_event},
     task::{
         display::{DisplayAction, display_update},
-        drive::{DriveAction, DriveCommand, send_drive_command},
+        drive::{DriveAction, DriveCommand, ImuCalibrationKind, send_drive_command},
         imu_read::{AhrsFusionMode, set_ahrs_fusion_mode},
     },
 };
 
-/// Initialize testing task
-pub fn init_testing(spawner: embassy_executor::Spawner) {
-    spawner.must_spawn(testing_sequence());
+/// Signal used to trigger the test sequence on demand.
+static TEST_START_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// Request the test sequence to start.
+pub fn start_testing_sequence() {
+    TEST_START_SIGNAL.signal(());
 }
 
-/// Main testing sequence
+/// Initialize testing task (idle until `start_testing_sequence` is called).
+pub fn init_testing(spawner: embassy_executor::Spawner) {
+    spawner.must_spawn(testing_sequence_runner());
+}
+
+/// Main testing sequence runner (waits for on-demand start signals).
+#[embassy_executor::task]
+async fn testing_sequence_runner() {
+    loop {
+        TEST_START_SIGNAL.wait().await;
+        run_testing_sequence().await;
+        raise_event(Events::TestingCompleted).await;
+    }
+}
+
+/// Main testing sequence.
 ///
 /// This is the entry point for all development tests. Modify as needed.
-#[embassy_executor::task]
-async fn testing_sequence() {
+async fn run_testing_sequence() {
     async fn show_line(line: u8, msg: &str) {
         let mut s: String<20> = String::new();
         // Truncate to 20 chars to match the display action contract.
@@ -195,5 +213,5 @@ async fn auto_calibration_sequence() {
     Timer::after(Duration::from_secs(10)).await;
 
     defmt::info!("🤖 AUTO-CALIBRATION: Triggering IMU calibration now!");
-    send_drive_command(DriveCommand::RunImuCalibration);
+    send_drive_command(DriveCommand::RunImuCalibration(ImuCalibrationKind::Full));
 }

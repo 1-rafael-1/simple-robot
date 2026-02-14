@@ -20,7 +20,7 @@ use crate::{
         event::{Events, wait},
         state::{self, CalibrationSelection, CalibrationStatus, MenuSelection, SYSTEM_STATE, UiMode},
     },
-    task::{display, drive, flash_storage, imu_read, motor_driver, rgb_led_indicate, ui_menu},
+    task::{display, drive, flash_storage, imu_read, motor_driver, rgb_led_indicate, testing, ui_menu},
 };
 
 /// UI state owned by the orchestrator.
@@ -64,6 +64,7 @@ async fn handle_event(event: Events) {
     match event {
         Events::Initialize => handle_initialize().await,
         Events::CalibrationDataLoaded(kind, data) => handle_calibration_data_loaded(kind, data).await,
+        Events::ImuCalibrationFlagsLoaded(flags) => handle_imu_calibration_flags_loaded(flags).await,
         Events::OperationModeSet(mode) => handle_operation_mode_set(mode).await,
         Events::ObstacleDetected(detected) => handle_obstacle_detected(detected).await,
         Events::ObstacleAvoidanceAttempted => handle_obstacle_avoidance_attempted().await,
@@ -128,6 +129,10 @@ async fn handle_initialize() {
         flash_storage::CalibrationKind::Imu,
     ))
     .await;
+
+    // Request IMU calibration flags from flash
+    info!("Requesting IMU calibration flags from flash");
+    flash_storage::send_flash_command(flash_storage::FlashCommand::GetImuFlags).await;
 
     // Note: Initialization completes when calibration data arrives via CalibrationDataLoaded events
 }
@@ -238,6 +243,38 @@ async fn handle_calibration_data_loaded(
 
     // Check if initialization is complete
     check_initialization_complete().await;
+}
+
+/// Handle IMU calibration flags loaded from flash
+async fn handle_imu_calibration_flags_loaded(flags: Option<flash_storage::ImuCalibrationFlags>) {
+    let mut state = SYSTEM_STATE.lock().await;
+    if let Some(flags) = flags {
+        state.gyro_calibration_status = if flags.gyro {
+            CalibrationStatus::Loaded
+        } else {
+            CalibrationStatus::NotAvailable
+        };
+        state.accel_calibration_status = if flags.accel {
+            CalibrationStatus::Loaded
+        } else {
+            CalibrationStatus::NotAvailable
+        };
+        state.mag_calibration_status = if flags.mag {
+            CalibrationStatus::Loaded
+        } else {
+            CalibrationStatus::NotAvailable
+        };
+        state.imu_calibration_status = if flags.gyro && flags.accel && flags.mag {
+            CalibrationStatus::Loaded
+        } else {
+            CalibrationStatus::NotAvailable
+        };
+    } else {
+        state.imu_calibration_status = CalibrationStatus::NotAvailable;
+        state.mag_calibration_status = CalibrationStatus::NotAvailable;
+        state.accel_calibration_status = CalibrationStatus::NotAvailable;
+        state.gyro_calibration_status = CalibrationStatus::NotAvailable;
+    }
 }
 
 /// Handle operation mode changes
@@ -374,7 +411,8 @@ async fn handle_rotary_button_pressed() {
                 let snapshot = *ui;
                 drop(ui);
                 render_current_ui(&snapshot).await;
-                info!("Test mode selected (waiting for start trigger)");
+                testing::start_testing_sequence();
+                info!("Test mode selected (testing sequence started)");
             }
         },
         UiMode::SystemInfo { .. } => {
@@ -393,8 +431,14 @@ async fn handle_rotary_button_pressed() {
                 CalibrationSelection::Motor => {
                     drive::send_drive_command(drive::DriveCommand::RunMotorCalibration);
                 }
-                CalibrationSelection::Mag | CalibrationSelection::Accel | CalibrationSelection::Gyro => {
-                    drive::send_drive_command(drive::DriveCommand::RunImuCalibration);
+                CalibrationSelection::Mag => {
+                    drive::send_drive_command(drive::DriveCommand::RunImuCalibration(drive::ImuCalibrationKind::Mag));
+                }
+                CalibrationSelection::Accel => {
+                    drive::send_drive_command(drive::DriveCommand::RunImuCalibration(drive::ImuCalibrationKind::Accel));
+                }
+                CalibrationSelection::Gyro => {
+                    drive::send_drive_command(drive::DriveCommand::RunImuCalibration(drive::ImuCalibrationKind::Gyro));
                 }
             }
         }
