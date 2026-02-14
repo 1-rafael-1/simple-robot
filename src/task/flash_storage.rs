@@ -695,6 +695,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                     }
                     Err(e) => {
                         error!("Failed to save IMU calibration flags: {}", defmt::Debug2Format(&e));
+                        raise_event(Events::ImuCalibrationFlagsLoaded(None)).await;
                     }
                 }
             }
