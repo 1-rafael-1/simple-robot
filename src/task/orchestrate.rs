@@ -12,15 +12,41 @@
 use core::fmt::Write;
 
 use defmt::info;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use heapless::String;
 
 use crate::{
     system::{
         event::{Events, wait},
-        state::{self, CalibrationStatus, SYSTEM_STATE},
+        state::{self, CalibrationSelection, CalibrationStatus, MenuSelection, SYSTEM_STATE, UiMode},
     },
-    task::{display, drive, flash_storage, imu_read, motor_driver, rgb_led_indicate},
+    task::{display, drive, flash_storage, imu_read, motor_driver, rgb_led_indicate, ui_menu},
 };
+
+/// UI state owned by the orchestrator.
+#[derive(Clone, Copy)]
+struct UiState {
+    /// Current UI mode.
+    mode: UiMode,
+    /// Selected index in the main menu.
+    main_index: usize,
+    /// Selected index in the calibration menu.
+    calibrate_index: usize,
+}
+
+impl UiState {
+    /// Creates the default UI state (main menu with first items selected).
+    const fn new() -> Self {
+        Self {
+            mode: UiMode::MainMenu,
+            main_index: 0,
+            calibrate_index: 0,
+        }
+    }
+}
+
+/// Global UI state mutex owned by the orchestrator.
+static UI_STATE: Mutex<CriticalSectionRawMutex, UiState> = Mutex::new(UiState::new());
 
 /// Main coordination task that implements the system's event loop
 #[embassy_executor::task]
@@ -48,8 +74,8 @@ async fn handle_event(event: Events) {
         Events::RotaryTurned(direction) => handle_rotary_turned(direction).await,
         Events::RotaryButtonPressed => handle_rotary_button_pressed().await,
         Events::RotaryButtonHoldStart => handle_rotary_button_hold_start().await,
-        Events::RotaryButtonHoldEnd => handle_rotary_button_hold_end().await,
-        Events::TestingCompleted => info!("Testing completed"),
+        Events::RotaryButtonHoldEnd => handle_rotary_button_hold_end(),
+        Events::TestingCompleted => handle_testing_completed().await,
         Events::InactivityTimeout => handle_inactivity_timeout().await,
         Events::EncoderMeasurementTaken(measurement) => handle_encoder_measurement(measurement).await,
         Events::UltrasonicSweepReadingTaken(distance, angle) => handle_ultrasonic_sweep_reading(distance, angle).await,
@@ -108,18 +134,22 @@ async fn handle_initialize() {
 
 /// Check if initialization is complete and update display if so
 async fn check_initialization_complete() {
-    let state = SYSTEM_STATE.lock().await;
+    let should_show_menu = {
+        let state = SYSTEM_STATE.lock().await;
 
-    // Check if both calibrations have been checked
-    if state.is_initialized() {
-        // Display final initialization status
-        let mut txt: String<20> = String::new();
-        let _ = write!(txt, "System Ready");
-        display::display_update(display::DisplayAction::ShowText(txt, 0)).await;
+        // Check if both calibrations have been checked
+        if state.is_initialized() {
+            info!("System initialization complete");
+            info!("  Motor calibration: {:?}", state.motor_calibration_status);
+            info!("  IMU calibration: {:?}", state.imu_calibration_status);
+            true
+        } else {
+            false
+        }
+    };
 
-        info!("System initialization complete");
-        info!("  Motor calibration: {:?}", state.motor_calibration_status);
-        info!("  IMU calibration: {:?}", state.imu_calibration_status);
+    if should_show_menu {
+        show_main_menu().await;
     }
 }
 
@@ -264,31 +294,126 @@ async fn handle_button_hold_end(_button_id: crate::system::event::RCButtonId) {
 }
 
 /// Handle rotary encoder turns
-#[allow(clippy::unused_async)]
-async fn handle_rotary_turned(_direction: crate::system::event::RotaryDirection) {
-    info!("Rotary turned");
-    // TODO: Route to UI navigation based on current UI mode
+async fn handle_rotary_turned(direction: crate::system::event::RotaryDirection) {
+    if !ui_initialized().await {
+        return;
+    }
+
+    let mode = {
+        let ui = UI_STATE.lock().await;
+        ui.mode
+    };
+
+    match mode {
+        UiMode::MainMenu => {
+            let mut ui = UI_STATE.lock().await;
+            ui.main_index = next_menu_index(ui.main_index, ui_menu::MAIN_MENU_ITEMS.len(), direction);
+            let snapshot = *ui;
+            drop(ui);
+            render_current_ui(&snapshot).await;
+        }
+        UiMode::CalibrateMenu => {
+            let mut ui = UI_STATE.lock().await;
+            ui.calibrate_index = next_menu_index(ui.calibrate_index, ui_menu::CALIBRATE_MENU_ITEMS.len(), direction);
+            let snapshot = *ui;
+            drop(ui);
+            render_current_ui(&snapshot).await;
+        }
+        UiMode::SystemInfo { scroll_offset } => {
+            let info = build_system_info_data().await;
+            let max_scroll = max_system_info_scroll(&info);
+            let new_offset = match direction {
+                crate::system::event::RotaryDirection::Clockwise => (scroll_offset as usize + 1).min(max_scroll),
+                crate::system::event::RotaryDirection::CounterClockwise => (scroll_offset as usize).saturating_sub(1),
+            };
+            let new_offset_u8 = u8::try_from(new_offset).unwrap_or(u8::MAX);
+
+            let mut ui = UI_STATE.lock().await;
+            ui.mode = UiMode::SystemInfo {
+                scroll_offset: new_offset_u8,
+            };
+            let snapshot = *ui;
+            drop(ui);
+            render_current_ui(&snapshot).await;
+        }
+        UiMode::RunningTest | UiMode::Calibrating { .. } => {}
+    }
 }
 
 /// Handle rotary encoder button press
-#[allow(clippy::unused_async)]
 async fn handle_rotary_button_pressed() {
-    info!("Rotary button pressed");
-    // TODO: Route to UI select/back depending on current UI mode
+    if !ui_initialized().await {
+        return;
+    }
+
+    let ui_snapshot = {
+        let ui = UI_STATE.lock().await;
+        *ui
+    };
+
+    match ui_snapshot.mode {
+        UiMode::MainMenu => match menu_selection_from_index(ui_snapshot.main_index) {
+            MenuSelection::SystemInfo => {
+                let mut ui = UI_STATE.lock().await;
+                ui.mode = UiMode::SystemInfo { scroll_offset: 0 };
+                let snapshot = *ui;
+                drop(ui);
+                render_current_ui(&snapshot).await;
+            }
+            MenuSelection::Calibrate => {
+                let mut ui = UI_STATE.lock().await;
+                ui.calibrate_index = 0;
+                ui.mode = UiMode::CalibrateMenu;
+                let snapshot = *ui;
+                drop(ui);
+                render_current_ui(&snapshot).await;
+            }
+            MenuSelection::TestMode => {
+                let mut ui = UI_STATE.lock().await;
+                ui.mode = UiMode::RunningTest;
+                let snapshot = *ui;
+                drop(ui);
+                render_current_ui(&snapshot).await;
+                info!("Test mode selected (waiting for start trigger)");
+            }
+        },
+        UiMode::SystemInfo { .. } => {
+            show_main_menu().await;
+        }
+        UiMode::CalibrateMenu => {
+            let selection = calibration_selection_from_index(ui_snapshot.calibrate_index);
+
+            let mut ui = UI_STATE.lock().await;
+            ui.mode = UiMode::Calibrating { kind: selection };
+            let snapshot = *ui;
+            drop(ui);
+            render_current_ui(&snapshot).await;
+
+            match selection {
+                CalibrationSelection::Motor => {
+                    drive::send_drive_command(drive::DriveCommand::RunMotorCalibration);
+                }
+                CalibrationSelection::Mag | CalibrationSelection::Accel | CalibrationSelection::Gyro => {
+                    drive::send_drive_command(drive::DriveCommand::RunImuCalibration);
+                }
+            }
+        }
+        UiMode::RunningTest | UiMode::Calibrating { .. } => {}
+    }
 }
 
 /// Handle rotary encoder button hold start
-#[allow(clippy::unused_async)]
 async fn handle_rotary_button_hold_start() {
-    info!("Rotary button hold start");
-    // TODO: Optional long-press behavior (e.g., global back)
+    if !ui_initialized().await {
+        return;
+    }
+
+    handle_ui_back().await;
 }
 
-/// Handle rotary encoder button hold end
-#[allow(clippy::unused_async)]
-async fn handle_rotary_button_hold_end() {
-    info!("Rotary button hold end");
-    // TODO: Optional long-press release behavior
+/// Handle rotary encoder button hold end.
+const fn handle_rotary_button_hold_end() {
+    // No-op for now.
 }
 
 /// Handle inactivity timeout
@@ -356,6 +481,151 @@ async fn handle_start_stop_ultrasonic_sweep(_start: bool) {
     info!("Ultrasonic sweep control");
     // TODO: Implement ultrasonic sweep control
     // - Start/stop sweep task
+}
+
+/// Handle testing completion by returning to the main menu.
+async fn handle_testing_completed() {
+    info!("Testing completed");
+    show_main_menu().await;
+}
+
+/// Handle a UI back action based on the current mode.
+async fn handle_ui_back() {
+    let mode = {
+        let ui = UI_STATE.lock().await;
+        ui.mode
+    };
+
+    match mode {
+        UiMode::SystemInfo { .. } | UiMode::CalibrateMenu => {
+            show_main_menu().await;
+        }
+        _ => {}
+    }
+}
+
+/// Set UI state to main menu and render it.
+async fn show_main_menu() {
+    let mut ui = UI_STATE.lock().await;
+    ui.mode = UiMode::MainMenu;
+    let snapshot = *ui;
+    drop(ui);
+    render_current_ui(&snapshot).await;
+}
+
+/// Render the current UI view based on the UI state.
+async fn render_current_ui(state: &UiState) {
+    match state.mode {
+        UiMode::MainMenu => ui_menu::render_main_menu(state.main_index).await,
+        UiMode::CalibrateMenu => ui_menu::render_calibrate_menu(state.calibrate_index).await,
+        UiMode::SystemInfo { scroll_offset } => {
+            let info = build_system_info_data().await;
+            ui_menu::render_system_info(scroll_offset as usize, &info).await;
+        }
+        UiMode::RunningTest => {
+            render_test_running().await;
+        }
+        UiMode::Calibrating { kind } => {
+            render_calibrating(kind).await;
+        }
+    }
+}
+
+/// Render the "test running" status screen.
+async fn render_test_running() {
+    display::display_update(display::DisplayAction::Clear).await;
+    show_line(0, "Test Mode").await;
+    show_line(1, "Running...").await;
+    show_line(2, "").await;
+    show_line(3, "").await;
+}
+
+/// Render the calibration-in-progress screen for the selected kind.
+async fn render_calibrating(kind: CalibrationSelection) {
+    display::display_update(display::DisplayAction::Clear).await;
+    show_line(0, "Calibrating").await;
+    show_line(1, calibration_label(kind)).await;
+    show_line(2, "").await;
+    show_line(3, "").await;
+}
+
+/// Write a single line of text to the display.
+async fn show_line(line: u8, msg: &str) {
+    let mut s: String<20> = String::new();
+    let _ = s.push_str(msg);
+    display::display_update(display::DisplayAction::ShowText(s, line)).await;
+}
+
+/// Returns true once calibration data has been queried.
+async fn ui_initialized() -> bool {
+    let state = SYSTEM_STATE.lock().await;
+    state.is_initialized()
+}
+
+/// Build a snapshot of system info for the UI renderer.
+async fn build_system_info_data() -> ui_menu::SystemInfoData {
+    let state = SYSTEM_STATE.lock().await;
+    ui_menu::SystemInfoData {
+        battery_level: state.battery_level,
+        battery_voltage: state.battery_voltage,
+        motor_calibration_status: state.motor_calibration_status,
+        mag_calibration_status: state.mag_calibration_status,
+        accel_calibration_status: state.accel_calibration_status,
+        gyro_calibration_status: state.gyro_calibration_status,
+    }
+}
+
+/// Map a main menu index to its logical selection.
+const fn menu_selection_from_index(index: usize) -> MenuSelection {
+    match index {
+        0 => MenuSelection::SystemInfo,
+        1 => MenuSelection::Calibrate,
+        _ => MenuSelection::TestMode,
+    }
+}
+
+/// Map a calibration menu index to its selection.
+const fn calibration_selection_from_index(index: usize) -> CalibrationSelection {
+    match index {
+        0 => CalibrationSelection::Motor,
+        1 => CalibrationSelection::Mag,
+        2 => CalibrationSelection::Accel,
+        _ => CalibrationSelection::Gyro,
+    }
+}
+
+/// Human-readable label for a calibration selection.
+const fn calibration_label(kind: CalibrationSelection) -> &'static str {
+    match kind {
+        CalibrationSelection::Motor => "Motor",
+        CalibrationSelection::Mag => "Mag",
+        CalibrationSelection::Accel => "Accel",
+        CalibrationSelection::Gyro => "Gyro",
+    }
+}
+
+/// Compute the next menu index, with wrap-around.
+const fn next_menu_index(current: usize, len: usize, direction: crate::system::event::RotaryDirection) -> usize {
+    if len == 0 {
+        return 0;
+    }
+
+    match direction {
+        crate::system::event::RotaryDirection::Clockwise => (current + 1) % len,
+        crate::system::event::RotaryDirection::CounterClockwise => {
+            if current == 0 {
+                len - 1
+            } else {
+                current - 1
+            }
+        }
+    }
+}
+
+/// Compute the maximum scroll offset for the system info screen.
+fn max_system_info_scroll(info: &ui_menu::SystemInfoData) -> usize {
+    let line_count = ui_menu::system_info_line_count(info);
+    line_count.saturating_sub(ui_menu::DISPLAY_LINES)
 }
 
 /// Handle calibration status updates
