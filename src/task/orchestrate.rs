@@ -209,9 +209,6 @@ async fn handle_calibration_data_loaded(
                 {
                     let mut state = SYSTEM_STATE.lock().await;
                     state.imu_calibration_status = CalibrationStatus::Loaded;
-                    state.mag_calibration_status = CalibrationStatus::Loaded;
-                    state.accel_calibration_status = CalibrationStatus::Loaded;
-                    state.gyro_calibration_status = CalibrationStatus::Loaded;
                 }
 
                 // Forward to IMU task
