@@ -1,0 +1,166 @@
+//! UI menu rendering helpers
+//!
+//! This module provides small, reusable helpers to render menu screens
+//! and system info on the OLED via the display task.
+
+use core::fmt::Write;
+
+use heapless::{String, Vec};
+
+use crate::{
+    system::state::CalibrationStatus,
+    task::display::{DisplayAction, display_update},
+};
+
+/// Maximum number of text lines supported by the OLED layout.
+pub const DISPLAY_LINES: usize = 4;
+
+/// Maximum line length supported by the display text contract.
+pub const MAX_LINE_LEN: usize = 20;
+
+/// Main menu entries.
+pub const MAIN_MENU_ITEMS: [&str; 3] = ["System Info", "Calibrate", "Test Mode"];
+
+/// Calibration submenu entries.
+pub const CALIBRATE_MENU_ITEMS: [&str; 4] = ["Motor", "Mag", "Accel", "Gyro"];
+
+/// Snapshot of the system info values needed for display.
+#[derive(Clone, Copy)]
+pub struct SystemInfoData {
+    /// Battery level percentage (0-100), if available
+    pub battery_level: Option<u8>,
+    /// Battery voltage in volts, if available
+    pub battery_voltage: Option<f32>,
+    /// Motor calibration status
+    pub motor_calibration_status: CalibrationStatus,
+    /// Magnetometer calibration status
+    pub mag_calibration_status: CalibrationStatus,
+    /// Accelerometer calibration status
+    pub accel_calibration_status: CalibrationStatus,
+    /// Gyroscope calibration status
+    pub gyro_calibration_status: CalibrationStatus,
+}
+
+/// Render the main menu with the given selected index.
+pub async fn render_main_menu(selected_index: usize) {
+    render_menu("Main Menu", &MAIN_MENU_ITEMS, selected_index).await;
+}
+
+/// Render the calibration submenu with the given selected index.
+pub async fn render_calibrate_menu(selected_index: usize) {
+    render_menu("Calibrate", &CALIBRATE_MENU_ITEMS, selected_index).await;
+}
+
+/// Render system info lines with the provided scroll offset.
+pub async fn render_system_info(scroll_offset: usize, info: &SystemInfoData) {
+    let lines = build_system_info_lines(info);
+
+    for line_idx in 0..DISPLAY_LINES {
+        let display_line = u8::try_from(line_idx).unwrap_or(0);
+        let content = lines.get(scroll_offset + line_idx).cloned().unwrap_or_else(blank_line);
+        display_update(DisplayAction::ShowText(content, display_line)).await;
+    }
+}
+
+/// Returns the total number of system info lines.
+pub fn system_info_line_count(info: &SystemInfoData) -> usize {
+    build_system_info_lines(info).len()
+}
+
+/// Render a generic menu with a header and list of items.
+async fn render_menu(header: &str, items: &[&str], selected_index: usize) {
+    let header_line = format_header(header);
+    display_update(DisplayAction::ShowText(header_line, 0)).await;
+
+    for i in 0..(DISPLAY_LINES - 1) {
+        let item_index = i;
+        let line = items.get(item_index).map_or_else(blank_line, |label| {
+            format_menu_item(label, item_index == selected_index)
+        });
+        let display_line = u8::try_from(i + 1).unwrap_or(0);
+        display_update(DisplayAction::ShowText(line, display_line)).await;
+    }
+}
+
+/// Build the list of system info lines (scrollable).
+fn build_system_info_lines(info: &SystemInfoData) -> Vec<String<MAX_LINE_LEN>, 8> {
+    let mut lines: Vec<String<MAX_LINE_LEN>, 8> = Vec::new();
+
+    let _ = lines.push(format_battery_level_line(info.battery_level));
+    let _ = lines.push(format_battery_voltage_line(info.battery_voltage));
+    let _ = lines.push(format_cal_line("Mag", info.mag_calibration_status));
+    let _ = lines.push(format_cal_line("Accel", info.accel_calibration_status));
+    let _ = lines.push(format_cal_line("Gyro", info.gyro_calibration_status));
+
+    lines
+}
+
+/// Format the menu header.
+fn format_header(label: &str) -> String<MAX_LINE_LEN> {
+    let mut s: String<MAX_LINE_LEN> = String::new();
+    let _ = write!(s, "{label}");
+    s
+}
+
+/// Format a menu item with selection highlight.
+///
+/// Highlight style: leading `°` when selected, leading space otherwise.
+fn format_menu_item(label: &str, selected: bool) -> String<MAX_LINE_LEN> {
+    let mut s: String<MAX_LINE_LEN> = String::new();
+    if selected {
+        let _ = write!(s, "° {label}");
+    } else {
+        let _ = write!(s, "  {label}");
+    }
+    s
+}
+
+/// Format a calibration status line.
+fn format_cal_line(prefix: &str, status: CalibrationStatus) -> String<MAX_LINE_LEN> {
+    let mut s: String<MAX_LINE_LEN> = String::new();
+    let status_text = calibration_status_label(status);
+    let _ = write!(s, "{prefix}: {status_text}");
+    s
+}
+
+/// Format the battery level line.
+fn format_battery_level_line(level: Option<u8>) -> String<MAX_LINE_LEN> {
+    let mut s: String<MAX_LINE_LEN> = String::new();
+    match level {
+        Some(lvl) => {
+            let _ = write!(s, "Batt {lvl:>3}%");
+        }
+        None => {
+            let _ = write!(s, "Batt --%");
+        }
+    }
+    s
+}
+
+/// Format the battery voltage line.
+fn format_battery_voltage_line(voltage: Option<f32>) -> String<MAX_LINE_LEN> {
+    let mut s: String<MAX_LINE_LEN> = String::new();
+    match voltage {
+        Some(volts) => {
+            let _ = write!(s, "Batt {volts:>4.1}V");
+        }
+        None => {
+            let _ = write!(s, "Batt --.-V");
+        }
+    }
+    s
+}
+
+/// Human-readable labels for calibration status.
+const fn calibration_status_label(status: CalibrationStatus) -> &'static str {
+    match status {
+        CalibrationStatus::NotLoaded => "Unknown",
+        CalibrationStatus::Loaded => "Loaded",
+        CalibrationStatus::NotAvailable => "Missing",
+    }
+}
+
+/// Returns a blank display line.
+const fn blank_line() -> String<MAX_LINE_LEN> {
+    String::new()
+}

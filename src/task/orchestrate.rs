@@ -45,10 +45,11 @@ async fn handle_event(event: Events) {
         Events::RCButtonPressed(button_id) => handle_button_pressed(button_id).await,
         Events::ButtonHoldStart(button_id) => handle_button_hold_start(button_id).await,
         Events::ButtonHoldEnd(button_id) => handle_button_hold_end(button_id).await,
-        Events::RotaryTurned(_) => info!("Rotary turned"),
-        Events::RotaryButtonPressed => info!("Rotary button pressed"),
-        Events::RotaryButtonHoldStart => info!("Rotary button hold start"),
-        Events::RotaryButtonHoldEnd => info!("Rotary button hold end"),
+        Events::RotaryTurned(direction) => handle_rotary_turned(direction).await,
+        Events::RotaryButtonPressed => handle_rotary_button_pressed().await,
+        Events::RotaryButtonHoldStart => handle_rotary_button_hold_start().await,
+        Events::RotaryButtonHoldEnd => handle_rotary_button_hold_end().await,
+        Events::TestingCompleted => info!("Testing completed"),
         Events::InactivityTimeout => handle_inactivity_timeout().await,
         Events::EncoderMeasurementTaken(measurement) => handle_encoder_measurement(measurement).await,
         Events::UltrasonicSweepReadingTaken(distance, angle) => handle_ultrasonic_sweep_reading(distance, angle).await,
@@ -173,6 +174,9 @@ async fn handle_calibration_data_loaded(
                 {
                     let mut state = SYSTEM_STATE.lock().await;
                     state.imu_calibration_status = CalibrationStatus::Loaded;
+                    state.mag_calibration_status = CalibrationStatus::Loaded;
+                    state.accel_calibration_status = CalibrationStatus::Loaded;
+                    state.gyro_calibration_status = CalibrationStatus::Loaded;
                 }
 
                 // Forward to IMU task
@@ -189,6 +193,9 @@ async fn handle_calibration_data_loaded(
                 {
                     let mut state = SYSTEM_STATE.lock().await;
                     state.imu_calibration_status = CalibrationStatus::NotAvailable;
+                    state.mag_calibration_status = CalibrationStatus::NotAvailable;
+                    state.accel_calibration_status = CalibrationStatus::NotAvailable;
+                    state.gyro_calibration_status = CalibrationStatus::NotAvailable;
                 }
 
                 // Update display
@@ -254,6 +261,34 @@ async fn handle_button_hold_end(_button_id: crate::system::event::RCButtonId) {
     // TODO: Implement hold end actions
     // - Complete mode change
     // - Signal activity tracker
+}
+
+/// Handle rotary encoder turns
+#[allow(clippy::unused_async)]
+async fn handle_rotary_turned(_direction: crate::system::event::RotaryDirection) {
+    info!("Rotary turned");
+    // TODO: Route to UI navigation based on current UI mode
+}
+
+/// Handle rotary encoder button press
+#[allow(clippy::unused_async)]
+async fn handle_rotary_button_pressed() {
+    info!("Rotary button pressed");
+    // TODO: Route to UI select/back depending on current UI mode
+}
+
+/// Handle rotary encoder button hold start
+#[allow(clippy::unused_async)]
+async fn handle_rotary_button_hold_start() {
+    info!("Rotary button hold start");
+    // TODO: Optional long-press behavior (e.g., global back)
+}
+
+/// Handle rotary encoder button hold end
+#[allow(clippy::unused_async)]
+async fn handle_rotary_button_hold_end() {
+    info!("Rotary button hold end");
+    // TODO: Optional long-press release behavior
 }
 
 /// Handle inactivity timeout

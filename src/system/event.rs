@@ -128,6 +128,9 @@ pub enum Events {
     /// Rotary encoder button hold released
     RotaryButtonHoldEnd,
 
+    /// Testing sequence finished
+    TestingCompleted,
+
     /// System inactivity timeout
     /// - No user input for extended period
     /// - Triggers power saving measures
