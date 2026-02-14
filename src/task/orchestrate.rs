@@ -247,34 +247,45 @@ async fn handle_calibration_data_loaded(
 
 /// Handle IMU calibration flags loaded from flash
 async fn handle_imu_calibration_flags_loaded(flags: Option<flash_storage::ImuCalibrationFlags>) {
-    let mut state = SYSTEM_STATE.lock().await;
-    if let Some(flags) = flags {
-        state.gyro_calibration_status = if flags.gyro {
-            CalibrationStatus::Loaded
+    {
+        let mut state = SYSTEM_STATE.lock().await;
+        if let Some(flags) = flags {
+            state.gyro_calibration_status = if flags.gyro {
+                CalibrationStatus::Loaded
+            } else {
+                CalibrationStatus::NotAvailable
+            };
+            state.accel_calibration_status = if flags.accel {
+                CalibrationStatus::Loaded
+            } else {
+                CalibrationStatus::NotAvailable
+            };
+            state.mag_calibration_status = if flags.mag {
+                CalibrationStatus::Loaded
+            } else {
+                CalibrationStatus::NotAvailable
+            };
+            state.imu_calibration_status = if flags.gyro && flags.accel && flags.mag {
+                CalibrationStatus::Loaded
+            } else {
+                CalibrationStatus::NotAvailable
+            };
         } else {
-            CalibrationStatus::NotAvailable
-        };
-        state.accel_calibration_status = if flags.accel {
-            CalibrationStatus::Loaded
-        } else {
-            CalibrationStatus::NotAvailable
-        };
-        state.mag_calibration_status = if flags.mag {
-            CalibrationStatus::Loaded
-        } else {
-            CalibrationStatus::NotAvailable
-        };
-        state.imu_calibration_status = if flags.gyro && flags.accel && flags.mag {
-            CalibrationStatus::Loaded
-        } else {
-            CalibrationStatus::NotAvailable
-        };
-    } else {
-        state.imu_calibration_status = CalibrationStatus::NotAvailable;
-        state.mag_calibration_status = CalibrationStatus::NotAvailable;
-        state.accel_calibration_status = CalibrationStatus::NotAvailable;
-        state.gyro_calibration_status = CalibrationStatus::NotAvailable;
+            state.imu_calibration_status = CalibrationStatus::NotAvailable;
+            state.mag_calibration_status = CalibrationStatus::NotAvailable;
+            state.accel_calibration_status = CalibrationStatus::NotAvailable;
+            state.gyro_calibration_status = CalibrationStatus::NotAvailable;
+        }
     }
+
+    if ui_initialized().await {
+        let ui = UI_STATE.lock().await;
+        let snapshot = *ui;
+        drop(ui);
+        render_current_ui(&snapshot).await;
+    }
+
+    check_initialization_complete().await;
 }
 
 /// Handle operation mode changes
