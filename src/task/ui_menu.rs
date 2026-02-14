@@ -88,6 +88,7 @@ fn build_system_info_lines(info: &SystemInfoData) -> Vec<String<MAX_LINE_LEN>, 8
 
     let _ = lines.push(format_battery_level_line(info.battery_level));
     let _ = lines.push(format_battery_voltage_line(info.battery_voltage));
+    let _ = lines.push(format_cal_line("Motor", info.motor_calibration_status));
     let _ = lines.push(format_cal_line("Mag", info.mag_calibration_status));
     let _ = lines.push(format_cal_line("Accel", info.accel_calibration_status));
     let _ = lines.push(format_cal_line("Gyro", info.gyro_calibration_status));
