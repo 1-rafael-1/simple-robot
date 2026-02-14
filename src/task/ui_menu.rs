@@ -3,7 +3,7 @@
 //! This module provides small, reusable helpers to render menu screens
 //! and system info on the OLED via the display task.
 
-use core::fmt::Write;
+use core::{fmt::Write, ops::Add};
 
 use heapless::{String, Vec};
 
@@ -72,8 +72,20 @@ async fn render_menu(header: &str, items: &[&str], selected_index: usize) {
     let header_line = format_header(header);
     display_update(DisplayAction::ShowText(header_line, 0)).await;
 
-    for i in 0..(DISPLAY_LINES - 1) {
-        let item_index = i;
+    let visible_items = DISPLAY_LINES - 1;
+    let total_items = items.len();
+    let max_start = total_items.saturating_sub(visible_items);
+    let mut start_index = if selected_index.saturating_add(1) > visible_items {
+        selected_index + 1 - visible_items
+    } else {
+        0
+    };
+    if start_index > max_start {
+        start_index = max_start;
+    }
+
+    for i in 0..visible_items {
+        let item_index = start_index + i;
         let line = items.get(item_index).map_or_else(blank_line, |label| {
             format_menu_item(label, item_index == selected_index)
         });
