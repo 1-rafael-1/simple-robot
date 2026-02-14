@@ -681,8 +681,8 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                         imu: ImuCalibration::default(),
                         imu_flags: flags,
                     });
-                    drop(data);
                 }
+                drop(data);
 
                 match storage
                     .store_item(&mut data_buffer, &StorageKey::ImuFlags, &flags)
