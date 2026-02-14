@@ -607,7 +607,11 @@ async fn render_calibrating(kind: CalibrationSelection) {
 /// Write a single line of text to the display.
 async fn show_line(line: u8, msg: &str) {
     let mut s: String<20> = String::new();
-    let _ = s.push_str(msg);
+    for ch in msg.chars() {
+        if s.push(ch).is_err() {
+            break;
+        }
+    }
     display::display_update(display::DisplayAction::ShowText(s, line)).await;
 }
 
