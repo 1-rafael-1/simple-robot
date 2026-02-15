@@ -104,8 +104,10 @@ use crate::{
     task::{
         drive::feedback::IMU_FEEDBACK_CHANNEL,
         motor_driver::{self, MotorCommand},
-        sensors::encoders::{self as encoder_read, EncoderMeasurement},
-        sensors::imu::ImuMeasurement,
+        sensors::{
+            encoders::{self as encoder_read, EncoderMeasurement},
+            imu::ImuMeasurement,
+        },
     },
 };
 

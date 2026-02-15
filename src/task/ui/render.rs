@@ -6,12 +6,11 @@ use core::fmt::Write;
 
 use heapless::String;
 
+use super::{state::UiState, ui_menu};
 use crate::{
-    system::state::{CalibrationSelection, UiMode, SYSTEM_STATE},
+    system::state::{CalibrationSelection, SYSTEM_STATE, UiMode},
     task::io::display::{self, DisplayAction},
 };
-
-use super::{state::UiState, ui_menu};
 
 /// Render the current UI view based on the UI state.
 pub async fn render_current_ui(state: &UiState) {
