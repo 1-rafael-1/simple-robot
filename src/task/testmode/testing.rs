@@ -30,9 +30,9 @@ use heapless::String;
 use crate::{
     system::event::{Events, raise_event},
     task::{
-        display::{DisplayAction, display_update},
         drive::{DriveAction, DriveCommand, ImuCalibrationKind, send_drive_command},
-        imu_read::{AhrsFusionMode, set_ahrs_fusion_mode},
+        io::display::{DisplayAction, display_update},
+        sensors::imu::{AhrsFusionMode, set_ahrs_fusion_mode},
     },
 };
 

@@ -34,7 +34,7 @@
 //! - 9-axis fusion: Uses magnetometer for absolute heading (no yaw drift)
 //!
 //! For a small tracked robot (~30cm) with brushed motors:
-//! - Vibration filtering is critical (DLPF settings)
+//! - Vibration filtering needs tuning (DLPF settings)
 //! - Moderate beta value balances convergence speed and noise rejection
 //! - Magnetometer provides heading reference but may need calibration in magnetic environments
 //!
@@ -42,10 +42,10 @@
 //!
 //! ```rust
 //! // Start IMU readings
-//! imu_read::start_imu_readings();
+//! sensors::imu::start_imu_readings();
 //!
 //! // Stop readings when done
-//! imu_read::stop_imu_readings();
+//! sensors::imu::stop_imu_readings();
 //! ```
 
 use core::f32::consts::PI;
@@ -69,7 +69,7 @@ use crate::{
         event::{Events, raise_event},
         state::SYSTEM_STATE,
     },
-    task::{drive, flash_storage},
+    task::{drive, io::flash_storage},
 };
 
 /// Type alias for the ICM20948 IMU sensor driver with the specific I2C interface
@@ -155,8 +155,8 @@ pub struct Orientation {
 /// Commands for IMU reading control
 #[derive(Debug, Clone, Copy, Eq, PartialEq, defmt::Format)]
 pub enum AhrsFusionMode {
-    /// 6-axis fusion (gyro + accel). Yaw is relative and will drift, but is robust
-    /// in magnetically noisy environments and ideal for short precise turns.
+    /// 6-axis fusion (gyro + accel). Yaw is relative and will drift, but works
+    /// in magnetically noisy environments and is suitable for short precise turns.
     Axis6,
     /// 9-axis fusion (gyro + accel + mag). Yaw is stabilized to magnetic north (after calibration)
     /// and does not drift, but can be disturbed by motor/steel interference.
@@ -185,7 +185,7 @@ pub fn start_imu_readings() {
 
 /// Select AHRS fusion mode (6-axis vs 9-axis)
 ///
-/// - `Axis6`: uses gyro+accel (yaw drifts, but robust for turn control)
+/// - `Axis6`: uses gyro+accel (yaw drifts, but works for turn control)
 /// - `Axis9`: uses gyro+accel+mag when magnetometer is considered valid
 pub fn set_ahrs_fusion_mode(mode: AhrsFusionMode) {
     IMU_CONTROL.signal(ImuCommand::SetFusionMode(mode));
@@ -330,7 +330,7 @@ fn apply_motor_interference_correction(
 async fn init_imu_sensor(i2c_bus: &'static I2cBusShared) -> ImuSensor {
     // On battery power-up, the IMU can still be in POR / internal regulator startup when
     // this task begins. Under a debugger, the extra attach/flash/reset time often masks
-    // this. Add a deterministic startup delay and retry init for robustness.
+    // this. Add a deterministic startup delay and retry init to reduce init flakiness.
     info!("Waiting {}ms for IMU power-up...", IMU_BOOT_DELAY_MS);
     Timer::after(Duration::from_millis(IMU_BOOT_DELAY_MS)).await;
 

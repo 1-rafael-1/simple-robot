@@ -54,7 +54,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
 
     use crate::{
         system::event,
-        task::{flash_storage, imu_read},
+        task::{io::flash_storage, sensors::imu as imu_read},
     };
 
     info!("=== Starting IMU Calibration ===");

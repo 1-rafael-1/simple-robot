@@ -2,19 +2,16 @@
 
 // pub mod autonomous_drive;
 pub mod battery_charge_read;
-pub mod display;
-pub mod drive;
-pub mod encoder_read;
-pub mod flash_storage;
-pub mod imu_read;
-pub mod ir_obstacle_detect;
 pub mod motor_driver;
 pub mod orchestrate;
-pub mod port_expander;
-pub mod rc_control;
-pub mod rgb_led_indicate;
-pub mod rotary_encoder;
-pub mod sweep_ultrasonic;
-pub mod testing;
-pub mod track_inactivity;
-pub mod ui_menu;
+
+pub mod behavior;
+pub mod initialization;
+pub mod ui;
+
+pub mod control;
+pub mod drive;
+pub mod indicators;
+pub mod io;
+pub mod sensors;
+pub mod testmode;

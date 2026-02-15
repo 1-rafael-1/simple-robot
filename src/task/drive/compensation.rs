@@ -15,7 +15,7 @@
 
 use crate::task::{
     drive::types::{DRIFT_COMPENSATION_GAIN, DRIFT_COMPENSATION_MAX, DRIFT_TOLERANCE_PERCENT},
-    encoder_read::EncoderMeasurement,
+    sensors::encoders::EncoderMeasurement,
 };
 
 /// Which track (left/right) we are referring to.

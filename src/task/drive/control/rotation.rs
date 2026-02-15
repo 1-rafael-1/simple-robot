@@ -5,7 +5,7 @@ use crate::task::{
         ROTATION_SPEED_MAX, ROTATION_SPEED_MIN, ROTATION_TOLERANCE_DEG, RotationDirection, RotationMotion,
         SPEED_DIFF_MAX,
     },
-    imu_read::ImuMeasurement,
+    sensors::imu::ImuMeasurement,
 };
 
 /// State tracking for precise rotation maneuvers

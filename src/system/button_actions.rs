@@ -39,7 +39,7 @@ use crate::{
     system::{event, state},
     task::{
         drive::{self, DriveAction, DriveCommand, MotorSide, RotationDirection, RotationMotion},
-        rgb_led_indicate,
+        indicators::rgb_led_indicate,
     },
 };
 

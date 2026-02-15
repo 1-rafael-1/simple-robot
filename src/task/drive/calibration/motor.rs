@@ -41,7 +41,7 @@ pub async fn run_motor_calibration() {
 
     use crate::{
         system::event,
-        task::{encoder_read, flash_storage, motor_driver::MotorCalibration},
+        task::{io::flash_storage, motor_driver::MotorCalibration, sensors::encoders as encoder_read},
     };
 
     info!("=== Starting Motor Calibration ===");
