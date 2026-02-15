@@ -7,7 +7,7 @@
 //! - Waits for system events (button presses, sensor readings, etc.)
 //! - Routes events to domain-specific handlers
 //!
-//! Each event is handled by a dedicated module for clarity and maintainability.
+//! Each event is handled by a dedicated module.
 
 use defmt::info;
 
