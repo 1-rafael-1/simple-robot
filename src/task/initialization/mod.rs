@@ -155,10 +155,7 @@ pub async fn handle_imu_calibration_flags_loaded(flags: Option<flash_storage::Im
     }
 
     if ui::ui_initialized().await {
-        let ui_state = ui::state::UI_STATE.lock().await;
-        let snapshot = *ui_state;
-        drop(ui_state);
-        ui::render::render_current_ui(&snapshot).await;
+        ui::refresh().await;
     }
 
     check_initialization_complete().await;

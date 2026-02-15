@@ -182,3 +182,11 @@ pub async fn show_main_menu() {
     drop(ui);
     render_current_ui(&snapshot).await;
 }
+
+/// Refresh the current UI view by re-rendering the latest state.
+pub async fn refresh() {
+    let ui = UI_STATE.lock().await;
+    let snapshot = *ui;
+    drop(ui);
+    render_current_ui(&snapshot).await;
+}
