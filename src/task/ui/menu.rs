@@ -1,4 +1,4 @@
-//! UI menu helpers and selection mapping.
+//! UI screen selection and menu helper utilities.
 
 use crate::system::{
     event::RotaryDirection,
@@ -53,7 +53,7 @@ pub const fn next_menu_index(current: usize, len: usize, direction: RotaryDirect
 }
 
 /// Compute the maximum scroll offset for the system info screen.
-pub fn max_system_info_scroll(info: &super::ui_menu::SystemInfoData) -> usize {
-    let line_count = super::ui_menu::system_info_line_count(info);
-    line_count.saturating_sub(super::ui_menu::DISPLAY_LINES)
+pub fn max_system_info_scroll(info: &super::screens::SystemInfoData) -> usize {
+    let line_count = super::screens::system_info_line_count(info);
+    line_count.saturating_sub(super::screens::DISPLAY_LINES)
 }

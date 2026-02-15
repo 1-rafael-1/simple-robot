@@ -12,8 +12,8 @@ use crate::{
 
 pub mod menu;
 pub mod render;
+pub mod screens;
 pub mod state;
-pub mod ui_menu;
 
 use menu::{calibration_selection_from_index, menu_selection_from_index, next_menu_index};
 use render::render_current_ui;
@@ -39,14 +39,14 @@ pub async fn handle_rotary_turned(direction: RotaryDirection) {
     match mode {
         UiMode::MainMenu => {
             let mut ui = UI_STATE.lock().await;
-            ui.main_index = next_menu_index(ui.main_index, ui_menu::MAIN_MENU_ITEMS.len(), direction);
+            ui.main_index = next_menu_index(ui.main_index, screens::MAIN_MENU_ITEMS.len(), direction);
             let snapshot = *ui;
             drop(ui);
             render_current_ui(&snapshot).await;
         }
         UiMode::CalibrateMenu => {
             let mut ui = UI_STATE.lock().await;
-            ui.calibrate_index = next_menu_index(ui.calibrate_index, ui_menu::CALIBRATE_MENU_ITEMS.len(), direction);
+            ui.calibrate_index = next_menu_index(ui.calibrate_index, screens::CALIBRATE_MENU_ITEMS.len(), direction);
             let snapshot = *ui;
             drop(ui);
             render_current_ui(&snapshot).await;

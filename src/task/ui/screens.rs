@@ -1,6 +1,6 @@
-//! UI menu rendering helpers
+//! UI screen rendering helpers
 //!
-//! This module provides small, reusable helpers to render menu screens
+//! This module provides small, reusable helpers to render UI screens
 //! and system info on the OLED via the display task.
 
 use core::{fmt::Write, ops::Add};

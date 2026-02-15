@@ -6,7 +6,7 @@ use core::fmt::Write;
 
 use heapless::String;
 
-use super::{state::UiState, ui_menu};
+use super::{screens, state::UiState};
 use crate::{
     system::state::{CalibrationSelection, SYSTEM_STATE, UiMode},
     task::io::display::{self, DisplayAction},
@@ -15,11 +15,11 @@ use crate::{
 /// Render the current UI view based on the UI state.
 pub async fn render_current_ui(state: &UiState) {
     match state.mode {
-        UiMode::MainMenu => ui_menu::render_main_menu(state.main_index).await,
-        UiMode::CalibrateMenu => ui_menu::render_calibrate_menu(state.calibrate_index).await,
+        UiMode::MainMenu => screens::render_main_menu(state.main_index).await,
+        UiMode::CalibrateMenu => screens::render_calibrate_menu(state.calibrate_index).await,
         UiMode::SystemInfo { scroll_offset } => {
             let info = build_system_info_data().await;
-            ui_menu::render_system_info(scroll_offset as usize, &info).await;
+            screens::render_system_info(scroll_offset as usize, &info).await;
         }
         UiMode::RunningTest => {
             render_test_running().await;
@@ -60,9 +60,9 @@ pub async fn show_line(line: u8, msg: &str) {
 }
 
 /// Build a snapshot of system info for the UI renderer.
-pub async fn build_system_info_data() -> ui_menu::SystemInfoData {
+pub async fn build_system_info_data() -> screens::SystemInfoData {
     let state = SYSTEM_STATE.lock().await;
-    ui_menu::SystemInfoData {
+    screens::SystemInfoData {
         battery_level: state.battery_level,
         battery_voltage: state.battery_voltage,
         motor_calibration_status: state.motor_calibration_status,
