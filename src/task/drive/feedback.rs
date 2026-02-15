@@ -7,7 +7,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 use embassy_time::{Duration, Timer};
 use nalgebra::Vector3;
 
-use crate::task::{encoder_read::EncoderMeasurement, imu_read::ImuMeasurement};
+use crate::task::{sensors::encoders::EncoderMeasurement, sensors::imu::ImuMeasurement};
 
 /// Latest encoder measurement
 ///

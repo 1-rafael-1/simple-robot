@@ -9,7 +9,7 @@ use heapless::{String, Vec};
 
 use crate::{
     system::state::CalibrationStatus,
-    task::display::{DisplayAction, display_update},
+    task::io::display::{DisplayAction, display_update},
 };
 
 /// Maximum number of text lines supported by the OLED layout.

@@ -55,7 +55,7 @@ use embedded_hal_async::i2c::I2c;
 use crate::{
     I2cBusShared,
     system::event::{Events, RCButtonId, raise_event},
-    task::{ir_obstacle_detect::signal_ir_obstacle, rotary_encoder::trigger_button_signal},
+    task::{control::rotary_encoder::trigger_button_signal, sensors::ir_obstacle::signal_ir_obstacle},
 };
 
 /// PCA9555 I2C address (A0=high, A1=A2=low -> 0x21)

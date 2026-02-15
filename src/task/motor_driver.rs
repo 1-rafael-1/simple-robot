@@ -97,7 +97,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 
 use crate::{
     system::state,
-    task::port_expander::{self, PortExpanderCommand, PortNumber},
+    task::io::port_expander::{self, PortExpanderCommand, PortNumber},
 };
 
 /// Target motor voltage (we compensate battery voltage down to this)
@@ -176,8 +176,8 @@ pub enum MotorDirection {
 /// These functions prepare generic port expander commands for motor control
 mod motor_port_mapping {
     use crate::task::{
+        io::port_expander::{PortExpanderCommand, PortNumber},
         motor_driver::{Motor, MotorDirection, Track},
-        port_expander::{PortExpanderCommand, PortNumber},
     };
 
     /// Get the bit positions for a specific motor's direction pins on Port 0

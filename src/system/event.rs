@@ -29,7 +29,10 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 
 use crate::{
     system::state::OperationMode,
-    task::{encoder_read::EncoderMeasurement, flash_storage, imu_read::ImuMeasurement},
+    task::{
+        io::flash_storage,
+        sensors::{encoders::EncoderMeasurement, imu::ImuMeasurement},
+    },
 };
 
 /// Multi-producer, single-consumer event channel
@@ -69,8 +72,8 @@ pub enum Events {
     /// - Carries Option: Some(data) if found, None if not found in flash
     /// - Allows orchestrator to update system state accordingly
     CalibrationDataLoaded(
-        crate::task::flash_storage::CalibrationKind,
-        Option<crate::task::flash_storage::CalibrationDataKind>,
+        crate::task::io::flash_storage::CalibrationKind,
+        Option<crate::task::io::flash_storage::CalibrationDataKind>,
     ),
 
     /// IMU calibration flags loaded from flash storage

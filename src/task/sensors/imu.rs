@@ -42,10 +42,10 @@
 //!
 //! ```rust
 //! // Start IMU readings
-//! imu_read::start_imu_readings();
+//! sensors::imu::start_imu_readings();
 //!
 //! // Stop readings when done
-//! imu_read::stop_imu_readings();
+//! sensors::imu::stop_imu_readings();
 //! ```
 
 use core::f32::consts::PI;
@@ -69,7 +69,7 @@ use crate::{
         event::{Events, raise_event},
         state::SYSTEM_STATE,
     },
-    task::{drive, flash_storage},
+    task::{drive, io::flash_storage},
 };
 
 /// Type alias for the ICM20948 IMU sensor driver with the specific I2C interface

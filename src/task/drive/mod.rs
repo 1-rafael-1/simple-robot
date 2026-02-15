@@ -5,13 +5,13 @@
 //! # Architecture
 //!
 //! ```text
-//! encoder_read          drive (THIS)          motor_driver
+//! sensors::encoders     drive (THIS)          motor_driver
 //! ├── Sensing       →   ├── Calibration   →   ├── PWM actuation
 //! └── Pulse counts      ├── Motion control    └── Direction control
 //!                       ├── Feedback loops
 //!                       └── Coordination
 //!
-//! imu_read          →   drive             →   motor_driver
+//! sensors::imu      →   drive             →   motor_driver
 //! ├── Orientation       ├── Rotation
 //! └── Angles            └── Stabilization
 //! ```
@@ -35,8 +35,8 @@
 //!
 //! 4. **Task Coordination**: Sends commands to lower-level tasks:
 //!    - `motor_driver`: PWM speed and direction commands
-//!    - `encoder_read`: Start/stop/reset commands
-//!    - `flash_storage`: Save calibration data
+//!    - `sensors::encoders`: Start/stop/reset commands
+//!    - `io::flash_storage`: Save calibration data
 //!
 //! # Speed Convention
 //!
@@ -103,9 +103,9 @@ use crate::{
     },
     task::{
         drive::feedback::IMU_FEEDBACK_CHANNEL,
-        encoder_read::{self, EncoderMeasurement},
-        imu_read::ImuMeasurement,
         motor_driver::{self, MotorCommand},
+        sensors::encoders::{self as encoder_read, EncoderMeasurement},
+        sensors::imu::ImuMeasurement,
     },
 };
 
