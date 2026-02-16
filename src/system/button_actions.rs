@@ -86,7 +86,7 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
         (event::ButtonId::A, ButtonActionType::Press) => {
             // Drive forward at 20% power
             rgb_led_indicate::update_indicator(true);
-            drive::send_drive_command(DriveCommand::Drive(DriveAction::Forward(20)));
+            drive::send_drive_command(DriveCommand::Drive(DriveAction::Forward(20))).await;
         }
 
         // Button B - Right turn
@@ -96,7 +96,8 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
             drive::send_drive_command(DriveCommand::Drive(DriveAction::TorqueBias {
                 reduce_side: MotorSide::Right,
                 bias_amount: 20,
-            }));
+            }))
+            .await;
         }
         (event::ButtonId::B, ButtonActionType::HoldEnd) => {
             // Precise 90-degree clockwise rotation
@@ -108,7 +109,8 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
                 degrees: 90.0,
                 direction: RotationDirection::Clockwise,
                 motion,
-            }));
+            }))
+            .await;
         }
 
         // Button C - Left turn
@@ -118,7 +120,8 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
             drive::send_drive_command(DriveCommand::Drive(DriveAction::TorqueBias {
                 reduce_side: MotorSide::Left,
                 bias_amount: 20,
-            }));
+            }))
+            .await;
         }
         (event::ButtonId::C, ButtonActionType::HoldEnd) => {
             // Precise 90-degree counter-clockwise rotation
@@ -130,14 +133,15 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
                 degrees: 90.0,
                 direction: RotationDirection::CounterClockwise,
                 motion,
-            }));
+            }))
+            .await;
         }
 
         // Button D - Reverse
         (event::ButtonId::D, ButtonActionType::Press) => {
             // Drive backward at 20% power
             rgb_led_indicate::update_indicator(true);
-            drive::send_drive_command(DriveCommand::Drive(DriveAction::Backward(20)));
+            drive::send_drive_command(DriveCommand::Drive(DriveAction::Backward(20))).await;
         }
 
         // All other button/action combinations have no effect

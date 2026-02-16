@@ -30,7 +30,11 @@ use heapless::String;
 use crate::{
     system::event::{Events, raise_event},
     task::{
-        drive::{DriveAction, DriveCommand, ImuCalibrationKind, send_drive_command},
+        drive::{
+            CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, ImuCalibrationKind,
+            acquire_completion_handle, completion_sender, release_completion_handle, send_drive_command,
+            send_drive_command_with_completion, wait_for_completion,
+        },
         io::display::{DisplayAction, display_update},
         sensors::imu::{AhrsFusionMode, set_ahrs_fusion_mode},
     },
@@ -62,6 +66,7 @@ async fn testing_sequence_runner() {
 /// Main testing sequence.
 ///
 /// This is the entry point for all development tests. Modify as needed.
+#[allow(clippy::too_many_lines)]
 async fn run_testing_sequence() {
     async fn show_line(line: u8, msg: &str) {
         let mut s: String<20> = String::new();
@@ -141,40 +146,67 @@ async fn run_testing_sequence() {
         show_line(3, "").await;
 
         // Ensure we're stopped before the next turn
-        send_drive_command(DriveCommand::Drive(DriveAction::SetSpeed { left: 0, right: 0 }));
+        send_drive_command(DriveCommand::Drive(DriveAction::SetSpeed { left: 0, right: 0 })).await;
         Timer::after(Duration::from_millis(500)).await;
 
+        let Ok(mut completion_handle) = acquire_completion_handle().await else {
+            defmt::warn!("🧪 TEST: completion pool exhausted; skipping turn");
+            continue;
+        };
+        let sender = completion_sender(completion_handle);
+
         // Start the turn
-        send_drive_command(DriveCommand::Drive(DriveAction::RotateExact {
-            degrees: target_deg,
-            direction: crate::task::drive::types::RotationDirection::Clockwise,
-            motion: crate::task::drive::types::RotationMotion::Stationary { speed },
-        }));
-
-        // Await completion (no global event consumption)
-        let completion = crate::task::drive::wait_for_rotation_completed().await;
-
-        // The controller reports normalized error:
-        // error = achieved - target, so achieved = target + error.
-        let achieved_deg = target_deg + completion.angle_error_deg;
-
-        // Update display with the final telemetry for this turn.
-        show_turn_status(
-            target_deg,
-            achieved_deg,
-            completion.final_yaw_deg,
-            completion.angle_error_deg,
+        send_drive_command_with_completion(
+            DriveCommand::Drive(DriveAction::RotateExact {
+                degrees: target_deg,
+                direction: crate::task::drive::types::RotationDirection::Clockwise,
+                motion: crate::task::drive::types::RotationMotion::Stationary { speed },
+            }),
+            sender,
         )
         .await;
 
+        // Await completion (no global event consumption)
+        let completion = wait_for_completion(&completion_handle).await;
+        release_completion_handle(completion_handle).await;
+
+        let (final_yaw_deg, angle_error_deg, status) = if let CompletionTelemetry::RotateExact {
+            final_yaw_deg,
+            angle_error_deg,
+            ..
+        } = completion.telemetry
+        {
+            (final_yaw_deg, angle_error_deg, completion.status)
+        } else {
+            defmt::warn!("🧪 TEST: Unexpected completion telemetry");
+            (0.0, 0.0, completion.status)
+        };
+
+        // The controller reports normalized error:
+        // error = achieved - target, so achieved = target + error.
+        let achieved_deg = target_deg + angle_error_deg;
+
+        // Update display with the final telemetry for this turn.
+        show_turn_status(target_deg, achieved_deg, final_yaw_deg, angle_error_deg).await;
+
+        let status_str = match status {
+            CompletionStatus::Success => "Success",
+            CompletionStatus::Cancelled => "Cancelled",
+            CompletionStatus::Failed(_) => "Failed",
+        };
         defmt::info!(
-            "🧪 TEST: Rotation complete: final_yaw={=f32}°, angle_error={=f32}°",
-            completion.final_yaw_deg,
-            completion.angle_error_deg
+            "🧪 TEST: Rotation complete: status={=str}, final_yaw={=f32}°, angle_error={=f32}°",
+            status_str,
+            final_yaw_deg,
+            angle_error_deg
         );
 
+        if let CompletionStatus::Failed(reason) = status {
+            defmt::warn!("🧪 TEST: Rotation failed: {=str}", reason);
+        }
+
         // Stop after each turn
-        send_drive_command(DriveCommand::Drive(DriveAction::Coast));
+        send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
         Timer::after(Duration::from_millis(750)).await;
     }
 
@@ -190,7 +222,6 @@ async fn run_testing_sequence() {
 /// operational speeds.
 ///
 /// Uncomment and use this if you need to run full calibration during development.
-#[allow(dead_code)]
 #[embassy_executor::task]
 async fn auto_calibration_sequence() {
     // Send initialization event
@@ -204,7 +235,7 @@ async fn auto_calibration_sequence() {
     Timer::after(Duration::from_secs(2)).await;
 
     defmt::info!("🤖 AUTO-CALIBRATION: Triggering motor calibration now!");
-    send_drive_command(DriveCommand::RunMotorCalibration);
+    send_drive_command(DriveCommand::RunMotorCalibration).await;
 
     // Wait for motor calibration to complete (~50s) plus delay
     Timer::after(Duration::from_secs(80)).await;
@@ -213,5 +244,5 @@ async fn auto_calibration_sequence() {
     Timer::after(Duration::from_secs(10)).await;
 
     defmt::info!("🤖 AUTO-CALIBRATION: Triggering IMU calibration now!");
-    send_drive_command(DriveCommand::RunImuCalibration(ImuCalibrationKind::Full));
+    send_drive_command(DriveCommand::RunImuCalibration(ImuCalibrationKind::Full)).await;
 }

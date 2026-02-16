@@ -160,9 +160,6 @@ pub enum Events {
     ImuMeasurementTaken(ImuMeasurement),
 
     /// Precise rotation completed
-    /// - Signals that a `RotateExact` command finished
-    /// - Used for sequencing movements
-    RotationCompleted,
 
     // /// Motion correction needed
     // /// - Signals that the robot needs to correct its current drive settings

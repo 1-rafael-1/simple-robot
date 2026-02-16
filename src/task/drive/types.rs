@@ -1,5 +1,10 @@
 //! Type definitions and constants for drive control
 
+use embassy_sync::{
+    blocking_mutex::raw::CriticalSectionRawMutex,
+    channel::{Receiver, Sender},
+};
+
 /// Drift compensation sample interval in milliseconds
 pub const DRIFT_COMPENSATION_INTERVAL_MS: u64 = 200;
 
@@ -69,6 +74,69 @@ pub enum DriveAction {
         motion: RotationMotion,
     },
 }
+
+/// Interrupt commands that preempt active drive intents.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum InterruptKind {
+    /// Immediately brake all motors.
+    EmergencyBrake,
+    /// Stop motors without braking.
+    Stop,
+    /// Cancel the active intent without issuing a stop/brake.
+    CancelCurrent,
+}
+
+/// Completion status for long-running commands.
+///
+/// Used by per-command completion handles to report final outcomes.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum CompletionStatus {
+    /// Command finished successfully.
+    Success,
+    /// Command was cancelled by an interrupt or newer epoch.
+    Cancelled,
+    /// Command failed with a reason string.
+    Failed(&'static str),
+}
+
+/// Completion telemetry for long-running commands.
+///
+/// Used by per-command completion handles to return command-specific details.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CompletionTelemetry {
+    /// No telemetry payload.
+    None,
+    /// Telemetry for `RotateExact`.
+    RotateExact {
+        /// IMU yaw at completion (degrees).
+        final_yaw_deg: f32,
+        /// Signed error (degrees): achieved - target.
+        angle_error_deg: f32,
+        /// Duration in milliseconds.
+        duration_ms: u64,
+    },
+}
+
+/// Generic completion payload for drive commands.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DriveCompletion {
+    /// Overall status.
+    pub status: CompletionStatus,
+    /// Command-specific telemetry.
+    pub telemetry: CompletionTelemetry,
+}
+
+/// One-shot completion sender type.
+///
+/// Obtain via a completion handle from the pool; do not construct channels manually.
+/// Pass this to `send_drive_command_with_completion`.
+pub type CompletionSender = Sender<'static, CriticalSectionRawMutex, DriveCompletion, 1>;
+
+/// One-shot completion receiver type.
+///
+/// Managed by the completion handle pool; do not construct manually.
+/// Callers should await via `wait_for_completion`.
+pub type CompletionReceiver = Receiver<'static, CriticalSectionRawMutex, DriveCompletion, 1>;
 
 /// Rotation direction for precise turning
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

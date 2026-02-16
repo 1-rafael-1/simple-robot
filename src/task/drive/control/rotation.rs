@@ -1,4 +1,7 @@
 //! Rotation control for precise turning maneuvers
+//!
+//! This module only computes rotation state and motor speeds.
+//! Completion is resolved by the drive loop when a rotation step finishes.
 
 use crate::task::{
     drive::types::{

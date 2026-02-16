@@ -3,6 +3,10 @@
 //! This module contains all the control algorithms and state machines
 //! used for precise motion control, including rotation, straight-line
 //! driving, tilt compensation, and motor state management.
+//!
+//! Completion handles are resolved by the drive task (`drive/mod.rs`) after
+//! these control routines report progress or terminal states. The control
+//! modules do not own completion senders.
 
 pub mod motor_state;
 pub mod rotation;

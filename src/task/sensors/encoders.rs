@@ -193,7 +193,7 @@ pub async fn encoder_read(
 ) {
     info!("Encoder read task started");
 
-    let mut encoders = EncoderChannels {
+    let encoders = EncoderChannels {
         left_front: encoder_left_front,
         left_rear: encoder_left_rear,
         right_front: encoder_right_front,

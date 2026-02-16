@@ -57,7 +57,7 @@ impl TrackState {
 
     /// Sets motor speed with tilt compensation
     pub async fn set_speed_with_tilt(&mut self, track: Track, base_speed: i8, tilt_degrees: f32) {
-        let mut tilt_compensation = TiltCompensation::new(0.3, 45.0);
+        let tilt_compensation = TiltCompensation::new(0.3, 45.0);
         let tilt_adjustment = tilt_compensation.calculate_adjustment(tilt_degrees);
         let adjusted = f32::from(base_speed) * (1.0 + tilt_adjustment);
         #[allow(clippy::cast_possible_truncation)]

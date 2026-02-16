@@ -123,16 +123,19 @@ pub async fn handle_rotary_button_pressed() {
 
             match selection {
                 CalibrationSelection::Motor => {
-                    drive::send_drive_command(drive::DriveCommand::RunMotorCalibration);
+                    drive::send_drive_command(drive::DriveCommand::RunMotorCalibration).await;
                 }
                 CalibrationSelection::Mag => {
-                    drive::send_drive_command(drive::DriveCommand::RunImuCalibration(drive::ImuCalibrationKind::Mag));
+                    drive::send_drive_command(drive::DriveCommand::RunImuCalibration(drive::ImuCalibrationKind::Mag))
+                        .await;
                 }
                 CalibrationSelection::Accel => {
-                    drive::send_drive_command(drive::DriveCommand::RunImuCalibration(drive::ImuCalibrationKind::Accel));
+                    drive::send_drive_command(drive::DriveCommand::RunImuCalibration(drive::ImuCalibrationKind::Accel))
+                        .await;
                 }
                 CalibrationSelection::Gyro => {
-                    drive::send_drive_command(drive::DriveCommand::RunImuCalibration(drive::ImuCalibrationKind::Gyro));
+                    drive::send_drive_command(drive::DriveCommand::RunImuCalibration(drive::ImuCalibrationKind::Gyro))
+                        .await;
                 }
             }
         }

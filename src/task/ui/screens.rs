@@ -3,7 +3,7 @@
 //! This module provides small, reusable helpers to render UI screens
 //! and system info on the OLED via the display task.
 
-use core::{fmt::Write, ops::Add};
+use core::fmt::Write;
 
 use heapless::{String, Vec};
 

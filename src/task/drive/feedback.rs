@@ -2,6 +2,10 @@
 //!
 //! This module manages all sensor data channels and functions for forwarding
 //! measurements from the orchestrator to the drive task.
+//!
+//! These channels are strictly for sensor/calibration data. They are separate
+//! from per-command completion handles, which are resolved by the drive loop
+//! after a command finishes, fails, or is cancelled.
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::Mutex};
 use embassy_time::{Duration, Timer};
