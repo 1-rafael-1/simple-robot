@@ -53,23 +53,23 @@ const TURN_ANGLE_MAX: u8 = 180;
 #[embassy_executor::task]
 pub async fn autonomous_drive() {
     // Initial stop sequence
-    send_drive_command(DriveCommand::Drive(DriveAction::Coast));
+    send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
     Timer::after(Duration::from_secs(1)).await;
-    send_drive_command(DriveCommand::Drive(DriveAction::Brake));
+    send_drive_command(DriveCommand::Drive(DriveAction::Brake)).await;
 
     loop {
         match wait().await {
             Command::Initialize => {
-                send_drive_command(DriveCommand::Drive(DriveAction::Coast));
+                send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
                 Timer::after(Duration::from_millis(100)).await;
             }
             Command::Start => {
                 info!("Autonomous forward");
-                send_drive_command(DriveCommand::Drive(DriveAction::Forward(FORWARD_SPEED)));
+                send_drive_command(DriveCommand::Drive(DriveAction::Forward(FORWARD_SPEED))).await;
             }
             Command::Stop => {
                 info!("Autonomous stop");
-                send_drive_command(DriveCommand::Drive(DriveAction::Brake));
+                send_drive_command(DriveCommand::Drive(DriveAction::Brake)).await;
                 Timer::after(Duration::from_millis(200)).await;
                 continue;
             }
@@ -78,14 +78,14 @@ pub async fn autonomous_drive() {
 
                 // Emergency Stop
                 info!("emergency stop");
-                send_drive_command(DriveCommand::Drive(DriveAction::Brake));
+                send_drive_command(DriveCommand::Drive(DriveAction::Brake)).await;
                 Timer::after(Duration::from_millis(500)).await;
 
                 // Back up
                 info!("backing up");
-                send_drive_command(DriveCommand::Drive(DriveAction::Backward(REVERSE_SPEED)));
+                send_drive_command(DriveCommand::Drive(DriveAction::Backward(REVERSE_SPEED))).await;
                 Timer::after(BACKUP_DURATION).await;
-                send_drive_command(DriveCommand::Drive(DriveAction::Brake));
+                send_drive_command(DriveCommand::Drive(DriveAction::Brake)).await;
                 Timer::after(Duration::from_millis(100)).await;
 
                 // Random turn
@@ -105,7 +105,8 @@ pub async fn autonomous_drive() {
                     degrees: turn_angle as f32,
                     direction: rotation_direction,
                     motion: rotation_motion,
-                }));
+                }))
+                .await;
 
                 Timer::after(Duration::from_millis(100)).await;
 

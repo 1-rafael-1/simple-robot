@@ -48,8 +48,6 @@
 //! sensors::imu::stop_imu_readings();
 //! ```
 
-use core::f32::consts::PI;
-
 use ahrs::{Ahrs, Madgwick};
 use defmt::{info, warn};
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
@@ -338,7 +336,7 @@ async fn init_imu_sensor(i2c_bus: &'static I2cBusShared) -> ImuSensor {
 
     // Initialize ICM20948 with retries
     let mut attempt: u32 = 0;
-    let mut sensor = loop {
+    let sensor = loop {
         attempt += 1;
 
         info!(
@@ -450,7 +448,7 @@ async fn configure_imu_sensor(sensor: &mut ImuSensor) -> bool {
 
 /// Initialize the Madgwick AHRS filter
 fn init_madgwick() -> Madgwick<f32> {
-    let mut madgwick = Madgwick::new(1.0 / SAMPLE_RATE_HZ, BETA);
+    let madgwick = Madgwick::new(1.0 / SAMPLE_RATE_HZ, BETA);
 
     info!("Madgwick AHRS filter initialized:");
     info!("  Sample rate: {} Hz", SAMPLE_RATE_HZ);

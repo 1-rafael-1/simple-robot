@@ -1,42 +1,56 @@
-//! High-level drive control and coordination
+//! Drive system coordination and intent execution.
 //!
-//! This module implements the control layer that coordinates between sensing and actuation:
+//! This module owns the drive task and its supporting components. It coordinates
+//! sensor feedback, drive intents, and motor commands without consuming the global
+//! event stream directly.
 //!
 //! # Architecture
 //!
 //! ```text
-//! sensors::encoders     drive (THIS)          motor_driver
-//! ├── Sensing       →   ├── Calibration   →   ├── PWM actuation
-//! └── Pulse counts      ├── Motion control    └── Direction control
-//!                       ├── Feedback loops
-//!                       └── Coordination
+//! sensors::encoders     drive task               motor_driver
+//! ├── Pulse counts  →   ├── Queue/interrupt   →   ├── PWM actuation
+//! └── Feedback          ├── Intent lifecycle      └── Direction control
 //!
-//! sensors::imu      →   drive             →   motor_driver
-//! ├── Orientation       ├── Rotation
+//! sensors::imu      →   drive task               motor_driver
+//! ├── Orientation       ├── Rotation control
 //! └── Angles            └── Stabilization
 //! ```
 //!
-//! # Responsibilities
+//! # Control Flow Overview
 //!
-//! 1. **Motor Calibration**: Orchestrates the calibration procedure by coordinating
-//!    encoder readings with motor commands and saving results to flash
+//! The drive task selects over two sources:
 //!
-//! 2. **Motion Control**: Implements high-level driving behaviors:
-//!    - Direct speed control using `motor_driver`'s -100 to +100 convention
-//!    - Differential steering (different left/right speeds)
-//!    - Precise rotation using IMU feedback
-//!    - Combined rotation + motion maneuvers
+//! - **Regular command queue**: Sequenced drive intents that may take time.
+//! - **Interrupt signal**: Emergency brake/stop/cancel that preempts any intent.
 //!
-//! 3. **Feedback Processing**: Receives sensor data from orchestrator and uses it for:
-//!    - Speed adjustments based on encoder feedback
-//!    - Rotation control using gyroscope/IMU data
-//!    - Tilt compensation for inclines
-//!    - Straight-line correction
+//! When an interrupt arrives, the task cancels the active intent, resolves its
+//! completion (if any), increments an epoch, and discards queued commands that
+//! were stamped before the interrupt.
 //!
-//! 4. **Task Coordination**: Sends commands to lower-level tasks:
-//!    - `motor_driver`: PWM speed and direction commands
-//!    - `sensors::encoders`: Start/stop/reset commands
-//!    - `io::flash_storage`: Save calibration data
+//! # Completion Flow (per-command)
+//!
+//! Completion handles are a fixed-size pool of one-shot completion channels.
+//! A `CompletionHandle` is just an index into that pool (not a channel itself);
+//! the handle stays with the caller while the `CompletionSender` is attached to
+//! a command so the drive loop can resolve it.
+//!
+//! - **Acquire** a `CompletionHandle` from the pool (fixed-size; returns `Exhausted` immediately).
+//! - **Create** a `CompletionSender` from the handle and attach it to the command.
+//! - **Await** completion on the handle; the drive loop resolves it on success,
+//!   failure, or cancellation (interrupts and epoch invalidation yield `Cancelled`).
+//! - **Release** the handle back to the pool after you receive the result to avoid leaks.
+//!
+//! **Typical usage:** `acquire_completion_handle` → `completion_sender` →
+//! `send_drive_command_with_completion` → `wait_for_completion` → `release_completion_handle`.
+//!
+//! # Data Flow
+//!
+//! - Commands are sent by orchestrator or other tasks.
+//! - Sensor feedback is forwarded by orchestrator into dedicated channels.
+//! - Motor commands are issued to `motor_driver`.
+//!
+//! This task does NOT consume the system event channel. Forwarding avoids
+//! multiple tasks competing for events.
 //!
 //! # Speed Convention
 //!
@@ -46,55 +60,22 @@
 //! - **Negative values**: Backward motion
 //! - **Zero**: Coast (freewheel)
 //!
-//! No unnecessary abstraction - the `motor_driver`'s interface is clean and simple.
+//! # Module Index
 //!
-//! # Data Flow
-//!
-//! ## Commands (from orchestrator or other high-level tasks)
-//! ```rust
-//! // Direct speed control
-//! drive::send_drive_command(DriveCommand::Drive(
-//!     DriveAction::SetSpeed { left: 50, right: 50 }
-//! )).await;
-//!
-//! // Differential steering (turn right)
-//! drive::send_drive_command(DriveCommand::Drive(
-//!     DriveAction::SetSpeed { left: 60, right: 40 }
-//! )).await;
-//!
-//! // Calibration
-//! drive::send_drive_command(DriveCommand::RunMotorCalibration).await;
-//! ```
-//!
-//! ## Sensor Feedback (from orchestrator)
-//! ```rust
-//! // Encoder measurements (forwarded by orchestrator from encoder_read events)
-//! drive::send_encoder_measurement(measurement).await;
-//!
-//! // IMU measurements are forwarded by orchestrator into the drive feedback subsystem.
-//! // The drive task can poll them on a timer tick when implementing rotation/tilt control.
-//! ```
-//!
-//! # Important: Event Channel Usage
-//!
-//! This task does NOT directly consume system events. All sensor data is forwarded
-//! by the orchestrator via dedicated channels (`send_encoder_measurement()`) to
-//! prevent multiple tasks from competing for events on the system event channel.
-//!
-//! # Control Modes
-//!
-//! - **Direct Control**: Manual speed commands (-100 to +100 per track)
-//! - **Calibration Mode**: Automated motor matching procedure
-//! - **Rotation Control**: IMU-based precise turning
-//! - **Feedback Control**: Encoder-based speed adjustment (TODO)
-//! - **Straight-Line**: IMU-based drift correction (TODO)
+//! - [`control`]: Intent execution and control-loop state machines.
+//! - [`feedback`]: Sensor input channels and measurement forwarding.
+//! - [`compensation`]: Drift compensation helpers.
+//! - [`calibration`]: Motor and IMU calibration procedures.
+//! - [`types`]: Command, telemetry, and completion types.
 
 #![allow(clippy::too_many_arguments)]
 
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
 use defmt::info;
 use embassy_futures::select::{Either, select};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
-use embassy_time::{Duration, Timer};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal};
+use embassy_time::{Duration, Instant, Timer};
 
 use crate::{
     system::{
@@ -126,66 +107,174 @@ pub use feedback::{
     send_accel_measurement, send_gyro_measurement, send_mag_measurement, try_send_encoder_measurement,
     try_send_imu_measurement,
 };
-pub use types::{DriveAction, DriveCommand, ImuCalibrationKind};
+pub use types::{
+    CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveCompletion, ImuCalibrationKind,
+    InterruptKind,
+};
 
-/// Command signal for drive control
-///
-/// Used by orchestrator and other high-level tasks to send drive commands
-static DRIVE_CONTROL: Signal<CriticalSectionRawMutex, DriveCommand> = Signal::new();
+/// Envelope for queued drive commands.
+#[derive(Debug, Clone)]
+struct DriveCommandEnvelope {
+    /// Drive command to execute.
+    command: DriveCommand,
+    /// Optional completion sender for per-command completion reporting.
+    completion: Option<types::CompletionSender>,
+    /// Epoch stamped at enqueue time to cancel stale queued commands.
+    /// Used to resolve completions as `Cancelled` when invalidated by interrupts.
+    epoch: u32,
+}
 
-/// Rotation completion notification
+/// Size of the regular drive command queue.
+const DRIVE_QUEUE_SIZE: usize = 16;
+
+/// Regular command queue for drive intents.
+static DRIVE_QUEUE: Channel<CriticalSectionRawMutex, DriveCommandEnvelope, DRIVE_QUEUE_SIZE> = Channel::new();
+
+/// Interrupt signal for emergency actions.
+static DRIVE_INTERRUPT: Signal<CriticalSectionRawMutex, InterruptKind> = Signal::new();
+
+/// Epoch counter for invalidating stale queued commands after interrupts.
+static CURRENT_EPOCH: AtomicU32 = AtomicU32::new(0);
+
+/// Number of per-command completion channels available.
+const COMPLETION_POOL_SIZE: usize = 16;
+/// Single-slot channel used for per-command completion delivery.
+type CompletionChannel = embassy_sync::channel::Channel<CriticalSectionRawMutex, DriveCompletion, 1>;
+
+/// Pool of completion channels used by callers to await per-command results.
+static COMPLETION_CHANNELS: [CompletionChannel; COMPLETION_POOL_SIZE] = [
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+    CompletionChannel::new(),
+];
+
+/// Queue of available completion channel indices.
+static COMPLETION_POOL: Channel<CriticalSectionRawMutex, usize, COMPLETION_POOL_SIZE> = Channel::new();
+/// One-time init guard for seeding the completion pool.
+static COMPLETION_POOL_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+/// Handle used by callers to await per-command completion.
 ///
-/// Dedicated notification for clients (e.g. testing sequences) that need to await rotation completion
-/// without consuming the system-wide event channel.
-///
-/// We use a bounded channel (queue) rather than a signal so callers can safely await
-/// multiple back-to-back rotations without losing intermediate completions.
+/// This is an index into a fixed pool; it is not a channel itself.
+/// Keep the handle local, pass the associated `CompletionSender` with the command,
+/// await completion, then release the handle back to the pool to avoid exhaustion.
 #[derive(Debug, Clone, Copy)]
-pub struct RotationCompletedInfo {
-    /// IMU yaw at completion (degrees, as reported by `ImuMeasurement`)
-    pub final_yaw_deg: f32,
-    /// Normalized signed angle error (degrees) at completion:
-    ///
-    /// - **Positive**  => overshoot (turned too far)
-    /// - **Negative**  => undershoot (didn't turn enough)
-    /// - **Zero**      => exact (within tolerance)
-    ///
-    /// This is computed as: `accumulated_angle - target_angle` where:
-    /// - `accumulated_angle` is the **magnitude** of rotation achieved so far (always ≥ 0)
-    /// - `target_angle` is the requested magnitude (always ≥ 0)
-    pub angle_error_deg: f32,
+pub struct CompletionHandle {
+    /// Index into the fixed completion channel pool.
+    index: usize,
 }
 
-/// Size of the rotation completion notification queue
-const ROTATION_COMPLETED_QUEUE_SIZE: usize = 8;
-
-/// Dedicated channel for rotation completion notifications
-static ROTATION_COMPLETED_CHANNEL: embassy_sync::channel::Channel<
-    CriticalSectionRawMutex,
-    RotationCompletedInfo,
-    ROTATION_COMPLETED_QUEUE_SIZE,
-> = embassy_sync::channel::Channel::new();
-
-/// Send a drive command for execution
-///
-/// Non-blocking signal delivery for drive commands
-pub fn send_drive_command(command: DriveCommand) {
-    DRIVE_CONTROL.signal(command);
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+/// Errors returned when acquiring a completion handle.
+pub enum CompletionPoolError {
+    /// No completion handles are available in the pool.
+    Exhausted,
 }
 
-/// Wait for the next `RotateExact` completion notification.
-///
-/// This does not consume the global event stream; it is delivered via a dedicated channel
-/// emitted by the drive task.
-///
-/// Returns final yaw and angle error at the moment the controller declared completion.
-pub async fn wait_for_rotation_completed() -> RotationCompletedInfo {
-    ROTATION_COMPLETED_CHANNEL.receiver().receive().await
+/// Send a drive command for execution.
+pub async fn send_drive_command(command: DriveCommand) {
+    send_drive_command_internal(command, None).await;
 }
 
-/// Wait for next drive command (internal use)
-async fn wait() -> DriveCommand {
-    DRIVE_CONTROL.wait().await
+/// Send a drive command with a per-command completion sender.
+///
+/// The sender is attached to the command envelope so the drive loop can resolve it.
+/// Completion delivery is guaranteed because the drive loop awaits the send.
+pub async fn send_drive_command_with_completion(command: DriveCommand, completion: types::CompletionSender) {
+    send_drive_command_internal(command, Some(completion)).await;
+}
+
+/// Send an interrupt that preempts the active intent.
+pub fn send_drive_interrupt(kind: InterruptKind) {
+    DRIVE_INTERRUPT.signal(kind);
+}
+
+/// Enqueue a drive command with an optional completion sender.
+async fn send_drive_command_internal(command: DriveCommand, completion: Option<types::CompletionSender>) {
+    let epoch = CURRENT_EPOCH.load(Ordering::Relaxed);
+    let envelope = DriveCommandEnvelope {
+        command,
+        completion,
+        epoch,
+    };
+    DRIVE_QUEUE.sender().send(envelope).await;
+}
+
+/// Acquire a completion handle from the pool.
+///
+/// This does not wait: if the pool is empty, it returns `CompletionPoolError::Exhausted`.
+/// The pool is fixed-size and initialized lazily on first use.
+pub async fn acquire_completion_handle() -> Result<CompletionHandle, CompletionPoolError> {
+    init_completion_pool_once();
+    let index = COMPLETION_POOL
+        .receiver()
+        .try_receive()
+        .map_err(|_| CompletionPoolError::Exhausted)?;
+    Ok(CompletionHandle { index })
+}
+
+/// Release a completion handle back into the pool.
+///
+/// This drains any stale completion and returns the index to the pool. Call this
+/// after awaiting completion to avoid leaking handles and exhausting the pool.
+pub async fn release_completion_handle(handle: CompletionHandle) {
+    let _ = COMPLETION_CHANNELS[handle.index].receiver().try_receive();
+    COMPLETION_POOL.sender().send(handle.index).await;
+}
+
+/// Await completion for the provided handle.
+///
+/// This blocks until the drive loop sends a result (success, failure, or cancel).
+/// Cancellation can come from an interrupt or epoch invalidation.
+pub async fn wait_for_completion(handle: &CompletionHandle) -> DriveCompletion {
+    COMPLETION_CHANNELS[handle.index].receiver().receive().await
+}
+
+/// Get the sender associated with a completion handle.
+///
+/// This is the only value that should be passed across task boundaries; the
+/// `CompletionHandle` stays with the caller and is used to await completion.
+pub fn completion_sender(handle: CompletionHandle) -> types::CompletionSender {
+    COMPLETION_CHANNELS[handle.index].sender()
+}
+
+/// Initialize the completion pool once by seeding available indices.
+fn init_completion_pool_once() {
+    if COMPLETION_POOL_INITIALIZED
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+    {
+        init_completion_pool();
+    }
+}
+
+/// Seed the completion pool with all channel indices.
+fn init_completion_pool() {
+    for (index, _) in COMPLETION_CHANNELS.iter().enumerate() {
+        let _ = COMPLETION_POOL.sender().try_send(index);
+    }
+}
+
+/// Send completion payload if a sender is present.
+///
+/// Guaranteed delivery (awaits), fails only if the receiver was dropped.
+async fn send_completion(completion: Option<types::CompletionSender>, payload: DriveCompletion) {
+    if let Some(sender) = completion {
+        sender.send(payload).await;
+    }
 }
 
 /// Drift compensation state (encoder-based straight-line correction)
@@ -240,12 +329,26 @@ async fn rotation_tick_ms() {
     Timer::after(Duration::from_millis(20)).await;
 }
 
-/// Run a single step of the rotation control loop, if active.
-async fn run_rotation_control_step(rotation_state: &mut Option<RotationState>) {
-    let Some(state) = rotation_state.as_mut() else {
-        return;
-    };
+/// Result of a rotation control step.
+enum RotationStepResult {
+    /// Rotation is still in progress; continue ticking.
+    InProgress,
+    /// Rotation completed successfully with final telemetry.
+    Completed {
+        /// Completion telemetry captured at success.
+        telemetry: CompletionTelemetry,
+    },
+    /// Rotation failed with a static reason and telemetry snapshot.
+    Failed {
+        /// Failure reason identifier.
+        reason: &'static str,
+        /// Completion telemetry captured at failure.
+        telemetry: CompletionTelemetry,
+    },
+}
 
+/// Run a single step of the rotation control loop.
+async fn run_rotation_control_step(rotation_state: &mut RotationState, started_at_ms: u64) -> RotationStepResult {
     // Consume as many queued IMU samples as available; keep the newest one for control.
     let mut latest: Option<ImuMeasurement> = None;
 
@@ -279,29 +382,23 @@ async fn run_rotation_control_step(rotation_state: &mut Option<RotationState>) {
                 sys.right_track_speed = 0;
             }
 
-            // Clear rotation state and notify completion waiters (error will reflect undershoot).
-            let accumulated = state.accumulated_angle.abs();
-            let target = state.target_angle.abs();
+            let accumulated = rotation_state.accumulated_angle.abs();
+            let target = rotation_state.target_angle.abs();
 
-            // Prefer the last known yaw we saw (if any). If the IMU channel has been empty the
-            // entire time, fall back to 0.0 (unknown).
-            let last_yaw_deg = state.last_yaw.unwrap_or(0.0);
+            let last_yaw_deg = rotation_state.last_yaw.unwrap_or(0.0);
+            let duration_ms = Instant::now().as_millis() - started_at_ms;
 
-            let info = RotationCompletedInfo {
-                final_yaw_deg: last_yaw_deg,
-                angle_error_deg: accumulated - target,
+            return RotationStepResult::Failed {
+                reason: "ImuTimeout",
+                telemetry: CompletionTelemetry::RotateExact {
+                    final_yaw_deg: last_yaw_deg,
+                    angle_error_deg: accumulated - target,
+                    duration_ms,
+                },
             };
-
-            if ROTATION_COMPLETED_CHANNEL.sender().try_send(info).is_err() {
-                let _ = ROTATION_COMPLETED_CHANNEL.receiver().try_receive();
-                let _ = ROTATION_COMPLETED_CHANNEL.sender().try_send(info);
-            }
-
-            *rotation_state = None;
-            return;
         }
 
-        return;
+        return RotationStepResult::InProgress;
     };
 
     // Periodic debug (gated): log to confirm IMU flow + accumulation.
@@ -313,14 +410,14 @@ async fn run_rotation_control_step(rotation_state: &mut Option<RotationState>) {
             defmt::info!(
                 "rotate_exact: yaw={=f32}°, acc={=f32}°, target={=f32}°",
                 measurement.orientation.yaw,
-                state.accumulated_angle.abs(),
-                state.target_angle.abs()
+                rotation_state.accumulated_angle.abs(),
+                rotation_state.target_angle.abs()
             );
         }
     }
 
     // Update rotation progress. When done, stop motors and emit completion event + details.
-    let done = state.update(&measurement);
+    let done = rotation_state.update(&measurement);
     if done {
         motor_driver::send_motor_command(MotorCommand::SetTracks {
             left_speed: 0,
@@ -334,32 +431,22 @@ async fn run_rotation_control_step(rotation_state: &mut Option<RotationState>) {
             sys.right_track_speed = 0;
         }
 
-        // Notify system (orchestrator) and any local waiters.
-        raise_event(Events::RotationCompleted).await;
-
         // Provide completion details to anyone awaiting rotation completion.
-        // Normalize error as magnitude-only:
-        // Positive => overshoot, Negative => undershoot (independent of rotation direction).
-        let accumulated = state.accumulated_angle.abs();
-        let target = state.target_angle.abs();
+        let accumulated = rotation_state.accumulated_angle.abs();
+        let target = rotation_state.target_angle.abs();
+        let duration_ms = Instant::now().as_millis() - started_at_ms;
 
-        let info = RotationCompletedInfo {
-            final_yaw_deg: measurement.orientation.yaw,
-            angle_error_deg: accumulated - target,
+        return RotationStepResult::Completed {
+            telemetry: CompletionTelemetry::RotateExact {
+                final_yaw_deg: measurement.orientation.yaw,
+                angle_error_deg: accumulated - target,
+                duration_ms,
+            },
         };
-
-        // Best-effort: if queue is full, drop the oldest completion by receiving one and retrying.
-        if ROTATION_COMPLETED_CHANNEL.sender().try_send(info).is_err() {
-            let _ = ROTATION_COMPLETED_CHANNEL.receiver().try_receive();
-            let _ = ROTATION_COMPLETED_CHANNEL.sender().try_send(info);
-        }
-
-        *rotation_state = None;
-        return;
     }
 
     // Apply updated motor speeds for this step
-    let (left_speed, right_speed) = state.calculate_motor_speeds();
+    let (left_speed, right_speed) = rotation_state.calculate_motor_speeds();
     motor_driver::send_motor_command(MotorCommand::SetTracks {
         left_speed,
         right_speed,
@@ -369,6 +456,8 @@ async fn run_rotation_control_step(rotation_state: &mut Option<RotationState>) {
     let mut sys = SYSTEM_STATE.lock().await;
     sys.left_track_speed = left_speed;
     sys.right_track_speed = right_speed;
+
+    RotationStepResult::InProgress
 }
 
 /// Run a single step of the drift compensation loop
@@ -465,47 +554,90 @@ async fn run_drift_compensation_step(drift: &mut DriftCompensationState, rotatio
     }
 }
 
+/// Active intent being executed by the drive task.
+enum ActiveIntent {
+    /// Active in-place rotation intent with state and optional completion sender.
+    RotateExact {
+        /// Rotation controller state for the in-progress turn.
+        state: RotationState,
+        /// Optional completion sender for the issued command.
+        completion: Option<types::CompletionSender>,
+        /// Start time (ms) used for duration telemetry.
+        started_at_ms: u64,
+    },
+}
+
 /// State for the main drive control loop
 struct DriveLoop {
     /// Whether the system is currently in standby mode (motors disabled)
     standby_enabled: bool,
-    /// Active rotation state, if any (used for closed-loop IMU-based rotation control)
-    rotation_state: Option<RotationState>,
+    /// Active intent, if any
+    active_intent: Option<ActiveIntent>,
     /// State for encoder-based drift compensation (straight-line correction)
     drift: DriftCompensationState,
 }
 
 impl DriveLoop {
-    /// Create a new `DriveLoop` with default state (standby enabled, no active rotation, drift compensation disabled)
+    /// Create a new `DriveLoop` with default state (standby enabled, no active intent, drift compensation disabled)
     const fn new() -> Self {
         Self {
             standby_enabled: true,
-            rotation_state: None,
+            active_intent: None,
             drift: DriftCompensationState::new(),
         }
     }
 
-    /// Handle an incoming drive command by dispatching to the appropriate handler based on command type.
-    async fn handle_command(&mut self, command: DriveCommand) {
-        match command {
+    /// Handle a dequeued command envelope, honoring epoch cancellation.
+    async fn handle_envelope(&mut self, envelope: DriveCommandEnvelope) {
+        let current_epoch = CURRENT_EPOCH.load(Ordering::Relaxed);
+        if envelope.epoch != current_epoch {
+            send_completion(
+                envelope.completion,
+                DriveCompletion {
+                    status: CompletionStatus::Cancelled,
+                    telemetry: CompletionTelemetry::None,
+                },
+            )
+            .await;
+            return;
+        }
+
+        let completion = envelope.completion;
+        match envelope.command {
             DriveCommand::Drive(action) => {
-                self.handle_drive_action(action).await;
+                self.handle_drive_action(action, completion).await;
             }
             DriveCommand::RunMotorCalibration => {
                 info!("Starting motor calibration procedure");
                 run_motor_calibration().await;
                 info!("Motor calibration procedure completed");
+                send_completion(
+                    completion,
+                    DriveCompletion {
+                        status: CompletionStatus::Success,
+                        telemetry: CompletionTelemetry::None,
+                    },
+                )
+                .await;
             }
             DriveCommand::RunImuCalibration(kind) => {
                 info!("Starting IMU calibration procedure");
                 run_imu_calibration(kind).await;
                 info!("IMU calibration procedure completed");
+                send_completion(
+                    completion,
+                    DriveCompletion {
+                        status: CompletionStatus::Success,
+                        telemetry: CompletionTelemetry::None,
+                    },
+                )
+                .await;
             }
         }
     }
 
     /// Handle a `DriveAction` command by executing the corresponding motor commands and state updates.
-    async fn handle_drive_action(&mut self, action: DriveAction) {
+    async fn handle_drive_action(&mut self, action: DriveAction, completion: Option<types::CompletionSender>) {
         // Wake from standby if movement requested
         if self.standby_enabled {
             match &action {
@@ -518,30 +650,57 @@ impl DriveLoop {
             }
         }
 
-        // Clear rotation state unless this is a rotation command
-        if !matches!(&action, DriveAction::RotateExact { .. }) {
-            // self.rotation_state = None;
-        }
-
         match action {
             DriveAction::SetSpeed { left, right } => {
                 self.handle_set_speed(left, right).await;
+                send_completion(
+                    completion,
+                    DriveCompletion {
+                        status: CompletionStatus::Success,
+                        telemetry: CompletionTelemetry::None,
+                    },
+                )
+                .await;
             }
             DriveAction::RotateExact {
                 degrees,
                 direction,
                 motion,
             } => {
-                self.handle_rotate_exact(degrees, direction, motion).await;
+                self.handle_rotate_exact(degrees, direction, motion, completion).await;
             }
             DriveAction::Coast => {
                 self.handle_coast().await;
+                send_completion(
+                    completion,
+                    DriveCompletion {
+                        status: CompletionStatus::Success,
+                        telemetry: CompletionTelemetry::None,
+                    },
+                )
+                .await;
             }
             DriveAction::Brake => {
                 self.handle_brake().await;
+                send_completion(
+                    completion,
+                    DriveCompletion {
+                        status: CompletionStatus::Success,
+                        telemetry: CompletionTelemetry::None,
+                    },
+                )
+                .await;
             }
             DriveAction::Standby => {
                 self.handle_standby().await;
+                send_completion(
+                    completion,
+                    DriveCompletion {
+                        status: CompletionStatus::Success,
+                        telemetry: CompletionTelemetry::None,
+                    },
+                )
+                .await;
             }
         }
     }
@@ -595,26 +754,34 @@ impl DriveLoop {
         degrees: f32,
         direction: types::RotationDirection,
         motion: types::RotationMotion,
+        completion: Option<types::CompletionSender>,
     ) {
         // Request IMU start for closed-loop rotation control.
         // The orchestrator handles this event and starts IMU streaming.
         raise_event(Events::StartStopMotionDataCollection(true)).await;
 
-        // Initialize new rotation state
-        self.rotation_state = Some(RotationState::new(degrees, direction, motion));
+        let rotation_state = RotationState::new(degrees, direction, motion);
+        let started_at_ms = Instant::now().as_millis();
+
         // Apply initial motor speeds for rotation
-        if let Some(rotation_state) = self.rotation_state.as_ref() {
-            let (left_speed, right_speed) = rotation_state.calculate_motor_speeds();
-            motor_driver::send_motor_command(MotorCommand::SetTracks {
-                left_speed,
-                right_speed,
-            })
-            .await;
-            // Update system state
-            let mut state = SYSTEM_STATE.lock().await;
-            state.left_track_speed = left_speed;
-            state.right_track_speed = right_speed;
-        }
+        let (left_speed, right_speed) = rotation_state.calculate_motor_speeds();
+        motor_driver::send_motor_command(MotorCommand::SetTracks {
+            left_speed,
+            right_speed,
+        })
+        .await;
+
+        // Update system state
+        let mut state = SYSTEM_STATE.lock().await;
+        state.left_track_speed = left_speed;
+        state.right_track_speed = right_speed;
+        drop(state);
+
+        self.active_intent = Some(ActiveIntent::RotateExact {
+            state: rotation_state,
+            completion,
+            started_at_ms,
+        });
     }
 
     /// Handle a `Coast` command by disabling compensation, stopping encoder sampling, and sending coast command.
@@ -669,6 +836,59 @@ impl DriveLoop {
             state.right_track_speed = 0;
         }
     }
+
+    /// Handle an interrupt by applying motor action, cancelling the active intent only,
+    /// and bumping the epoch to invalidate queued commands.
+    /// Only the active intent’s completion is resolved here; queued commands are cancelled
+    /// when dequeued due to epoch mismatch.
+    async fn handle_interrupt(&mut self, kind: InterruptKind) {
+        match kind {
+            InterruptKind::EmergencyBrake => {
+                motor_driver::send_motor_command(MotorCommand::BrakeAll).await;
+            }
+            InterruptKind::Stop | InterruptKind::CancelCurrent => {
+                motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+            }
+        }
+
+        // Disable compensation and stop encoder sampling
+        self.drift.enabled = false;
+        encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
+
+        // Cancel active intent
+        if let Some(intent) = self.active_intent.take() {
+            let ActiveIntent::RotateExact {
+                state,
+                completion,
+                started_at_ms,
+            } = intent;
+            let accumulated = state.accumulated_angle.abs();
+            let target = state.target_angle.abs();
+            let last_yaw_deg = state.last_yaw.unwrap_or(0.0);
+            let duration_ms = Instant::now().as_millis() - started_at_ms;
+
+            raise_event(Events::StartStopMotionDataCollection(false)).await;
+            send_completion(
+                completion,
+                DriveCompletion {
+                    status: CompletionStatus::Cancelled,
+                    telemetry: CompletionTelemetry::RotateExact {
+                        final_yaw_deg: last_yaw_deg,
+                        angle_error_deg: accumulated - target,
+                        duration_ms,
+                    },
+                },
+            )
+            .await;
+        }
+
+        // Invalidate queued commands
+        CURRENT_EPOCH.fetch_add(1, Ordering::Relaxed);
+
+        let mut state = SYSTEM_STATE.lock().await;
+        state.left_track_speed = 0;
+        state.right_track_speed = 0;
+    }
 }
 
 /// Drive control task - coordinates motion and sensor feedback
@@ -676,9 +896,10 @@ impl DriveLoop {
 /// # Architecture
 ///
 /// This is a high-level control task that:
-/// - Receives drive commands via signal
+/// - Receives drive commands via queue
 /// - Receives encoder feedback via channel (from orchestrator)
 /// - Receives IMU feedback via command (from orchestrator)
+/// - Receives interrupts via signal
 /// - Sends motor commands to `motor_driver` task
 /// - Coordinates calibration procedures
 ///
@@ -691,21 +912,76 @@ impl DriveLoop {
 #[embassy_executor::task]
 pub async fn drive() {
     let mut loop_state = DriveLoop::new();
+    init_completion_pool_once();
 
     loop {
-        // Prioritize drive commands; otherwise tick rotation control at 30Hz; otherwise run drift tick.
-        let command_or_rotation_tick = select(wait(), rotation_tick_ms()).await;
-
-        match command_or_rotation_tick {
-            Either::First(command) => {
-                loop_state.handle_command(command).await;
+        if let Some(intent) = loop_state.active_intent.as_mut() {
+            match intent {
+                ActiveIntent::RotateExact {
+                    state,
+                    completion,
+                    started_at_ms,
+                } => {
+                    let interrupt_or_tick = select(DRIVE_INTERRUPT.wait(), rotation_tick_ms()).await;
+                    match interrupt_or_tick {
+                        Either::First(kind) => {
+                            loop_state.handle_interrupt(kind).await;
+                        }
+                        Either::Second(()) => match run_rotation_control_step(state, *started_at_ms).await {
+                            RotationStepResult::InProgress => {}
+                            RotationStepResult::Completed { telemetry } => {
+                                let completion = completion.take();
+                                raise_event(Events::StartStopMotionDataCollection(false)).await;
+                                send_completion(
+                                    completion,
+                                    DriveCompletion {
+                                        status: CompletionStatus::Success,
+                                        telemetry,
+                                    },
+                                )
+                                .await;
+                                loop_state.active_intent = None;
+                            }
+                            RotationStepResult::Failed { reason, telemetry } => {
+                                let completion = completion.take();
+                                raise_event(Events::StartStopMotionDataCollection(false)).await;
+                                send_completion(
+                                    completion,
+                                    DriveCompletion {
+                                        status: CompletionStatus::Failed(reason),
+                                        telemetry,
+                                    },
+                                )
+                                .await;
+                                loop_state.active_intent = None;
+                            }
+                        },
+                    }
+                }
             }
-            Either::Second(()) => {
-                run_rotation_control_step(&mut loop_state.rotation_state).await;
+            continue;
+        }
 
-                // Drift compensation runs only when enabled and not rotating; keep its own cadence.
-                drift_tick_ms().await;
-                run_drift_compensation_step(&mut loop_state.drift, loop_state.rotation_state.as_ref()).await;
+        if loop_state.drift.enabled {
+            let event_or_tick = select(
+                select(DRIVE_QUEUE.receiver().receive(), DRIVE_INTERRUPT.wait()),
+                drift_tick_ms(),
+            )
+            .await;
+            match event_or_tick {
+                Either::First(inner) => match inner {
+                    Either::First(envelope) => loop_state.handle_envelope(envelope).await,
+                    Either::Second(kind) => loop_state.handle_interrupt(kind).await,
+                },
+                Either::Second(()) => {
+                    run_drift_compensation_step(&mut loop_state.drift, None).await;
+                }
+            }
+        } else {
+            let command_or_interrupt = select(DRIVE_QUEUE.receiver().receive(), DRIVE_INTERRUPT.wait()).await;
+            match command_or_interrupt {
+                Either::First(envelope) => loop_state.handle_envelope(envelope).await,
+                Either::Second(kind) => loop_state.handle_interrupt(kind).await,
             }
         }
     }

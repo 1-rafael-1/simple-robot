@@ -4,15 +4,6 @@ use defmt::info;
 
 use crate::task::sensors::imu;
 
-/// Handle rotation completion.
-#[allow(clippy::unused_async)]
-pub async fn handle_rotation_completed() {
-    info!("Rotation completed");
-    // TODO: Implement rotation completion logic
-    // - Update display
-    // - Signal next movement phase
-}
-
 /// Handle motion data collection control.
 pub fn handle_start_stop_motion_data(start: bool) {
     info!("Motion data collection control");

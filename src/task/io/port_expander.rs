@@ -61,8 +61,8 @@ use crate::{
 /// PCA9555 I2C address (A0=high, A1=A2=low -> 0x21)
 const PCA9555_ADDR: u8 = 0x21;
 
-/// Input register for Port 0.
-const REG_INPUT_PORT0: u8 = 0x00;
+// Input register for Port 0. Not used ATM
+// const REG_INPUT_PORT0: u8 = 0x00;
 /// Input register for Port 1.
 const REG_INPUT_PORT1: u8 = 0x01;
 /// Output register for Port 0.
@@ -75,10 +75,10 @@ const REG_CONFIG_PORT0: u8 = 0x06;
 const REG_CONFIG_PORT1: u8 = 0x07;
 
 /// Command channel for port expander operations
-static COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, PortExpanderCommand, 16> = Channel::new();
+static COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, PortExpanderOutputCommand, 16> = Channel::new();
 
 /// Send a command to the port expander task
-pub async fn send_command(command: PortExpanderCommand) {
+pub async fn send_command(command: PortExpanderOutputCommand) {
     COMMAND_CHANNEL.sender().send(command).await;
 }
 
@@ -93,9 +93,9 @@ pub enum PortNumber {
 
 /// Generic port expander commands - no motor-specific knowledge
 #[derive(Debug, Clone, Copy, Format)]
-pub enum PortExpanderCommand {
+pub enum PortExpanderOutputCommand {
     /// Set a single output pin state
-    OutputPin {
+    Pin {
         /// Target port.
         port: PortNumber,
         /// Pin index (0-7).
@@ -105,7 +105,7 @@ pub enum PortExpanderCommand {
     },
 
     /// Set entire port output byte at once
-    OutputByte {
+    Byte {
         /// Target port.
         port: PortNumber,
         /// Output value for all 8 pins.
@@ -114,7 +114,7 @@ pub enum PortExpanderCommand {
 
     /// Set multiple bits using mask (efficient for updating specific bits)
     /// Only bits where mask=1 are affected
-    OutputBits {
+    Bits {
         /// Target port.
         port: PortNumber,
         /// Bitmask of pins to update.
@@ -122,14 +122,13 @@ pub enum PortExpanderCommand {
         /// Values for masked pins.
         value: u8,
     },
-
-    /// Set both ports at once (atomic, most efficient)
-    BothPorts {
-        /// Output value for port 0.
-        port0: u8,
-        /// Output value for port 1.
-        port1: u8,
-    },
+    // Set both ports at once (atomic, most efficient)
+    // BothPorts {
+    //     /// Output value for port 0.
+    //     port0: u8,
+    //     /// Output value for port 1.
+    //     port1: u8,
+    // },
 }
 
 /// Input state tracking for Port 1
@@ -402,10 +401,10 @@ pub async fn port_expander(i2c_bus: &'static I2cBusShared, mut interrupt: Input<
 async fn process_command(
     state: &mut PortExpanderState,
     driver: &Pca9555Driver,
-    command: PortExpanderCommand,
+    command: PortExpanderOutputCommand,
 ) -> Result<(), ()> {
     match command {
-        PortExpanderCommand::OutputPin {
+        PortExpanderOutputCommand::Pin {
             port,
             pin,
             state: pin_state,
@@ -413,17 +412,16 @@ async fn process_command(
             state.set_output_pin(port, pin, pin_state);
         }
 
-        PortExpanderCommand::OutputByte { port, value } => {
+        PortExpanderOutputCommand::Byte { port, value } => {
             state.set_output_byte(port, value);
         }
 
-        PortExpanderCommand::OutputBits { port, mask, value } => {
+        PortExpanderOutputCommand::Bits { port, mask, value } => {
             state.set_output_bits(port, mask, value);
-        }
-
-        PortExpanderCommand::BothPorts { port0, port1 } => {
-            state.set_both_ports(port0, port1);
-        }
+        } // not currently used
+          // PortExpanderCommand::BothPorts { port0, port1 } => {
+          //     state.set_both_ports(port0, port1);
+          // }
     }
 
     // Write the updated state to hardware

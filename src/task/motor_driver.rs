@@ -97,7 +97,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 
 use crate::{
     system::state,
-    task::io::port_expander::{self, PortExpanderCommand, PortNumber},
+    task::io::port_expander::{self},
 };
 
 /// Target motor voltage (we compensate battery voltage down to this)
@@ -176,7 +176,7 @@ pub enum MotorDirection {
 /// These functions prepare generic port expander commands for motor control
 mod motor_port_mapping {
     use crate::task::{
-        io::port_expander::{PortExpanderCommand, PortNumber},
+        io::port_expander::{PortExpanderOutputCommand, PortNumber},
         motor_driver::{Motor, MotorDirection, Track},
     };
 
@@ -202,7 +202,11 @@ mod motor_port_mapping {
     }
 
     /// Create port expander command to set a motor's direction
-    pub const fn set_motor_direction_cmd(track: Track, motor: Motor, direction: MotorDirection) -> PortExpanderCommand {
+    pub const fn set_motor_direction_cmd(
+        track: Track,
+        motor: Motor,
+        direction: MotorDirection,
+    ) -> PortExpanderOutputCommand {
         let (fwd_bit, bwd_bit) = get_motor_direction_bits(track, motor);
 
         let (fwd_state, bwd_state) = match direction {
@@ -216,7 +220,7 @@ mod motor_port_mapping {
         let mask = (1 << fwd_bit) | (1 << bwd_bit);
         let value = ((fwd_state as u8) << fwd_bit) | ((bwd_state as u8) << bwd_bit);
 
-        PortExpanderCommand::OutputBits {
+        PortExpanderOutputCommand::Bits {
             port: PortNumber::Port0,
             mask,
             value,
@@ -229,7 +233,7 @@ mod motor_port_mapping {
         left_rear: MotorDirection,
         right_front: MotorDirection,
         right_rear: MotorDirection,
-    ) -> PortExpanderCommand {
+    ) -> PortExpanderOutputCommand {
         let mut port0_value = 0u8;
 
         // Helper to set direction bits
@@ -254,17 +258,17 @@ mod motor_port_mapping {
         set_direction(&mut port0_value, Track::Right, Motor::Front, right_front);
         set_direction(&mut port0_value, Track::Right, Motor::Rear, right_rear);
 
-        PortExpanderCommand::OutputByte {
+        PortExpanderOutputCommand::Byte {
             port: PortNumber::Port0,
             value: port0_value,
         }
     }
 
     /// Create port expander command to enable/disable a motor driver
-    pub const fn set_driver_enable_cmd(track: Track, enabled: bool) -> PortExpanderCommand {
+    pub const fn set_driver_enable_cmd(track: Track, enabled: bool) -> PortExpanderOutputCommand {
         let bit = get_driver_enable_bit(track);
 
-        PortExpanderCommand::OutputPin {
+        PortExpanderOutputCommand::Pin {
             port: PortNumber::Port1,
             pin: bit,
             state: enabled,
@@ -272,11 +276,11 @@ mod motor_port_mapping {
     }
 
     /// Create port expander command to enable/disable both drivers at once
-    pub const fn set_all_drivers_enable_cmd(enabled: bool) -> PortExpanderCommand {
+    pub const fn set_all_drivers_enable_cmd(enabled: bool) -> PortExpanderOutputCommand {
         let mask = (1 << 4) | (1 << 5); // Bits 4 and 5 (left and right drivers)
         let value = if enabled { mask } else { 0 };
 
-        PortExpanderCommand::OutputBits {
+        PortExpanderOutputCommand::Bits {
             port: PortNumber::Port1,
             mask,
             value,

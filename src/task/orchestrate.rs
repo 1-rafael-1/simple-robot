@@ -53,9 +53,9 @@ async fn handle_event(event: Events) {
             behavior::sensor_events::handle_ultrasonic_sweep_reading(distance, angle).await;
         }
         Events::ImuMeasurementTaken(measurement) => {
-            behavior::sensor_events::handle_imu_measurement(measurement).await;
+            behavior::sensor_events::handle_imu_measurement(measurement);
         }
-        Events::RotationCompleted => behavior::motion::handle_rotation_completed().await,
+
         Events::StartStopMotionDataCollection(start) => behavior::motion::handle_start_stop_motion_data(start),
         Events::StartStopUltrasonicSweep(start) => behavior::motion::handle_start_stop_ultrasonic_sweep(start).await,
         Events::CalibrationStatus {

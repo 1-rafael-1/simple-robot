@@ -25,8 +25,7 @@ pub async fn handle_ultrasonic_sweep_reading(distance: f64, angle: f32) {
 }
 
 /// Handle IMU measurements.
-#[allow(clippy::unused_async)]
-pub async fn handle_imu_measurement(measurement: imu::ImuMeasurement) {
+pub fn handle_imu_measurement(measurement: imu::ImuMeasurement) {
     // Forward IMU measurements to drive task for rotation control.
     // Use try_send to avoid blocking orchestrator - IMU data arrives at 100Hz.
     // Dropping occasional measurements is acceptable at this rate.

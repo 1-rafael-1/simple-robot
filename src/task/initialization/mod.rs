@@ -8,7 +8,7 @@ use defmt::info;
 use heapless::String;
 
 use crate::{
-    system::state::{self, CalibrationStatus, SYSTEM_STATE},
+    system::state::{CalibrationStatus, SYSTEM_STATE},
     task::{
         io::{display, flash_storage},
         motor_driver,

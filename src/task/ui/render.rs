@@ -2,8 +2,6 @@
 //!
 //! Renders UI screens based on the current UI state and system data.
 
-use core::fmt::Write;
-
 use heapless::String;
 
 use super::{screens, state::UiState};
