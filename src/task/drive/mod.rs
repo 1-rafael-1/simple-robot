@@ -867,6 +867,7 @@ impl DriveLoop {
             let last_yaw_deg = state.last_yaw.unwrap_or(0.0);
             let duration_ms = Instant::now().as_millis() - started_at_ms;
 
+            raise_event(Events::StartStopMotionDataCollection(false)).await;
             send_completion(
                 completion,
                 DriveCompletion {
@@ -930,6 +931,7 @@ pub async fn drive() {
                             RotationStepResult::InProgress => {}
                             RotationStepResult::Completed { telemetry } => {
                                 let completion = completion.take();
+                                raise_event(Events::StartStopMotionDataCollection(false)).await;
                                 send_completion(
                                     completion,
                                     DriveCompletion {
@@ -942,6 +944,7 @@ pub async fn drive() {
                             }
                             RotationStepResult::Failed { reason, telemetry } => {
                                 let completion = completion.take();
+                                raise_event(Events::StartStopMotionDataCollection(false)).await;
                                 send_completion(
                                     completion,
                                     DriveCompletion {
