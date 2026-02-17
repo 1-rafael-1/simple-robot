@@ -88,7 +88,7 @@ use crate::{
         motor_driver::{self, MotorCommand},
         sensors::{
             encoders::{self as encoder_read, EncoderMeasurement},
-            imu::ImuMeasurement,
+            imu::{AhrsFusionMode, ImuMeasurement, set_ahrs_fusion_mode},
         },
     },
 };
@@ -402,6 +402,10 @@ struct DistanceDriveState {
     accumulated_left_revs: f32,
     /// Accumulated right revolutions.
     accumulated_right_revs: f32,
+    /// Last IMU yaw sample for curve control (degrees).
+    curve_last_yaw_deg: Option<f32>,
+    /// Accumulated curve yaw delta (degrees).
+    curve_accumulated_yaw_deg: f32,
     /// Last time we observed forward progress (ms).
     last_progress_ms: u64,
     /// Consecutive samples with zero progress.
@@ -471,6 +475,8 @@ impl DistanceDriveState {
             last_right_speed: 0,
             accumulated_left_revs: 0.0,
             accumulated_right_revs: 0.0,
+            curve_last_yaw_deg: None,
+            curve_accumulated_yaw_deg: 0.0,
             last_progress_ms: now_ms,
             zero_progress_samples: 0,
             last_encoder_timestamp_ms: 0,
@@ -679,6 +685,30 @@ async fn run_distance_control_step(state: &mut DistanceDriveState) -> DistanceSt
     state.accumulated_left_revs += left_revs;
     state.accumulated_right_revs += right_revs;
 
+    if matches!(state.kind, types::DriveDistanceKind::CurveArc { .. }) {
+        let mut latest_imu: Option<ImuMeasurement> = None;
+        while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
+            latest_imu = Some(m);
+        }
+
+        if let Some(measurement) = latest_imu {
+            if let Some(last_yaw) = state.curve_last_yaw_deg {
+                let mut yaw_change = measurement.orientation.yaw - last_yaw;
+
+                // Handle wraparound at ±180 degrees
+                if yaw_change > 180.0 {
+                    yaw_change -= 360.0;
+                } else if yaw_change < -180.0 {
+                    yaw_change += 360.0;
+                }
+
+                state.curve_accumulated_yaw_deg += yaw_change;
+            }
+
+            state.curve_last_yaw_deg = Some(measurement.orientation.yaw);
+        }
+    }
+
     let inner_progress = match state.kind {
         types::DriveDistanceKind::Straight { .. } => state.accumulated_left_revs.min(state.accumulated_right_revs),
         types::DriveDistanceKind::CurveArc { .. } => match state.inner_left {
@@ -727,8 +757,44 @@ async fn run_distance_control_step(state: &mut DistanceDriveState) -> DistanceSt
         types::DriveDirection::Backward => -(ramp_speed as i8),
     };
 
-    let left_speed = (f32::from(signed_base) * state.left_ratio).round() as i8;
-    let right_speed = (f32::from(signed_base) * state.right_ratio).round() as i8;
+    let mut left_ratio = state.left_ratio;
+    let mut right_ratio = state.right_ratio;
+
+    if matches!(state.kind, types::DriveDistanceKind::CurveArc { .. }) && state.curve_last_yaw_deg.is_some() {
+        let left_cm = state.accumulated_left_revs * types::SPROCKET_CIRCUMFERENCE_CM;
+        let right_cm = state.accumulated_right_revs * types::SPROCKET_CIRCUMFERENCE_CM;
+        let direction_sign = match state.direction {
+            types::DriveDirection::Forward => 1.0,
+            types::DriveDirection::Backward => -1.0,
+        };
+
+        let expected_yaw_rad = direction_sign * (right_cm - left_cm) / types::TRACK_WIDTH_CM;
+        let actual_yaw_rad = state.curve_accumulated_yaw_deg.to_radians();
+        let yaw_error = expected_yaw_rad - actual_yaw_rad;
+        let correction = (types::DISTANCE_CURVE_YAW_KP * yaw_error).clamp(
+            -types::DISTANCE_CURVE_YAW_MAX_CORRECTION,
+            types::DISTANCE_CURVE_YAW_MAX_CORRECTION,
+        );
+
+        left_ratio = (left_ratio - correction).clamp(0.0, 1.0);
+        right_ratio = (right_ratio + correction).clamp(0.0, 1.0);
+
+        #[cfg(feature = "telemetry_logs")]
+        {
+            if (now_ms % 200) < 20 {
+                defmt::info!(
+                    "distance_curve: exp_yaw={=f32}rad act_yaw={=f32}rad err={=f32}rad corr={=f32}",
+                    expected_yaw_rad,
+                    actual_yaw_rad,
+                    yaw_error,
+                    correction
+                );
+            }
+        }
+    }
+
+    let left_speed = (f32::from(signed_base) * left_ratio).round() as i8;
+    let right_speed = (f32::from(signed_base) * right_ratio).round() as i8;
 
     let mut adjusted_left = left_speed;
     let mut adjusted_right = right_speed;
@@ -1184,6 +1250,11 @@ impl DriveLoop {
             return;
         }
 
+        if matches!(kind, types::DriveDistanceKind::CurveArc { .. }) {
+            set_ahrs_fusion_mode(AhrsFusionMode::Axis9);
+            raise_event(Events::StartStopMotionDataCollection(true)).await;
+        }
+
         feedback::clear_encoder_measurement().await;
         encoder_read::send_command(encoder_read::EncoderCommand::Start {
             interval_ms: types::DISTANCE_CONTROL_INTERVAL_MS,
@@ -1319,6 +1390,10 @@ impl DriveLoop {
                 }
                 ActiveIntent::DriveDistance { state, completion } => {
                     let duration_ms = Instant::now().as_millis() - state.started_at_ms;
+
+                    if matches!(state.kind, types::DriveDistanceKind::CurveArc { .. }) {
+                        raise_event(Events::StartStopMotionDataCollection(false)).await;
+                    }
 
                     send_completion(
                         completion,
@@ -1463,12 +1538,22 @@ async fn apply_distance_result(loop_state: &mut DriveLoop, result: DistanceStepR
         DistanceStepResult::Failed { reason, telemetry } => (CompletionStatus::Failed(reason), telemetry),
     };
 
+    let stop_motion_data = match loop_state.active_intent.as_ref() {
+        Some(ActiveIntent::DriveDistance { state, .. }) => {
+            matches!(state.kind, types::DriveDistanceKind::CurveArc { .. })
+        }
+        _ => false,
+    };
+
     let completion = match loop_state.active_intent.as_mut() {
         Some(ActiveIntent::DriveDistance { completion, .. }) => completion.take(),
         _ => None,
     };
 
     distance_stop_motors().await;
+    if stop_motion_data {
+        raise_event(Events::StartStopMotionDataCollection(false)).await;
+    }
     send_completion(completion, DriveCompletion { status, telemetry }).await;
 
     loop_state.active_intent = None;

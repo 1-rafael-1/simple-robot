@@ -250,6 +250,18 @@ pub const DISTANCE_TOLERANCE_REVS: f32 = 0.01;
 pub const DISTANCE_CONTROL_INTERVAL_MS: u64 = 20;
 /// Encoder timeout during distance driving (milliseconds).
 pub const DISTANCE_ENCODER_TIMEOUT_MS: u64 = 300;
+/// Curve yaw correction proportional gain (radians -> ratio).
+///
+/// This scales the yaw error (expected vs IMU yaw delta, in radians) into a speed
+/// ratio adjustment. Higher values correct curvature more aggressively but can
+/// introduce oscillation. Start low and tune on hardware.
+pub const DISTANCE_CURVE_YAW_KP: f32 = 0.5;
+/// Maximum absolute curve yaw correction applied to speed ratio.
+///
+/// This clamps the ratio adjustment applied to left/right speeds to avoid
+/// destabilizing the base curve profile. For example, `0.25` limits correction
+/// to ±25% of the commanded ratio before ramping/clamping.
+pub const DISTANCE_CURVE_YAW_MAX_CORRECTION: f32 = 0.25;
 /// Maximum rotation speed (0-100%)
 pub const ROTATION_SPEED_MAX: u8 = 50;
 /// Minimum rotation speed to overcome friction
