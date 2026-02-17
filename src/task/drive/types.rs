@@ -93,12 +93,12 @@ pub enum DriveDirection {
     Backward,
 }
 
-/// Track side used to specify inner/outer curve dominance.
+/// Turn direction for curved motion.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum DriveTrackSide {
-    /// Left track
+pub enum TurnDirection {
+    /// Left turn (counter-clockwise yaw).
     Left,
-    /// Right track
+    /// Right turn (clockwise yaw).
     Right,
 }
 
@@ -110,16 +110,14 @@ pub enum DriveDistanceKind {
         /// Target revolutions of the track sprocket
         revolutions: f32,
     },
-    /// Curved distance in track sprocket revolutions
-    ///
-    /// The inner track (smaller radius) dominates completion.
-    Curved {
-        /// Which track is the inner (shorter arc) side
-        inner_track: DriveTrackSide,
-        /// Target revolutions for the inner track sprocket
-        inner_revolutions: f32,
-        /// Target revolutions for the outer track sprocket
-        outer_revolutions: f32,
+    /// Curved distance specified by centerline radius and arc length (centimeters).
+    CurveArc {
+        /// Radius from robot centerline (cm).
+        radius_cm: f32,
+        /// Desired arc length along the robot centerline (cm).
+        arc_length_cm: f32,
+        /// Turn direction (left/right).
+        direction: TurnDirection,
     },
 }
 
@@ -236,6 +234,10 @@ pub const PULSES_PER_SPROCKET_REV: u32 = PULSES_PER_REV * GEAR_RATIO_MOTOR_TO_SP
 /// Number of encoder pulses per track sprocket revolution (float).
 #[allow(clippy::cast_precision_loss)]
 pub const PULSES_PER_SPROCKET_REV_F32: f32 = PULSES_PER_SPROCKET_REV as f32;
+/// Distance between left/right track centerlines (cm).
+pub const TRACK_WIDTH_CM: f32 = 14.5;
+/// Effective drive sprocket circumference with track installed (cm).
+pub const SPROCKET_CIRCUMFERENCE_CM: f32 = 19.01;
 /// Distance drive ramp-down begins when remaining revolutions drop below this value.
 pub const DISTANCE_RAMP_DOWN_START_REVS: f32 = 0.25;
 /// Minimum speed during ramp-down (0-100).

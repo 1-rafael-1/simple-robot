@@ -110,7 +110,7 @@ pub use feedback::{
 };
 pub use types::{
     CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveCompletion, DriveDirection,
-    DriveDistanceKind, DriveTrackSide, ImuCalibrationKind, InterruptKind,
+    DriveDistanceKind, ImuCalibrationKind, InterruptKind, TurnDirection,
 };
 
 /// Envelope for queued drive commands.
@@ -375,7 +375,6 @@ enum DistanceStepResult {
 }
 
 /// Distance drive control state.
-/// TODO: Curve control is moving to a radius/arc-length model; expect this state to change.
 struct DistanceDriveState {
     /// Straight or curved distance specification.
     kind: types::DriveDistanceKind,
@@ -387,8 +386,8 @@ struct DistanceDriveState {
     target_left_revs: f32,
     /// Target revolutions for the right track sprocket.
     target_right_revs: f32,
-    /// Inner track for curved motion (dominates completion).
-    inner_track: Option<types::DriveTrackSide>,
+    /// Whether the left track is the inner (shorter) side for curves.
+    inner_left: Option<bool>,
     /// Target revolutions for the inner track sprocket.
     target_inner_revs: f32,
     /// Left speed scale relative to the max target (1.0 for the dominant track).
@@ -420,26 +419,28 @@ struct DistanceDriveState {
 impl DistanceDriveState {
     /// Create a new distance drive state and precompute targets/ratios.
     fn new(kind: types::DriveDistanceKind, direction: types::DriveDirection, base_speed: u8) -> Self {
-        let (target_left_revs, target_right_revs, inner_track, target_inner_revs) = match kind {
+        let (target_left_revs, target_right_revs, inner_left, target_inner_revs) = match kind {
             types::DriveDistanceKind::Straight { revolutions } => (revolutions, revolutions, None, revolutions),
-            types::DriveDistanceKind::Curved {
-                inner_track,
-                inner_revolutions,
-                outer_revolutions,
-            } => match inner_track {
-                types::DriveTrackSide::Left => (
-                    inner_revolutions,
-                    outer_revolutions,
-                    Some(inner_track),
-                    inner_revolutions,
-                ),
-                types::DriveTrackSide::Right => (
-                    outer_revolutions,
-                    inner_revolutions,
-                    Some(inner_track),
-                    inner_revolutions,
-                ),
-            },
+            types::DriveDistanceKind::CurveArc {
+                radius_cm,
+                arc_length_cm,
+                direction,
+            } => {
+                let half_width = types::TRACK_WIDTH_CM * 0.5;
+                let inner_radius = (radius_cm - half_width).max(0.0);
+                let outer_radius = radius_cm + half_width;
+                let (left_radius, right_radius, inner_left) = match direction {
+                    types::TurnDirection::Left => (inner_radius, outer_radius, true),
+                    types::TurnDirection::Right => (outer_radius, inner_radius, false),
+                };
+                let safe_radius = radius_cm.max(0.001);
+                let left_arc_cm = arc_length_cm * (left_radius / safe_radius);
+                let right_arc_cm = arc_length_cm * (right_radius / safe_radius);
+                let left_revs = left_arc_cm / types::SPROCKET_CIRCUMFERENCE_CM;
+                let right_revs = right_arc_cm / types::SPROCKET_CIRCUMFERENCE_CM;
+                let inner_revs = if inner_left { left_revs } else { right_revs };
+                (left_revs, right_revs, Some(inner_left), inner_revs)
+            }
         };
 
         let max_target = target_left_revs.max(target_right_revs);
@@ -462,7 +463,7 @@ impl DistanceDriveState {
             base_speed,
             target_left_revs,
             target_right_revs,
-            inner_track,
+            inner_left,
             target_inner_revs,
             left_ratio,
             right_ratio,
@@ -680,9 +681,9 @@ async fn run_distance_control_step(state: &mut DistanceDriveState) -> DistanceSt
 
     let inner_progress = match state.kind {
         types::DriveDistanceKind::Straight { .. } => state.accumulated_left_revs.min(state.accumulated_right_revs),
-        types::DriveDistanceKind::Curved { .. } => match state.inner_track {
-            Some(types::DriveTrackSide::Left) => state.accumulated_left_revs,
-            Some(types::DriveTrackSide::Right) => state.accumulated_right_revs,
+        types::DriveDistanceKind::CurveArc { .. } => match state.inner_left {
+            Some(true) => state.accumulated_left_revs,
+            Some(false) => state.accumulated_right_revs,
             None => (state.accumulated_left_revs + state.accumulated_right_revs) * 0.5,
         },
     };
@@ -731,7 +732,9 @@ async fn run_distance_control_step(state: &mut DistanceDriveState) -> DistanceSt
 
     let mut adjusted_left = left_speed;
     let mut adjusted_right = right_speed;
-    distance_apply_compensation(left_speed, right_speed, &mut adjusted_left, &mut adjusted_right, data);
+    if matches!(state.kind, types::DriveDistanceKind::Straight { .. }) {
+        distance_apply_compensation(left_speed, right_speed, &mut adjusted_left, &mut adjusted_right, data);
+    }
 
     state.last_left_speed = adjusted_left;
     state.last_right_speed = adjusted_right;
@@ -1141,14 +1144,26 @@ impl DriveLoop {
 
         let (target_left_revs, target_right_revs, target_inner_revs) = match kind {
             types::DriveDistanceKind::Straight { revolutions } => (revolutions, revolutions, revolutions),
-            types::DriveDistanceKind::Curved {
-                inner_track,
-                inner_revolutions,
-                outer_revolutions,
-            } => match inner_track {
-                types::DriveTrackSide::Left => (inner_revolutions, outer_revolutions, inner_revolutions),
-                types::DriveTrackSide::Right => (outer_revolutions, inner_revolutions, inner_revolutions),
-            },
+            types::DriveDistanceKind::CurveArc {
+                radius_cm,
+                arc_length_cm,
+                direction,
+            } => {
+                let half_width = types::TRACK_WIDTH_CM * 0.5;
+                let inner_radius = (radius_cm - half_width).max(0.0);
+                let outer_radius = radius_cm + half_width;
+                let (left_radius, right_radius, inner_left) = match direction {
+                    types::TurnDirection::Left => (inner_radius, outer_radius, true),
+                    types::TurnDirection::Right => (outer_radius, inner_radius, false),
+                };
+                let safe_radius = radius_cm.max(0.001);
+                let left_arc_cm = arc_length_cm * (left_radius / safe_radius);
+                let right_arc_cm = arc_length_cm * (right_radius / safe_radius);
+                let left_revs = left_arc_cm / types::SPROCKET_CIRCUMFERENCE_CM;
+                let right_revs = right_arc_cm / types::SPROCKET_CIRCUMFERENCE_CM;
+                let inner_revs = if inner_left { left_revs } else { right_revs };
+                (left_revs, right_revs, inner_revs)
+            }
         };
 
         if target_inner_revs <= types::DISTANCE_TOLERANCE_REVS {
