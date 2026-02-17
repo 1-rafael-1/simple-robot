@@ -140,7 +140,10 @@ impl DistanceDriveState {
     /// Create a new distance drive state and precompute targets/ratios.
     pub(super) fn new(kind: types::DriveDistanceKind, direction: types::DriveDirection, base_speed: u8) -> Self {
         let (target_left_revs, target_right_revs, inner_left, target_inner_revs) = match kind {
-            types::DriveDistanceKind::Straight { revolutions } => (revolutions, revolutions, None, revolutions),
+            types::DriveDistanceKind::Straight { distance_cm } => {
+                let revolutions = distance_cm / types::SPROCKET_CIRCUMFERENCE_CM;
+                (revolutions, revolutions, None, revolutions)
+            }
             types::DriveDistanceKind::CurveArc {
                 radius_cm,
                 arc_length_cm,

@@ -9,8 +9,8 @@
 //! 1. Load calibration from flash (if available)
 //! 2. Wait 10 seconds
 //! 3. Perform a series of in-place turns at different speeds
-//! 4. Drive forward 50 revolutions (straight, encoder-based)
-//! 5. Drive backward 50 revolutions (straight, encoder-based)
+//! 4. Drive forward 50 cm (straight, encoder-based)
+//! 5. Drive backward 50 cm (straight, encoder-based)
 //! 6. Drive a 360° circle at 1m radius (curve arc)
 //!
 //! During each turn, we update the OLED with telemetry:
@@ -215,7 +215,7 @@ async fn run_testing_sequence() {
 
     // Straight distance runs after turns (encoder-based).
     show_line(0, "DIST TEST").await;
-    show_line(1, "FWD 50 REVS").await;
+    show_line(1, "FWD 50 CM").await;
     show_line(2, "").await;
     show_line(3, "").await;
 
@@ -227,7 +227,7 @@ async fn run_testing_sequence() {
 
     send_drive_command_with_completion(
         DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::Straight { revolutions: 50.0 },
+            kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
             direction: DriveDirection::Forward,
             speed: 60,
         }),
@@ -260,7 +260,7 @@ async fn run_testing_sequence() {
     send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
     Timer::after(Duration::from_millis(750)).await;
 
-    show_line(1, "REV 50 REVS").await;
+    show_line(1, "REV 50 CM").await;
 
     let Ok(completion_handle) = acquire_completion_handle().await else {
         defmt::warn!("🧪 TEST: completion pool exhausted; skipping reverse distance");
@@ -270,7 +270,7 @@ async fn run_testing_sequence() {
 
     send_drive_command_with_completion(
         DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::Straight { revolutions: 50.0 },
+            kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
             direction: DriveDirection::Backward,
             speed: 60,
         }),

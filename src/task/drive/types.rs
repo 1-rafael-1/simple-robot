@@ -105,10 +105,10 @@ pub enum TurnDirection {
 /// Distance command specification
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DriveDistanceKind {
-    /// Straight-line distance in track sprocket revolutions
+    /// Straight-line distance in centimeters.
     Straight {
-        /// Target revolutions of the track sprocket
-        revolutions: f32,
+        /// Target distance along the centerline (cm).
+        distance_cm: f32,
     },
     /// Curved distance specified by centerline radius and arc length (centimeters).
     CurveArc {

@@ -312,7 +312,10 @@ impl DriveLoop {
         self.drift.enabled = false;
 
         let (target_left_revs, target_right_revs, target_inner_revs) = match kind {
-            types::DriveDistanceKind::Straight { revolutions } => (revolutions, revolutions, revolutions),
+            types::DriveDistanceKind::Straight { distance_cm } => {
+                let revolutions = distance_cm / types::SPROCKET_CIRCUMFERENCE_CM;
+                (revolutions, revolutions, revolutions)
+            }
             types::DriveDistanceKind::CurveArc {
                 radius_cm,
                 arc_length_cm,
