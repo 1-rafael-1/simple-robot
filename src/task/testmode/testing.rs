@@ -9,6 +9,8 @@
 //! 1. Load calibration from flash (if available)
 //! 2. Wait 10 seconds
 //! 3. Perform a series of in-place turns at different speeds
+//! 4. Drive forward 50 revolutions (straight, encoder-based)
+//! 5. Drive backward 50 revolutions (straight, encoder-based)
 //!
 //! During each turn, we update the OLED with telemetry:
 //! - Line 0: "TURN TEST"
@@ -31,9 +33,9 @@ use crate::{
     system::event::{Events, raise_event},
     task::{
         drive::{
-            CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, ImuCalibrationKind,
-            acquire_completion_handle, completion_sender, release_completion_handle, send_drive_command,
-            send_drive_command_with_completion, wait_for_completion,
+            CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind,
+            ImuCalibrationKind, acquire_completion_handle, completion_sender, release_completion_handle,
+            send_drive_command, send_drive_command_with_completion, wait_for_completion,
         },
         io::display::{DisplayAction, display_update},
         sensors::imu::{AhrsFusionMode, set_ahrs_fusion_mode},
@@ -209,6 +211,96 @@ async fn run_testing_sequence() {
         send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
         Timer::after(Duration::from_millis(750)).await;
     }
+
+    // Straight distance runs after turns (encoder-based).
+    show_line(0, "DIST TEST").await;
+    show_line(1, "FWD 50 REVS").await;
+    show_line(2, "").await;
+    show_line(3, "").await;
+
+    let Ok(mut completion_handle) = acquire_completion_handle().await else {
+        defmt::warn!("🧪 TEST: completion pool exhausted; skipping forward distance");
+        return;
+    };
+    let sender = completion_sender(completion_handle);
+
+    send_drive_command_with_completion(
+        DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::Straight { revolutions: 50.0 },
+            direction: DriveDirection::Forward,
+            speed: 60,
+        }),
+        sender,
+    )
+    .await;
+
+    let completion = wait_for_completion(&completion_handle).await;
+    release_completion_handle(completion_handle).await;
+
+    if let CompletionTelemetry::DriveDistance {
+        achieved_left_revs,
+        achieved_right_revs,
+        ..
+    } = completion.telemetry
+    {
+        let status_str = match completion.status {
+            CompletionStatus::Success => "Success",
+            CompletionStatus::Cancelled => "Cancelled",
+            CompletionStatus::Failed(_) => "Failed",
+        };
+        defmt::info!(
+            "🧪 TEST: Forward distance complete: status={=str} left={=f32} right={=f32}",
+            status_str,
+            achieved_left_revs,
+            achieved_right_revs
+        );
+    }
+
+    send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
+    Timer::after(Duration::from_millis(750)).await;
+
+    show_line(1, "REV 50 REVS").await;
+
+    let Ok(mut completion_handle) = acquire_completion_handle().await else {
+        defmt::warn!("🧪 TEST: completion pool exhausted; skipping reverse distance");
+        return;
+    };
+    let sender = completion_sender(completion_handle);
+
+    send_drive_command_with_completion(
+        DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::Straight { revolutions: 50.0 },
+            direction: DriveDirection::Backward,
+            speed: 60,
+        }),
+        sender,
+    )
+    .await;
+
+    let completion = wait_for_completion(&completion_handle).await;
+    release_completion_handle(completion_handle).await;
+
+    if let CompletionTelemetry::DriveDistance {
+        achieved_left_revs,
+        achieved_right_revs,
+        ..
+    } = completion.telemetry
+    {
+        let status_str = match completion.status {
+            CompletionStatus::Success => "Success",
+            CompletionStatus::Cancelled => "Cancelled",
+            CompletionStatus::Failed(_) => "Failed",
+        };
+        defmt::info!(
+            "🧪 TEST: Reverse distance complete: status={=str} left={=f32} right={=f32}",
+            status_str,
+            achieved_left_revs,
+            achieved_right_revs
+        );
+    }
+
+    send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
+    Timer::after(Duration::from_millis(750)).await;
 
     // Do not overwrite the OLED here; keep the last turn's telemetry visible.
     defmt::info!("🧪 TEST: Sequence complete (OLED left showing last turn telemetry)");

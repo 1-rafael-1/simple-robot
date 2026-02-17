@@ -58,6 +58,15 @@ pub enum DriveAction {
         /// Right track speed (-100 to +100)
         right: i8,
     },
+    /// Drive a fixed distance using encoder feedback and drift compensation.
+    DriveDistance {
+        /// Straight or curved distance specification.
+        kind: DriveDistanceKind,
+        /// Drive direction (forward or backward).
+        direction: DriveDirection,
+        /// Target speed magnitude (0-100).
+        speed: u8,
+    },
     /// Active electrical braking
     Brake,
     /// Passive stop (freewheeling)
@@ -72,6 +81,45 @@ pub enum DriveAction {
         direction: RotationDirection,
         /// Combined motion type
         motion: RotationMotion,
+    },
+}
+
+/// Drive direction for distance-based commands
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum DriveDirection {
+    /// Forward motion
+    Forward,
+    /// Backward motion
+    Backward,
+}
+
+/// Track side used to specify inner/outer curve dominance.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum DriveTrackSide {
+    /// Left track
+    Left,
+    /// Right track
+    Right,
+}
+
+/// Distance command specification
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DriveDistanceKind {
+    /// Straight-line distance in track sprocket revolutions
+    Straight {
+        /// Target revolutions of the track sprocket
+        revolutions: f32,
+    },
+    /// Curved distance in track sprocket revolutions
+    ///
+    /// The inner track (smaller radius) dominates completion.
+    Curved {
+        /// Which track is the inner (shorter arc) side
+        inner_track: DriveTrackSide,
+        /// Target revolutions for the inner track sprocket
+        inner_revolutions: f32,
+        /// Target revolutions for the outer track sprocket
+        outer_revolutions: f32,
     },
 }
 
@@ -112,6 +160,19 @@ pub enum CompletionTelemetry {
         final_yaw_deg: f32,
         /// Signed error (degrees): achieved - target.
         angle_error_deg: f32,
+        /// Duration in milliseconds.
+        duration_ms: u64,
+    },
+    /// Telemetry for `DriveDistance`.
+    DriveDistance {
+        /// Achieved revolutions (left track sprocket).
+        achieved_left_revs: f32,
+        /// Achieved revolutions (right track sprocket).
+        achieved_right_revs: f32,
+        /// Target revolutions (left track sprocket).
+        target_left_revs: f32,
+        /// Target revolutions (right track sprocket).
+        target_right_revs: f32,
         /// Duration in milliseconds.
         duration_ms: u64,
     },
@@ -168,6 +229,25 @@ pub enum RotationMotion {
 // Control parameters
 /// Number of encoder pulses per motor shaft revolution
 pub const PULSES_PER_REV: u32 = 8;
+/// Gear ratio from motor shaft to track sprocket
+pub const GEAR_RATIO_MOTOR_TO_SPROCKET: u32 = 120;
+/// Number of encoder pulses per track sprocket revolution
+pub const PULSES_PER_SPROCKET_REV: u32 = PULSES_PER_REV * GEAR_RATIO_MOTOR_TO_SPROCKET;
+/// Number of encoder pulses per track sprocket revolution (float).
+#[allow(clippy::cast_precision_loss)]
+pub const PULSES_PER_SPROCKET_REV_F32: f32 = PULSES_PER_SPROCKET_REV as f32;
+/// Distance drive ramp-down begins when remaining revolutions drop below this value.
+pub const DISTANCE_RAMP_DOWN_START_REVS: f32 = 0.25;
+/// Minimum speed during ramp-down (0-100).
+pub const DISTANCE_MIN_SPEED: u8 = 20;
+/// Maximum speed clamp for distance driving (0-100).
+pub const DISTANCE_MAX_SPEED: u8 = 100;
+/// Completion tolerance for distance driving (revolutions).
+pub const DISTANCE_TOLERANCE_REVS: f32 = 0.01;
+/// Distance drive control interval in milliseconds.
+pub const DISTANCE_CONTROL_INTERVAL_MS: u64 = 20;
+/// Encoder timeout during distance driving (milliseconds).
+pub const DISTANCE_ENCODER_TIMEOUT_MS: u64 = 300;
 /// Maximum rotation speed (0-100%)
 pub const ROTATION_SPEED_MAX: u8 = 50;
 /// Minimum rotation speed to overcome friction

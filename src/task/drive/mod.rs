@@ -76,6 +76,7 @@ use defmt::info;
 use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
+use micromath::F32Ext;
 
 use crate::{
     system::{
@@ -108,8 +109,8 @@ pub use feedback::{
     try_send_imu_measurement,
 };
 pub use types::{
-    CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveCompletion, ImuCalibrationKind,
-    InterruptKind,
+    CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveCompletion, DriveDirection,
+    DriveDistanceKind, DriveTrackSide, ImuCalibrationKind, InterruptKind,
 };
 
 /// Envelope for queued drive commands.
@@ -329,6 +330,14 @@ async fn rotation_tick_ms() {
     Timer::after(Duration::from_millis(20)).await;
 }
 
+/// Distance control tick interval
+async fn distance_tick_ms() {
+    Timer::after(Duration::from_millis(types::DISTANCE_CONTROL_INTERVAL_MS)).await;
+}
+
+/// Stall timeout during distance driving (milliseconds).
+const DISTANCE_STALL_TIMEOUT_MS: u64 = 750;
+
 /// Result of a rotation control step.
 enum RotationStepResult {
     /// Rotation is still in progress; continue ticking.
@@ -345,6 +354,129 @@ enum RotationStepResult {
         /// Completion telemetry captured at failure.
         telemetry: CompletionTelemetry,
     },
+}
+
+/// Result of a distance control step.
+enum DistanceStepResult {
+    /// Distance drive is still in progress.
+    InProgress,
+    /// Distance drive completed successfully with final telemetry.
+    Completed {
+        /// Completion telemetry captured at success.
+        telemetry: CompletionTelemetry,
+    },
+    /// Distance drive failed with a static reason and telemetry snapshot.
+    Failed {
+        /// Failure reason identifier.
+        reason: &'static str,
+        /// Completion telemetry captured at failure.
+        telemetry: CompletionTelemetry,
+    },
+}
+
+/// Distance drive control state.
+struct DistanceDriveState {
+    /// Straight or curved distance specification.
+    kind: types::DriveDistanceKind,
+    /// Drive direction (forward or backward).
+    direction: types::DriveDirection,
+    /// Base speed magnitude (0-100).
+    base_speed: u8,
+    /// Target revolutions for the left track sprocket.
+    target_left_revs: f32,
+    /// Target revolutions for the right track sprocket.
+    target_right_revs: f32,
+    /// Inner track for curved motion (dominates completion).
+    inner_track: Option<types::DriveTrackSide>,
+    /// Target revolutions for the inner track sprocket.
+    target_inner_revs: f32,
+    /// Left speed scale relative to the max target (1.0 for the dominant track).
+    left_ratio: f32,
+    /// Right speed scale relative to the max target (1.0 for the dominant track).
+    right_ratio: f32,
+    /// Last commanded left speed (after scaling/ramp).
+    last_left_speed: i8,
+    /// Last commanded right speed (after scaling/ramp).
+    last_right_speed: i8,
+    /// Accumulated left revolutions.
+    accumulated_left_revs: f32,
+    /// Accumulated right revolutions.
+    accumulated_right_revs: f32,
+    /// Last time we observed forward progress (ms).
+    last_progress_ms: u64,
+    /// Consecutive samples with zero progress.
+    zero_progress_samples: u32,
+    /// Timestamp of the last processed encoder measurement (ms).
+    last_encoder_timestamp_ms: u64,
+    /// Last time we saw a new encoder measurement (ms).
+    last_encoder_seen_ms: u64,
+    /// Previous encoder measurement for computing deltas.
+    last_encoder_measurement: Option<EncoderMeasurement>,
+    /// Start time (ms) used for duration telemetry.
+    started_at_ms: u64,
+}
+
+impl DistanceDriveState {
+    /// Create a new distance drive state and precompute targets/ratios.
+    fn new(kind: types::DriveDistanceKind, direction: types::DriveDirection, base_speed: u8) -> Self {
+        let (target_left_revs, target_right_revs, inner_track, target_inner_revs) = match kind {
+            types::DriveDistanceKind::Straight { revolutions } => (revolutions, revolutions, None, revolutions),
+            types::DriveDistanceKind::Curved {
+                inner_track,
+                inner_revolutions,
+                outer_revolutions,
+            } => match inner_track {
+                types::DriveTrackSide::Left => (
+                    inner_revolutions,
+                    outer_revolutions,
+                    Some(inner_track),
+                    inner_revolutions,
+                ),
+                types::DriveTrackSide::Right => (
+                    outer_revolutions,
+                    inner_revolutions,
+                    Some(inner_track),
+                    inner_revolutions,
+                ),
+            },
+        };
+
+        let max_target = target_left_revs.max(target_right_revs);
+        let left_ratio = if max_target > 0.0 {
+            target_left_revs / max_target
+        } else {
+            1.0
+        };
+        let right_ratio = if max_target > 0.0 {
+            target_right_revs / max_target
+        } else {
+            1.0
+        };
+
+        let now_ms = Instant::now().as_millis();
+
+        Self {
+            kind,
+            direction,
+            base_speed,
+            target_left_revs,
+            target_right_revs,
+            inner_track,
+            target_inner_revs,
+            left_ratio,
+            right_ratio,
+            last_left_speed: 0,
+            last_right_speed: 0,
+            accumulated_left_revs: 0.0,
+            accumulated_right_revs: 0.0,
+            last_progress_ms: now_ms,
+            zero_progress_samples: 0,
+            last_encoder_timestamp_ms: 0,
+            last_encoder_seen_ms: now_ms,
+            last_encoder_measurement: None,
+            started_at_ms: now_ms,
+        }
+    }
 }
 
 /// Run a single step of the rotation control loop.
@@ -460,6 +592,208 @@ async fn run_rotation_control_step(rotation_state: &mut RotationState, started_a
     RotationStepResult::InProgress
 }
 
+/// Run a single step of the distance control loop.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap
+)]
+async fn run_distance_control_step(state: &mut DistanceDriveState) -> DistanceStepResult {
+    let now_ms = Instant::now().as_millis();
+    if now_ms.saturating_sub(state.last_encoder_seen_ms) >= types::DISTANCE_ENCODER_TIMEOUT_MS {
+        let telemetry = CompletionTelemetry::DriveDistance {
+            achieved_left_revs: state.accumulated_left_revs,
+            achieved_right_revs: state.accumulated_right_revs,
+            target_left_revs: state.target_left_revs,
+            target_right_revs: state.target_right_revs,
+            duration_ms: now_ms.saturating_sub(state.started_at_ms),
+        };
+        return DistanceStepResult::Failed {
+            reason: "EncoderTimeout",
+            telemetry,
+        };
+    }
+
+    let Some(measurement) = feedback::get_latest_encoder_measurement().await else {
+        return DistanceStepResult::InProgress;
+    };
+
+    if measurement.timestamp_ms == 0 || measurement.timestamp_ms == state.last_encoder_timestamp_ms {
+        return DistanceStepResult::InProgress;
+    }
+    state.last_encoder_timestamp_ms = measurement.timestamp_ms;
+    state.last_encoder_seen_ms = now_ms;
+
+    let delta_measurement = state
+        .last_encoder_measurement
+        .map_or(measurement, |prev| EncoderMeasurement {
+            left_front: compensation::calculate_delta_u16(measurement.left_front, prev.left_front),
+            left_rear: compensation::calculate_delta_u16(measurement.left_rear, prev.left_rear),
+            right_front: compensation::calculate_delta_u16(measurement.right_front, prev.right_front),
+            right_rear: compensation::calculate_delta_u16(measurement.right_rear, prev.right_rear),
+            timestamp_ms: measurement.timestamp_ms,
+        });
+    state.last_encoder_measurement = Some(measurement);
+
+    let data = crate::task::drive::compensation::calculate_track_averages(delta_measurement);
+    if data.all_zero() {
+        state.zero_progress_samples = state.zero_progress_samples.saturating_add(1);
+        if now_ms.saturating_sub(state.last_progress_ms) >= DISTANCE_STALL_TIMEOUT_MS {
+            let telemetry = CompletionTelemetry::DriveDistance {
+                achieved_left_revs: state.accumulated_left_revs,
+                achieved_right_revs: state.accumulated_right_revs,
+                target_left_revs: state.target_left_revs,
+                target_right_revs: state.target_right_revs,
+                duration_ms: now_ms.saturating_sub(state.started_at_ms),
+            };
+            return DistanceStepResult::Failed {
+                reason: "StallTimeout",
+                telemetry,
+            };
+        }
+        return DistanceStepResult::InProgress;
+    }
+    if data.has_single_motor_zero_anomaly() {
+        let telemetry = CompletionTelemetry::DriveDistance {
+            achieved_left_revs: state.accumulated_left_revs,
+            achieved_right_revs: state.accumulated_right_revs,
+            target_left_revs: state.target_left_revs,
+            target_right_revs: state.target_right_revs,
+            duration_ms: now_ms.saturating_sub(state.started_at_ms),
+        };
+        return DistanceStepResult::Failed {
+            reason: "EncoderAnomaly",
+            telemetry,
+        };
+    }
+
+    state.last_progress_ms = now_ms;
+    state.zero_progress_samples = 0;
+
+    let left_revs = data.left_track_avg / types::PULSES_PER_SPROCKET_REV_F32;
+    let right_revs = data.right_track_avg / types::PULSES_PER_SPROCKET_REV_F32;
+
+    state.accumulated_left_revs += left_revs;
+    state.accumulated_right_revs += right_revs;
+
+    let inner_progress = match state.kind {
+        types::DriveDistanceKind::Straight { .. } => state.accumulated_left_revs.min(state.accumulated_right_revs),
+        types::DriveDistanceKind::Curved { .. } => match state.inner_track {
+            Some(types::DriveTrackSide::Left) => state.accumulated_left_revs,
+            Some(types::DriveTrackSide::Right) => state.accumulated_right_revs,
+            None => (state.accumulated_left_revs + state.accumulated_right_revs) * 0.5,
+        },
+    };
+
+    let remaining = (state.target_inner_revs - inner_progress).max(0.0);
+
+    let duration_ms = now_ms.saturating_sub(state.started_at_ms);
+    let telemetry = CompletionTelemetry::DriveDistance {
+        achieved_left_revs: state.accumulated_left_revs,
+        achieved_right_revs: state.accumulated_right_revs,
+        target_left_revs: state.target_left_revs,
+        target_right_revs: state.target_right_revs,
+        duration_ms,
+    };
+
+    if remaining <= types::DISTANCE_TOLERANCE_REVS {
+        motor_driver::send_motor_command(MotorCommand::SetTracks {
+            left_speed: 0,
+            right_speed: 0,
+        })
+        .await;
+
+        let mut sys = SYSTEM_STATE.lock().await;
+        sys.left_track_speed = 0;
+        sys.right_track_speed = 0;
+        drop(sys);
+
+        return DistanceStepResult::Completed { telemetry };
+    }
+
+    let ramp_speed = if remaining <= types::DISTANCE_RAMP_DOWN_START_REVS {
+        let factor = (remaining / types::DISTANCE_RAMP_DOWN_START_REVS).clamp(0.0, 1.0);
+        let scaled = (f32::from(state.base_speed) * factor).round() as u8;
+        scaled.clamp(types::DISTANCE_MIN_SPEED, types::DISTANCE_MAX_SPEED)
+    } else {
+        state.base_speed.min(types::DISTANCE_MAX_SPEED)
+    };
+
+    let signed_base = match state.direction {
+        types::DriveDirection::Forward => ramp_speed as i8,
+        types::DriveDirection::Backward => -(ramp_speed as i8),
+    };
+
+    let left_speed = (f32::from(signed_base) * state.left_ratio).round() as i8;
+    let right_speed = (f32::from(signed_base) * state.right_ratio).round() as i8;
+
+    let mut adjusted_left = left_speed;
+    let mut adjusted_right = right_speed;
+    distance_apply_compensation(left_speed, right_speed, &mut adjusted_left, &mut adjusted_right, data);
+
+    state.last_left_speed = adjusted_left;
+    state.last_right_speed = adjusted_right;
+
+    motor_driver::send_motor_command(MotorCommand::SetTracks {
+        left_speed: adjusted_left,
+        right_speed: adjusted_right,
+    })
+    .await;
+
+    let mut sys = SYSTEM_STATE.lock().await;
+    sys.left_track_speed = adjusted_left;
+    sys.right_track_speed = adjusted_right;
+
+    DistanceStepResult::InProgress
+}
+
+#[allow(dead_code)]
+/// Stop both tracks and update system state (distance helpers can share this).
+async fn distance_stop_motors() {
+    encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
+
+    motor_driver::send_motor_command(MotorCommand::SetTracks {
+        left_speed: 0,
+        right_speed: 0,
+    })
+    .await;
+
+    let mut sys = SYSTEM_STATE.lock().await;
+    sys.left_track_speed = 0;
+    sys.right_track_speed = 0;
+}
+
+#[allow(dead_code)]
+/// Apply drift compensation to scaled left/right targets for distance driving.
+fn distance_apply_compensation(
+    base_left: i8,
+    base_right: i8,
+    adjusted_left: &mut i8,
+    adjusted_right: &mut i8,
+    data: crate::task::drive::compensation::TrackSpeedData,
+) {
+    if data.all_zero() || data.has_single_motor_zero_anomaly() {
+        return;
+    }
+
+    let diff_percent = crate::task::drive::compensation::calculate_speed_difference(&data);
+    let action =
+        crate::task::drive::compensation::determine_compensation(diff_percent, *adjusted_left, *adjusted_right);
+
+    let (new_left, new_right) =
+        crate::task::drive::compensation::apply_compensation_action(action, *adjusted_left, *adjusted_right);
+
+    if new_left != *adjusted_left || new_right != *adjusted_right {
+        *adjusted_left = new_left.clamp(-100, 100);
+        *adjusted_right = new_right.clamp(-100, 100);
+    } else {
+        // Keep base values if no adjustment is needed.
+        *adjusted_left = base_left;
+        *adjusted_right = base_right;
+    }
+}
+
 /// Run a single step of the drift compensation loop
 async fn run_drift_compensation_step(drift: &mut DriftCompensationState, rotation_state: Option<&RotationState>) {
     if !drift.enabled || rotation_state.is_some() {
@@ -565,6 +899,13 @@ enum ActiveIntent {
         /// Start time (ms) used for duration telemetry.
         started_at_ms: u64,
     },
+    /// Active distance drive intent with state and optional completion sender.
+    DriveDistance {
+        /// Distance controller state for the in-progress drive.
+        state: DistanceDriveState,
+        /// Optional completion sender for the issued command.
+        completion: Option<types::CompletionSender>,
+    },
 }
 
 /// State for the main drive control loop
@@ -641,7 +982,7 @@ impl DriveLoop {
         // Wake from standby if movement requested
         if self.standby_enabled {
             match &action {
-                DriveAction::SetSpeed { .. } | DriveAction::RotateExact { .. } => {
+                DriveAction::SetSpeed { .. } | DriveAction::RotateExact { .. } | DriveAction::DriveDistance { .. } => {
                     motor_driver::send_motor_command(MotorCommand::SetAllDriversEnable { enabled: true }).await;
                     self.standby_enabled = false;
                     Timer::after(Duration::from_millis(100)).await;
@@ -668,6 +1009,9 @@ impl DriveLoop {
                 motion,
             } => {
                 self.handle_rotate_exact(degrees, direction, motion, completion).await;
+            }
+            DriveAction::DriveDistance { kind, direction, speed } => {
+                self.handle_drive_distance(kind, direction, speed, completion).await;
             }
             DriveAction::Coast => {
                 self.handle_coast().await;
@@ -784,6 +1128,83 @@ impl DriveLoop {
         });
     }
 
+    /// Handle a `DriveDistance` command by initializing encoder-based control.
+    #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+    async fn handle_drive_distance(
+        &mut self,
+        kind: types::DriveDistanceKind,
+        direction: types::DriveDirection,
+        speed: u8,
+        completion: Option<types::CompletionSender>,
+    ) {
+        // Disable drift loop; distance control applies compensation internally.
+        self.drift.enabled = false;
+
+        let (target_left_revs, target_right_revs, target_inner_revs) = match kind {
+            types::DriveDistanceKind::Straight { revolutions } => (revolutions, revolutions, revolutions),
+            types::DriveDistanceKind::Curved {
+                inner_track,
+                inner_revolutions,
+                outer_revolutions,
+            } => match inner_track {
+                types::DriveTrackSide::Left => (inner_revolutions, outer_revolutions, inner_revolutions),
+                types::DriveTrackSide::Right => (outer_revolutions, inner_revolutions, inner_revolutions),
+            },
+        };
+
+        if target_inner_revs <= types::DISTANCE_TOLERANCE_REVS {
+            send_completion(
+                completion,
+                DriveCompletion {
+                    status: CompletionStatus::Success,
+                    telemetry: CompletionTelemetry::DriveDistance {
+                        achieved_left_revs: 0.0,
+                        achieved_right_revs: 0.0,
+                        target_left_revs,
+                        target_right_revs,
+                        duration_ms: 0,
+                    },
+                },
+            )
+            .await;
+            return;
+        }
+
+        feedback::clear_encoder_measurement().await;
+        encoder_read::send_command(encoder_read::EncoderCommand::Start {
+            interval_ms: types::DISTANCE_CONTROL_INTERVAL_MS,
+        })
+        .await;
+        encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+
+        let mut state = DistanceDriveState::new(kind, direction, speed);
+
+        let base_speed = speed.min(types::DISTANCE_MAX_SPEED);
+        let signed_base = match direction {
+            types::DriveDirection::Forward => base_speed as i8,
+            types::DriveDirection::Backward => -(base_speed as i8),
+        };
+
+        let left_speed = (f32::from(signed_base) * state.left_ratio).round() as i8;
+        let right_speed = (f32::from(signed_base) * state.right_ratio).round() as i8;
+
+        state.last_left_speed = left_speed;
+        state.last_right_speed = right_speed;
+
+        motor_driver::send_motor_command(MotorCommand::SetTracks {
+            left_speed,
+            right_speed,
+        })
+        .await;
+
+        let mut sys = SYSTEM_STATE.lock().await;
+        sys.left_track_speed = left_speed;
+        sys.right_track_speed = right_speed;
+        drop(sys);
+
+        self.active_intent = Some(ActiveIntent::DriveDistance { state, completion });
+    }
+
     /// Handle a `Coast` command by disabling compensation, stopping encoder sampling, and sending coast command.
     async fn handle_coast(&mut self) {
         info!("coast");
@@ -857,29 +1278,50 @@ impl DriveLoop {
 
         // Cancel active intent
         if let Some(intent) = self.active_intent.take() {
-            let ActiveIntent::RotateExact {
-                state,
-                completion,
-                started_at_ms,
-            } = intent;
-            let accumulated = state.accumulated_angle.abs();
-            let target = state.target_angle.abs();
-            let last_yaw_deg = state.last_yaw.unwrap_or(0.0);
-            let duration_ms = Instant::now().as_millis() - started_at_ms;
+            match intent {
+                ActiveIntent::RotateExact {
+                    state,
+                    completion,
+                    started_at_ms,
+                } => {
+                    let accumulated = state.accumulated_angle.abs();
+                    let target = state.target_angle.abs();
+                    let last_yaw_deg = state.last_yaw.unwrap_or(0.0);
+                    let duration_ms = Instant::now().as_millis() - started_at_ms;
 
-            raise_event(Events::StartStopMotionDataCollection(false)).await;
-            send_completion(
-                completion,
-                DriveCompletion {
-                    status: CompletionStatus::Cancelled,
-                    telemetry: CompletionTelemetry::RotateExact {
-                        final_yaw_deg: last_yaw_deg,
-                        angle_error_deg: accumulated - target,
-                        duration_ms,
-                    },
-                },
-            )
-            .await;
+                    raise_event(Events::StartStopMotionDataCollection(false)).await;
+                    send_completion(
+                        completion,
+                        DriveCompletion {
+                            status: CompletionStatus::Cancelled,
+                            telemetry: CompletionTelemetry::RotateExact {
+                                final_yaw_deg: last_yaw_deg,
+                                angle_error_deg: accumulated - target,
+                                duration_ms,
+                            },
+                        },
+                    )
+                    .await;
+                }
+                ActiveIntent::DriveDistance { state, completion } => {
+                    let duration_ms = Instant::now().as_millis() - state.started_at_ms;
+
+                    send_completion(
+                        completion,
+                        DriveCompletion {
+                            status: CompletionStatus::Cancelled,
+                            telemetry: CompletionTelemetry::DriveDistance {
+                                achieved_left_revs: state.accumulated_left_revs,
+                                achieved_right_revs: state.accumulated_right_revs,
+                                target_left_revs: state.target_left_revs,
+                                target_right_revs: state.target_right_revs,
+                                duration_ms,
+                            },
+                        },
+                    )
+                    .await;
+                }
+            }
         }
 
         // Invalidate queued commands
@@ -911,78 +1353,137 @@ impl DriveLoop {
 /// channels rather than having this task consume system events directly.
 #[embassy_executor::task]
 pub async fn drive() {
+    // Initialize per-task state and the completion channel pool once.
     let mut loop_state = DriveLoop::new();
     init_completion_pool_once();
 
     loop {
-        if let Some(intent) = loop_state.active_intent.as_mut() {
-            match intent {
-                ActiveIntent::RotateExact {
-                    state,
-                    completion,
-                    started_at_ms,
-                } => {
-                    let interrupt_or_tick = select(DRIVE_INTERRUPT.wait(), rotation_tick_ms()).await;
-                    match interrupt_or_tick {
-                        Either::First(kind) => {
-                            loop_state.handle_interrupt(kind).await;
-                        }
-                        Either::Second(()) => match run_rotation_control_step(state, *started_at_ms).await {
-                            RotationStepResult::InProgress => {}
-                            RotationStepResult::Completed { telemetry } => {
-                                let completion = completion.take();
-                                raise_event(Events::StartStopMotionDataCollection(false)).await;
-                                send_completion(
-                                    completion,
-                                    DriveCompletion {
-                                        status: CompletionStatus::Success,
-                                        telemetry,
-                                    },
-                                )
-                                .await;
-                                loop_state.active_intent = None;
-                            }
-                            RotationStepResult::Failed { reason, telemetry } => {
-                                let completion = completion.take();
-                                raise_event(Events::StartStopMotionDataCollection(false)).await;
-                                send_completion(
-                                    completion,
-                                    DriveCompletion {
-                                        status: CompletionStatus::Failed(reason),
-                                        telemetry,
-                                    },
-                                )
-                                .await;
-                                loop_state.active_intent = None;
-                            }
-                        },
-                    }
+        // Step 1: If an intent is active, poll it with higher priority than new commands.
+        if let Some(outcome) = poll_active_intent(&mut loop_state).await {
+            match outcome {
+                ActiveIntentOutcome::Interrupt(kind) => {
+                    loop_state.handle_interrupt(kind).await;
+                }
+                ActiveIntentOutcome::RotationStep(result) => {
+                    apply_rotation_result(&mut loop_state, result).await;
+                }
+                ActiveIntentOutcome::DistanceStep(result) => {
+                    apply_distance_result(&mut loop_state, result).await;
                 }
             }
             continue;
         }
 
+        // Step 2: No active intent — wait for work (with optional drift ticks).
         if loop_state.drift.enabled {
-            let event_or_tick = select(
-                select(DRIVE_QUEUE.receiver().receive(), DRIVE_INTERRUPT.wait()),
-                drift_tick_ms(),
-            )
-            .await;
-            match event_or_tick {
-                Either::First(inner) => match inner {
-                    Either::First(envelope) => loop_state.handle_envelope(envelope).await,
-                    Either::Second(kind) => loop_state.handle_interrupt(kind).await,
-                },
+            step_idle_with_drift(&mut loop_state).await;
+        } else {
+            step_idle_without_drift(&mut loop_state).await;
+        }
+    }
+}
+
+/// Outcome of polling an active intent.
+enum ActiveIntentOutcome {
+    /// An interrupt arrived while an intent was active.
+    Interrupt(InterruptKind),
+    /// A control step completed for the active rotation intent.
+    RotationStep(RotationStepResult),
+    /// A control step completed for the active distance intent.
+    DistanceStep(DistanceStepResult),
+}
+
+/// Poll the active intent (if any) and return the next action to perform.
+async fn poll_active_intent(loop_state: &mut DriveLoop) -> Option<ActiveIntentOutcome> {
+    match loop_state.active_intent.as_mut() {
+        Some(ActiveIntent::RotateExact {
+            state, started_at_ms, ..
+        }) => {
+            let interrupt_or_tick = select(DRIVE_INTERRUPT.wait(), rotation_tick_ms()).await;
+            match interrupt_or_tick {
+                Either::First(kind) => Some(ActiveIntentOutcome::Interrupt(kind)),
                 Either::Second(()) => {
-                    run_drift_compensation_step(&mut loop_state.drift, None).await;
+                    let result = run_rotation_control_step(state, *started_at_ms).await;
+                    Some(ActiveIntentOutcome::RotationStep(result))
                 }
             }
-        } else {
-            let command_or_interrupt = select(DRIVE_QUEUE.receiver().receive(), DRIVE_INTERRUPT.wait()).await;
-            match command_or_interrupt {
-                Either::First(envelope) => loop_state.handle_envelope(envelope).await,
-                Either::Second(kind) => loop_state.handle_interrupt(kind).await,
+        }
+        Some(ActiveIntent::DriveDistance { state, .. }) => {
+            let interrupt_or_tick = select(DRIVE_INTERRUPT.wait(), distance_tick_ms()).await;
+            match interrupt_or_tick {
+                Either::First(kind) => Some(ActiveIntentOutcome::Interrupt(kind)),
+                Either::Second(()) => {
+                    let result = run_distance_control_step(state).await;
+                    Some(ActiveIntentOutcome::DistanceStep(result))
+                }
             }
         }
+        None => None,
+    }
+}
+
+/// Apply rotation step results to the active intent (completions + intent clearing).
+async fn apply_rotation_result(loop_state: &mut DriveLoop, result: RotationStepResult) {
+    let (status, telemetry) = match result {
+        RotationStepResult::InProgress => return,
+        RotationStepResult::Completed { telemetry } => (CompletionStatus::Success, telemetry),
+        RotationStepResult::Failed { reason, telemetry } => (CompletionStatus::Failed(reason), telemetry),
+    };
+
+    let completion = match loop_state.active_intent.as_mut() {
+        Some(ActiveIntent::RotateExact { completion, .. }) => completion.take(),
+        _ => None,
+    };
+
+    raise_event(Events::StartStopMotionDataCollection(false)).await;
+    send_completion(completion, DriveCompletion { status, telemetry }).await;
+
+    loop_state.active_intent = None;
+}
+
+/// Apply distance step results to the active intent (completions + intent clearing).
+async fn apply_distance_result(loop_state: &mut DriveLoop, result: DistanceStepResult) {
+    let (status, telemetry) = match result {
+        DistanceStepResult::InProgress => return,
+        DistanceStepResult::Completed { telemetry } => (CompletionStatus::Success, telemetry),
+        DistanceStepResult::Failed { reason, telemetry } => (CompletionStatus::Failed(reason), telemetry),
+    };
+
+    let completion = match loop_state.active_intent.as_mut() {
+        Some(ActiveIntent::DriveDistance { completion, .. }) => completion.take(),
+        _ => None,
+    };
+
+    distance_stop_motors().await;
+    send_completion(completion, DriveCompletion { status, telemetry }).await;
+
+    loop_state.active_intent = None;
+}
+
+/// Idle loop step when drift compensation is enabled.
+async fn step_idle_with_drift(loop_state: &mut DriveLoop) {
+    let event_or_tick = select(
+        select(DRIVE_QUEUE.receiver().receive(), DRIVE_INTERRUPT.wait()),
+        drift_tick_ms(),
+    )
+    .await;
+
+    match event_or_tick {
+        Either::First(inner) => match inner {
+            Either::First(envelope) => loop_state.handle_envelope(envelope).await,
+            Either::Second(kind) => loop_state.handle_interrupt(kind).await,
+        },
+        Either::Second(()) => {
+            run_drift_compensation_step(&mut loop_state.drift, None).await;
+        }
+    }
+}
+
+/// Idle loop step when drift compensation is disabled.
+async fn step_idle_without_drift(loop_state: &mut DriveLoop) {
+    let command_or_interrupt = select(DRIVE_QUEUE.receiver().receive(), DRIVE_INTERRUPT.wait()).await;
+    match command_or_interrupt {
+        Either::First(envelope) => loop_state.handle_envelope(envelope).await,
+        Either::Second(kind) => loop_state.handle_interrupt(kind).await,
     }
 }
