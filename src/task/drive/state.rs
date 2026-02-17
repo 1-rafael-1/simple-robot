@@ -10,6 +10,7 @@ use defmt::info;
 use embassy_time::{Duration, Instant, Timer};
 use micromath::F32Ext;
 
+use super::control::RotationState;
 use crate::{
     system::state::SYSTEM_STATE,
     task::{
@@ -22,8 +23,6 @@ use crate::{
         motor_driver::{self, MotorCommand},
     },
 };
-
-use super::control::RotationState;
 
 /// Drift compensation state (encoder-based straight-line correction)
 #[derive(Clone, Copy)]

@@ -12,11 +12,13 @@
 //!   avoid leaking work and stale feedback into subsequent intents.
 
 use crate::{
-    system::{event::Events, event::raise_event},
+    system::event::{Events, raise_event},
     task::{
         drive::{feedback, types},
-        sensors::encoders::{self as encoder_read},
-        sensors::imu::{self, AhrsFusionMode},
+        sensors::{
+            encoders::{self as encoder_read},
+            imu::{self, AhrsFusionMode},
+        },
     },
 };
 

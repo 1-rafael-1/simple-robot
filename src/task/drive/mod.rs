@@ -99,16 +99,15 @@ pub use feedback::{
     send_accel_measurement, send_gyro_measurement, send_mag_measurement, try_send_encoder_measurement,
     try_send_imu_measurement,
 };
-pub use types::{
-    CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveCompletion, DriveDirection,
-    DriveDistanceKind, ImuCalibrationKind, InterruptKind, TurnDirection,
-};
-
 use intent::{
     ActiveIntentOutcome, apply_distance_result, apply_rotation_result, poll_active_intent, step_idle_with_drift,
     step_idle_without_drift,
 };
 use state::DriveLoop;
+pub use types::{
+    CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveCompletion, DriveDirection,
+    DriveDistanceKind, ImuCalibrationKind, InterruptKind, TurnDirection,
+};
 
 /// Drive control task - coordinates motion and sensor feedback
 ///
