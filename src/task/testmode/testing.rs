@@ -262,7 +262,7 @@ async fn run_testing_sequence() {
 
     show_line(1, "REV 50 REVS").await;
 
-    let Ok(mut completion_handle) = acquire_completion_handle().await else {
+    let Ok(completion_handle) = acquire_completion_handle().await else {
         defmt::warn!("🧪 TEST: completion pool exhausted; skipping reverse distance");
         return;
     };
