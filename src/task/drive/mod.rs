@@ -375,6 +375,7 @@ enum DistanceStepResult {
 }
 
 /// Distance drive control state.
+/// TODO: Curve control is moving to a radius/arc-length model; expect this state to change.
 struct DistanceDriveState {
     /// Straight or curved distance specification.
     kind: types::DriveDistanceKind,
@@ -748,7 +749,6 @@ async fn run_distance_control_step(state: &mut DistanceDriveState) -> DistanceSt
     DistanceStepResult::InProgress
 }
 
-#[allow(dead_code)]
 /// Stop both tracks and update system state (distance helpers can share this).
 async fn distance_stop_motors() {
     encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
@@ -764,7 +764,6 @@ async fn distance_stop_motors() {
     sys.right_track_speed = 0;
 }
 
-#[allow(dead_code)]
 /// Apply drift compensation to scaled left/right targets for distance driving.
 fn distance_apply_compensation(
     base_left: i8,

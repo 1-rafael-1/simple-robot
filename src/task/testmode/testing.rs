@@ -305,36 +305,3 @@ async fn run_testing_sequence() {
     // Do not overwrite the OLED here; keep the last turn's telemetry visible.
     defmt::info!("🧪 TEST: Sequence complete (OLED left showing last turn telemetry)");
 }
-
-/// Auto-start calibration sequence (LEGACY - keep for reference)
-///
-/// This was the old test sequence that automatically triggered motor calibration
-/// first, then IMU calibration. Motor calibration must run first because IMU
-/// calibration uses calibrated motor commands to measure interference at actual
-/// operational speeds.
-///
-/// Uncomment and use this if you need to run full calibration during development.
-#[embassy_executor::task]
-async fn auto_calibration_sequence() {
-    // Send initialization event
-    Timer::after(Duration::from_millis(100)).await;
-    raise_event(Events::Initialize).await;
-
-    // Wait for system to initialize
-    Timer::after(Duration::from_secs(3)).await;
-
-    defmt::info!("🤖 AUTO-CALIBRATION: Starting MOTOR calibration in 2 seconds...");
-    Timer::after(Duration::from_secs(2)).await;
-
-    defmt::info!("🤖 AUTO-CALIBRATION: Triggering motor calibration now!");
-    send_drive_command(DriveCommand::RunMotorCalibration).await;
-
-    // Wait for motor calibration to complete (~50s) plus delay
-    Timer::after(Duration::from_secs(80)).await;
-
-    defmt::info!("🤖 AUTO-CALIBRATION: Starting IMU calibration in 10 seconds...");
-    Timer::after(Duration::from_secs(10)).await;
-
-    defmt::info!("🤖 AUTO-CALIBRATION: Triggering IMU calibration now!");
-    send_drive_command(DriveCommand::RunImuCalibration(ImuCalibrationKind::Full)).await;
-}
