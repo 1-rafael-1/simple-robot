@@ -112,8 +112,11 @@ pub fn calculate_track_averages(measurement: crate::task::sensors::encoders::Enc
     let right_front = measurement.right_front;
     let right_rear = measurement.right_rear;
 
-    let left_track_avg = f32::from(left_front + left_rear) / 2.0;
-    let right_track_avg = f32::from(right_front + right_rear) / 2.0;
+    // Convert each u16 to f32 before summing to avoid u16 overflow and to
+    // sidestep precision-loss concerns: u16::MAX (65535) < 2^23, so every
+    // u16 value is representable exactly in f32's 23-bit mantissa.
+    let left_track_avg = f32::midpoint(f32::from(left_front), f32::from(left_rear));
+    let right_track_avg = f32::midpoint(f32::from(right_front), f32::from(right_rear));
 
     TrackSpeedData {
         left_front,
@@ -332,7 +335,7 @@ fn clamp_decrease_magnitude_amount_within_bounds(value: i8, desired_delta: i8) -
     let max_allowed = if value >= 0 {
         i16::from(value)
     } else {
-        -(i16::from(value)).max(0)
+        (-i16::from(value)).max(0)
     };
     i16::from(desired_delta).min(max_allowed).max(0) as i8
 }

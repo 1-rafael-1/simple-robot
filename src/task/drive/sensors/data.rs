@@ -79,12 +79,14 @@ pub async fn send_encoder_measurement(measurement: EncoderMeasurement) {
 
 /// Try to update the latest encoder measurement without blocking.
 ///
-/// Returns `true` if the update succeeded. Used by the orchestrator to avoid
-/// blocking when the drive task holds the mutex during calibration.
-pub async fn try_send_encoder_measurement(measurement: EncoderMeasurement) -> bool {
-    let mut latest = LATEST_ENCODER_MEASUREMENT.lock().await;
-    *latest = Some(measurement);
-    true
+/// Returns `true` if the update succeeded, `false` if the mutex is currently
+/// held by the drive task. Used by the orchestrator to avoid blocking when
+/// the drive task holds the mutex during calibration.
+pub fn try_send_encoder_measurement(measurement: EncoderMeasurement) -> bool {
+    LATEST_ENCODER_MEASUREMENT.try_lock().is_ok_and(|mut latest| {
+        *latest = Some(measurement);
+        true
+    })
 }
 
 /// Try to send an IMU measurement to the drive task without blocking.

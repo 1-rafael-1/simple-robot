@@ -47,7 +47,7 @@ async fn handle_event(event: Events) {
         Events::TestingCompleted => ui::handle_testing_completed().await,
         Events::InactivityTimeout => behavior::inactivity::handle_inactivity_timeout().await,
         Events::EncoderMeasurementTaken(measurement) => {
-            behavior::sensor_events::handle_encoder_measurement(measurement).await;
+            behavior::sensor_events::handle_encoder_measurement(measurement);
         }
         Events::UltrasonicSweepReadingTaken(distance, angle) => {
             behavior::sensor_events::handle_ultrasonic_sweep_reading(distance, angle).await;
