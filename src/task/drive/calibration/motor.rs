@@ -13,7 +13,7 @@ use crate::{
     system::helper::string_helper::status_text,
     task::{
         drive::{
-            feedback::{clear_encoder_measurement, wait_for_encoder_event_timeout},
+            sensors::data::{clear_encoder_measurement, wait_for_encoder_event_timeout},
             types::{
                 CALIBRATION_COAST_DURATION_MS, CALIBRATION_SAMPLE_DURATION_MS, CALIBRATION_SPEED_INDIVIDUAL,
                 CALIBRATION_SPEED_TRACK,

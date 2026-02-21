@@ -3,7 +3,7 @@
 //! This module wires the active-intent state machine to control-loop ticks and
 //! interrupt handling. It owns the polling/apply flow and idle stepping.
 //!
-//! # Interrupt vs completion behavior
+//! # Interrupt vs completion behaviour
 //!
 //! - Interrupts preempt any active intent and cause its completion (if present)
 //!   to resolve as `Cancelled`.
@@ -23,8 +23,8 @@ use crate::task::drive::{
     api::{DRIVE_INTERRUPT, DRIVE_QUEUE, send_completion},
     distance::{DistanceStepResult, distance_stop_motors, run_distance_control_step},
     drift::run_drift_compensation_step,
-    lifecycle::{stop_curve_imu, stop_rotation_imu},
     rotation::{RotationStepResult, run_rotation_control_step},
+    sensors::control::{stop_curve_imu, stop_rotation_imu},
     state::{ActiveIntent, DriveLoop},
     types::{self, CompletionStatus, DriveCompletion},
 };

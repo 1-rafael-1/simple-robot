@@ -9,11 +9,11 @@ use crate::task::{
 };
 
 /// Handle encoder measurements.
-pub async fn handle_encoder_measurement(measurement: encoders::EncoderMeasurement) {
+pub fn handle_encoder_measurement(measurement: encoders::EncoderMeasurement) {
     // Forward encoder measurements to drive task for calibration and feedback control.
     // Store in shared mutex so drive task can read latest measurement on demand.
     // This ensures calibration always gets fresh data without channel overflow issues.
-    let _ = drive::try_send_encoder_measurement(measurement).await;
+    let _ = drive::try_send_encoder_measurement(measurement);
 }
 
 /// Handle ultrasonic sensor readings.
