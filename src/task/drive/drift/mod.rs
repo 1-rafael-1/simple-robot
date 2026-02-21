@@ -1,21 +1,51 @@
-//! Drift compensation loop for straight-line driving.
+//! Encoder-based drift compensation loop for straight-line driving.
 //!
-//! This module monitors encoder deltas during straight, constant-speed motion
-//! and applies small speed corrections to reduce track drift. It is disabled
-//! during rotation or when encoder anomalies are detected.
+//! This module owns the async control-loop step that monitors encoder deltas
+//! during straight, constant-speed motion and applies small speed corrections
+//! to keep both tracks running at equal speed.
+//!
+//! # Structure
+//!
+//! - [`run_drift_compensation_step`]: the async entry point called by the drive
+//!   task's idle loop. It reads the latest encoder measurement, computes deltas,
+//!   and decides whether to adjust motor speeds.
+//! - [`math`]: pure, synchronous math functions and types used by the step above
+//!   (track averages, speed difference, compensation decision, delta helpers).
+//!
+//! # When drift compensation is active
+//!
+//! Compensation is enabled only during straight-line `Differential` commands
+//! where both tracks are commanded at equal (or near-equal) speed. It is
+//! disabled during rotation, distance driving (which applies its own internal
+//! compensation), braking, coasting, and standby.
+//!
+//! # Encoder delta handling
+//!
+//! The encoder task publishes cumulative hardware PWM counter values since the
+//! last explicit reset. This module stores the previous measurement and computes
+//! per-sample deltas with wraparound handling each tick via
+//! [`math::calculate_delta_u16`].
+
+pub(super) mod math;
 
 use defmt::info;
 
+use self::math as compensation;
 use crate::{
     system::state::SYSTEM_STATE,
     task::{
-        drive::{compensation, feedback, state::DriftCompensationState},
+        drive::{sensors::data as feedback, state::DriftCompensationState},
         motor_driver::{self, MotorCommand},
         sensors::encoders::{self as encoder_read, EncoderMeasurement},
     },
 };
 
 /// Run a single step of the drift compensation loop.
+///
+/// This is called by the drive task's idle loop at a modest tick rate
+/// (see `drift_tick_ms` in `intent`). It is a no-op when:
+/// - `drift.enabled` is `false`, or
+/// - a rotation is in progress (detected via the passed `rotation_state`).
 pub(super) async fn run_drift_compensation_step(
     drift: &mut DriftCompensationState,
     rotation_state: Option<&crate::task::drive::rotation::RotationState>,
@@ -33,10 +63,10 @@ pub(super) async fn run_drift_compensation_step(
 
         // Compute per-sample deltas from cumulative hardware counters.
         // The encoder task publishes cumulative counts since last reset, so we
-        // subtract the previous reading (with wraparound handling) to get pulses
-        // for the current sampling window only.
+        // subtract the previous reading (with wraparound) to get pulses for the
+        // current sampling window only.
         // First sample after start/reset: treat cumulative as delta (counters
-        // were just reset, so this is correct for the first window).
+        // were just reset at that point, so this is correct for the first window).
         let delta_measurement = drift
             .last_encoder_measurement
             .map_or(measurement, |prev| EncoderMeasurement {
@@ -50,12 +80,13 @@ pub(super) async fn run_drift_compensation_step(
 
         let data = compensation::calculate_track_averages(delta_measurement);
 
-        // If nothing moved (very low speed or stopped), ignore the sample.
+        // If nothing moved (very low speed or stopped), skip this sample.
         if data.all_zero() {
             return;
         }
 
-        // If we detect an anomaly (e.g., one encoder stuck at zero), disable compensation.
+        // If one encoder reads zero while others are non-zero, disable compensation
+        // to avoid making corrections based on faulty data.
         if data.has_single_motor_zero_anomaly() {
             drift.enabled = false;
             encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
@@ -63,13 +94,11 @@ pub(super) async fn run_drift_compensation_step(
         }
 
         let diff_percent = compensation::calculate_speed_difference(&data);
-
         let action = compensation::determine_compensation(diff_percent, drift.adjusted_left, drift.adjusted_right);
-
         let (new_left, new_right) =
             compensation::apply_compensation_action(action, drift.adjusted_left, drift.adjusted_right);
 
-        // Only send motor update if anything actually changes.
+        // Only send a motor update when something actually changes.
         if new_left != drift.adjusted_left || new_right != drift.adjusted_right {
             let prev_left = drift.adjusted_left;
             let prev_right = drift.adjusted_right;

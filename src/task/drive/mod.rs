@@ -62,44 +62,65 @@
 //!
 //! # Module Index
 //!
+//! ## Public surface
 //! - [`api`]: Command queueing and completion pool.
-//! - [`state`]: Drive loop state and intent handling.
-//! - [`intent`]: Intent polling, application, and idle stepping.
-//! - [`rotation`]: Rotation state machine and async control loop.
-//! - [`distance`]: Distance state machine and async control loop.
-//! - [`drift`]: Drift compensation loop.
-//! - [`lifecycle`]: IMU/encoder start/stop helpers.
-//! - [`feedback`]: Sensor input channels and measurement forwarding.
-//! - [`compensation`]: Drift compensation helpers.
-//! - [`calibration`]: Motor and IMU calibration procedures.
 //! - [`types`]: Command, telemetry, and completion types.
+//!
+//! ## Loop orchestration
+//! - [`state`]: Drive loop data structures (`DriveLoop`, `ActiveIntent`, `DriftCompensationState`).
+//! - [`handlers`]: `impl DriveLoop` command handlers (envelope dispatch, action handling, interrupts).
+//! - [`intent`]: Active intent polling, result application, and idle stepping.
+//!
+//! ## Control algorithms
+//! - [`rotation`]: Rotation state machine and async control step.
+//! - [`distance`]: Distance state machine and async control step.
+//!
+//! ## Drift compensation
+//! - [`drift`]: Async drift compensation loop step.
+//! - [`drift::math`]: Pure math functions (track averages, speed difference, compensation algorithm).
+//!
+//! ## Sensor infrastructure
+//! - [`sensors::data`]: Static sensor feedback channels and measurement forwarding.
+//! - [`sensors::control`]: IMU and encoder start/stop helpers.
+//!
+//! ## Calibration
+//! - [`calibration`]: Motor and IMU calibration procedures.
 
-// Submodules
-mod api;
-mod distance;
-mod drift;
+// ── Loop orchestration ────────────────────────────────────────────────────────
+mod handlers;
 mod intent;
-mod lifecycle;
-mod rotation;
 mod state;
 
+// ── Control algorithms ────────────────────────────────────────────────────────
+mod distance;
+mod rotation;
+
+// ── Drift compensation ────────────────────────────────────────────────────────
+mod drift;
+
+// ── Sensor infrastructure ─────────────────────────────────────────────────────
+mod sensors;
+
+// ── Calibration ───────────────────────────────────────────────────────────────
 mod calibration;
-mod compensation;
-pub mod feedback;
+
+// ── Public API surface ────────────────────────────────────────────────────────
+mod api;
 pub mod types;
 
-// Re-export public API
+// ── Re-exports ────────────────────────────────────────────────────────────────
+
 pub use api::{
     CompletionHandle, CompletionPoolError, acquire_completion_handle, completion_sender, release_completion_handle,
     send_drive_command, send_drive_command_with_completion, send_drive_interrupt, wait_for_completion,
 };
-pub use feedback::{
-    send_accel_measurement, send_gyro_measurement, send_mag_measurement, try_send_encoder_measurement,
-    try_send_imu_measurement,
-};
 use intent::{
     ActiveIntentOutcome, apply_distance_result, apply_rotation_result, poll_active_intent, step_idle_with_drift,
     step_idle_without_drift,
+};
+pub use sensors::data::{
+    send_accel_measurement, send_gyro_measurement, send_mag_measurement, try_send_encoder_measurement,
+    try_send_imu_measurement,
 };
 use state::DriveLoop;
 pub use types::{
@@ -107,17 +128,17 @@ pub use types::{
     DriveDistanceKind, ImuCalibrationKind, InterruptKind, TurnDirection,
 };
 
-/// Drive control task - coordinates motion and sensor feedback
+/// Drive control task - coordinates motion and sensor feedback.
 ///
 /// # Architecture
 ///
 /// This is a high-level control task that:
-/// - Receives drive commands via queue
-/// - Receives encoder feedback via channel (from orchestrator)
-/// - Receives IMU feedback via command (from orchestrator)
-/// - Receives interrupts via signal
-/// - Sends motor commands to `motor_driver` task
-/// - Coordinates calibration procedures
+/// - Receives drive commands via queue.
+/// - Receives encoder feedback via channel (from orchestrator).
+/// - Receives IMU feedback via channel (from orchestrator).
+/// - Receives interrupts via signal.
+/// - Sends motor commands to the `motor_driver` task.
+/// - Coordinates calibration procedures.
 ///
 /// # Sensor Data Flow
 ///
@@ -127,7 +148,7 @@ pub use types::{
 /// channels rather than having this task consume system events directly.
 #[embassy_executor::task]
 pub async fn drive() {
-    // Initialize per-task state and the completion channel pool once.
+    // Initialise per-task state and the completion channel pool once.
     let mut loop_state = DriveLoop::new();
     api::init_completion_pool_once();
 

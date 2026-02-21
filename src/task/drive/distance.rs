@@ -60,8 +60,8 @@ use crate::{
     system::state::SYSTEM_STATE,
     task::{
         drive::{
-            compensation,
-            feedback::{self, IMU_FEEDBACK_CHANNEL},
+            drift::math as compensation,
+            sensors::data::{self as feedback, IMU_FEEDBACK_CHANNEL},
             types,
         },
         motor_driver::{self, MotorCommand},
@@ -250,7 +250,7 @@ pub(super) async fn run_distance_control_step(state: &mut DistanceDriveState) ->
         });
     state.last_encoder_measurement = Some(measurement);
 
-    let data = crate::task::drive::compensation::calculate_track_averages(delta_measurement);
+    let data = compensation::calculate_track_averages(delta_measurement);
     if data.all_zero() {
         state.zero_progress_samples = state.zero_progress_samples.saturating_add(1);
         if now_ms.saturating_sub(state.last_progress_ms) >= DISTANCE_STALL_TIMEOUT_MS {
@@ -445,22 +445,20 @@ fn distance_apply_compensation(
     base_right: i8,
     adjusted_left: &mut i8,
     adjusted_right: &mut i8,
-    data: crate::task::drive::compensation::TrackSpeedData,
+    data: compensation::TrackSpeedData,
 ) {
     if data.all_zero() || data.has_single_motor_zero_anomaly() {
         return;
     }
 
-    let diff_percent = crate::task::drive::compensation::calculate_speed_difference(&data);
-    let action =
-        crate::task::drive::compensation::determine_compensation(diff_percent, *adjusted_left, *adjusted_right);
+    let diff_percent = compensation::calculate_speed_difference(&data);
+    let action = compensation::determine_compensation(diff_percent, *adjusted_left, *adjusted_right);
 
-    let (new_left, new_right) =
-        crate::task::drive::compensation::apply_compensation_action(action, *adjusted_left, *adjusted_right);
+    let (new_left, new_right) = compensation::apply_compensation_action(action, *adjusted_left, *adjusted_right);
 
     if new_left != *adjusted_left || new_right != *adjusted_right {
-        *adjusted_left = new_left.clamp(-100, 100);
-        *adjusted_right = new_right.clamp(-100, 100);
+        *adjusted_left = new_left.clamp(-100i8, 100i8);
+        *adjusted_right = new_right.clamp(-100i8, 100i8);
     } else {
         // Keep base values if no adjustment is needed.
         *adjusted_left = base_left;

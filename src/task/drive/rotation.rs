@@ -25,7 +25,7 @@ use embassy_time::{Duration, Instant, Timer};
 use crate::{
     system::state::SYSTEM_STATE,
     task::{
-        drive::{feedback::IMU_FEEDBACK_CHANNEL, types},
+        drive::{sensors::data::IMU_FEEDBACK_CHANNEL, types},
         motor_driver::{self, MotorCommand},
         sensors::imu::ImuMeasurement,
     },

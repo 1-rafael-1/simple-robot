@@ -12,7 +12,7 @@ use crate::{
     system::helper::string_helper::status_text,
     task::{
         drive::{
-            feedback::{
+            sensors::data::{
                 clear_accel_measurement, clear_gyro_measurement, clear_mag_measurement, get_latest_accel_measurement,
                 get_latest_gyro_measurement, measure_mag_average, subtract_mag, wait_for_mag_event_timeout,
             },
