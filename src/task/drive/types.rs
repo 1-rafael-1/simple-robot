@@ -41,7 +41,7 @@ pub enum DriveCommand {
     RunImuCalibration(ImuCalibrationKind),
 }
 
-/// Motion control commands with associated parameters
+/// Motion control commands with associated parameters.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DriveAction {
     /// Set motor speeds directly using `motor_driver` convention
@@ -51,8 +51,8 @@ pub enum DriveAction {
     /// - Negative values: Backward motion
     /// - Zero: Coast (freewheel)
     ///
-    /// This directly maps to `motor_driver`'s `SetTracks` command.
-    SetSpeed {
+    /// This is intened to be used for direct teleoperation or simple commands without feedback control.
+    Differential {
         /// Left track speed (-100 to +100)
         left: i8,
         /// Right track speed (-100 to +100)

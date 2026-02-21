@@ -65,11 +65,10 @@
 //! - [`api`]: Command queueing and completion pool.
 //! - [`state`]: Drive loop state and intent handling.
 //! - [`intent`]: Intent polling, application, and idle stepping.
-//! - [`distance`]: Distance control loop and curve correction.
-//! - [`rotation`]: Rotation control loop wrapper.
+//! - [`rotation`]: Rotation state machine and async control loop.
+//! - [`distance`]: Distance state machine and async control loop.
 //! - [`drift`]: Drift compensation loop.
 //! - [`lifecycle`]: IMU/encoder start/stop helpers.
-//! - [`control`]: Intent execution and control-loop state machines.
 //! - [`feedback`]: Sensor input channels and measurement forwarding.
 //! - [`compensation`]: Drift compensation helpers.
 //! - [`calibration`]: Motor and IMU calibration procedures.
@@ -86,7 +85,6 @@ mod state;
 
 mod calibration;
 mod compensation;
-mod control;
 pub mod feedback;
 pub mod types;
 

@@ -10,7 +10,7 @@ use defmt::info;
 use embassy_time::{Duration, Instant, Timer};
 use micromath::F32Ext;
 
-use super::control::RotationState;
+use super::rotation::RotationState;
 use crate::{
     system::state::SYSTEM_STATE,
     task::{
@@ -161,7 +161,9 @@ impl DriveLoop {
         // Wake from standby if movement requested
         if self.standby_enabled {
             match &action {
-                DriveAction::SetSpeed { .. } | DriveAction::RotateExact { .. } | DriveAction::DriveDistance { .. } => {
+                DriveAction::Differential { .. }
+                | DriveAction::RotateExact { .. }
+                | DriveAction::DriveDistance { .. } => {
                     motor_driver::send_motor_command(MotorCommand::SetAllDriversEnable { enabled: true }).await;
                     self.standby_enabled = false;
                     Timer::after(Duration::from_millis(100)).await;
@@ -171,7 +173,7 @@ impl DriveLoop {
         }
 
         match action {
-            DriveAction::SetSpeed { left, right } => {
+            DriveAction::Differential { left, right } => {
                 self.handle_set_speed(left, right).await;
                 api::send_completion(
                     completion,

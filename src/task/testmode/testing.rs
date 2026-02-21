@@ -149,7 +149,7 @@ async fn run_testing_sequence() {
         show_line(3, "").await;
 
         // Ensure we're stopped before the next turn
-        send_drive_command(DriveCommand::Drive(DriveAction::SetSpeed { left: 0, right: 0 })).await;
+        send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
         Timer::after(Duration::from_millis(500)).await;
 
         let Ok(mut completion_handle) = acquire_completion_handle().await else {

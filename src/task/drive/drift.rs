@@ -18,7 +18,7 @@ use crate::{
 /// Run a single step of the drift compensation loop.
 pub(super) async fn run_drift_compensation_step(
     drift: &mut DriftCompensationState,
-    rotation_state: Option<&crate::task::drive::control::RotationState>,
+    rotation_state: Option<&crate::task::drive::rotation::RotationState>,
 ) {
     if !drift.enabled || rotation_state.is_some() {
         return;
