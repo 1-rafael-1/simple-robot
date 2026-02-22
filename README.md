@@ -17,7 +17,7 @@ The robot is undergoing a complete redesign with a second custom PCB. The new PC
 
 Current schematic and PCB designs can be found in the [KiCad directory](misc/KiCad/simple-robot):
 - [Schematic Image](misc/KiCad/simple-robot/schematic.jpg)
-- [PCB Image](misc/KiCad/simple-robot/simple-robot.jpg)
+- [PCB Image](misc/media/schematic_picture.png)
 
 The previous TODO list and BOM information below are from an earlier iteration and no longer reflect the current state of the project.
 
