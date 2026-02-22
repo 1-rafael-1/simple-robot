@@ -15,11 +15,7 @@ Check out the v1-robot navigating autonomously, download the demo video here: [A
 
 The robot is undergoing a complete redesign with a second custom PCB. The new PCB has been ordered and is awaiting delivery. Once it arrives, firmware development will begin in earnest.
 
-Current schematic and PCB designs can be found in the [KiCad directory](misc/KiCad/simple-robot):
-- [Schematic Image](misc/KiCad/simple-robot/schematic.jpg)
-- [PCB Image](misc/media/schematic_picture.png)
-
-The previous TODO list and BOM information below are from an earlier iteration and no longer reflect the current state of the project.
+Current schematic and PCB designs can be found in the [KiCad directory](misc/KiCad/simple-robot).
 
 ## Licensing Overview
 
@@ -70,7 +66,7 @@ At the end of it all and in case of success we will have a thing that is barely 
 
 You can find the KiCad project here: [misc/KiCad/simple-robot](misc/KiCad/simple-robot). Some of the boards I used had no symbols & footprints and so I created them as I went. You can find them here: [misc/KiCad/symbols](misc/KiCad/symbols). The Pi Pico symbol I found online here: [ncarandini/KiCad-RP-Pico](https://github.com/ncarandini/KiCad-RP-Pico).
 
-![robot-schematic](misc/KiCad/simple-robot/schematic.jpg)
+![robot-schematic](misc/media/schematic_picture.png)
 *The v2 schematic (current design)*
 
 ![robot-pcb](misc/KiCad/simple-robot/simple-robot.jpg)
