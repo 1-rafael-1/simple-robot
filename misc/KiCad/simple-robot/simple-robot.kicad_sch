@@ -6,8 +6,8 @@
 	(paper "A4")
 	(title_block
 		(title "simple-robot")
-		(date "2026-01-26")
-		(rev "4")
+		(date "2026-02-22")
+		(rev "5")
 		(company "Rafael Koch")
 	)
 	(lib_symbols
@@ -11910,73 +11910,6 @@
 		)
 	)
 	(symbol
-		(lib_id "power:+3V3")
-		(at 147.32 135.89 90)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "1d6aab4c-3155-4537-a82b-b222e152e5d3")
-		(property "Reference" "#PWR011"
-			(at 151.13 135.89 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Value" "+3V3"
-			(at 144.78 135.8899 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 147.32 135.89 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" ""
-			(at 147.32 135.89 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"+3V3\""
-			(at 147.32 135.89 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "068c28ab-9ff0-484a-81eb-38df67029f12")
-		)
-		(instances
-			(project "simple-robot"
-				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
-					(reference "#PWR011")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Mechanical:MountingHole_Pad")
 		(at 158.75 33.02 0)
 		(unit 1)
@@ -22645,6 +22578,73 @@
 			(project "simple-robot"
 				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
 					(reference "#PWR091")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 147.32 135.89 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "e1ae8df5-b26e-4bb6-b6e4-e70f4ef0bd99")
+		(property "Reference" "#PWR011"
+			(at 140.97 135.89 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 143.51 136.652 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+		(property "Footprint" ""
+			(at 147.32 135.89 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 147.32 135.89 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 147.32 135.89 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "0cfb3f42-cbea-479b-9b09-5049533cc731")
+		)
+		(instances
+			(project "simple-robot"
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "#PWR011")
 					(unit 1)
 				)
 			)
