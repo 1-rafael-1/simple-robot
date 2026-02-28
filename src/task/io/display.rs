@@ -27,7 +27,10 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 use embassy_time::{Duration, Timer};
 use embedded_graphics::{
     geometry::Size,
-    mono_font::{MonoTextStyle, MonoTextStyleBuilder, ascii::FONT_7X14_BOLD as Font},
+    mono_font::{
+        MonoTextStyle, MonoTextStyleBuilder,
+        ascii::{FONT_7X14, FONT_7X14_BOLD},
+    },
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::{Arc, Line, PrimitiveStyle, Rectangle},
@@ -41,12 +44,22 @@ use ssd1306_async::{
 
 use crate::I2cBusShared;
 
+/// Text style for display rendering
+pub enum TextStyle {
+    /// Normal weight text
+    Normal,
+    /// Bold text
+    Bold,
+}
+
 /// Display actions that can be requested by other tasks
 pub enum DisplayAction {
     /// Show a sensor sweep pattern with distance (cm) and angle (degrees)
     ShowSweep(f64, f32),
-    /// Show a text message on the display
+    /// Show a text message on the display (bold)
     ShowText(String<20>, u8),
+    /// Show a text message with an explicit style
+    ShowTextStyled(String<20>, u8, TextStyle),
     /// Clear the entire display
     Clear,
 }
@@ -166,8 +179,13 @@ pub async fn display(i2c_bus: &'static I2cBusShared) {
     let mut display =
         Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0).into_buffered_graphics_mode();
 
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&Font)
+    let text_style_bold = MonoTextStyleBuilder::new()
+        .font(&FONT_7X14_BOLD)
+        .text_color(BinaryColor::On)
+        .build();
+
+    let text_style_regular = MonoTextStyleBuilder::new()
+        .font(&FONT_7X14)
         .text_color(BinaryColor::On)
         .build();
 
@@ -189,8 +207,12 @@ pub async fn display(i2c_bus: &'static I2cBusShared) {
     }
 
     if display_online {
-        display_update(DisplayAction::Clear).await;
         display.clear();
+
+        let mut txt: String<20> = String::new();
+        let _ = txt.push_str("Display OK");
+        let _ = handle_show_text(&mut display, text_style_bold, &txt, 0);
+
         if display.flush().await.is_err() {
             defmt::warn!("display flush failed right after init; going offline");
             display_online = false;
@@ -236,7 +258,8 @@ pub async fn display(i2c_bus: &'static I2cBusShared) {
 
         if let Err(error) = handle_display_action(
             &mut display,
-            text_style,
+            text_style_bold,
+            text_style_regular,
             &mut points,
             &mut last_angle,
             &mut moving_right,
@@ -260,7 +283,8 @@ pub async fn display(i2c_bus: &'static I2cBusShared) {
 /// Handles the specified display action
 fn handle_display_action(
     display: &mut DisplayDriver,
-    text_style: MonoTextStyle<BinaryColor>,
+    text_style_bold: MonoTextStyle<BinaryColor>,
+    text_style_regular: MonoTextStyle<BinaryColor>,
     points: &mut PointsBuffer,
     last_angle: &mut f32,
     moving_right: &mut bool,
@@ -270,7 +294,14 @@ fn handle_display_action(
         DisplayAction::ShowSweep(distance, angle) => {
             handle_show_sweep(display, points, last_angle, moving_right, distance, angle)
         }
-        DisplayAction::ShowText(text, line) => handle_show_text(display, text_style, &text, line),
+        DisplayAction::ShowText(text, line) => handle_show_text(display, text_style_bold, &text, line),
+        DisplayAction::ShowTextStyled(text, line, style) => {
+            let chosen_style = match style {
+                TextStyle::Normal => text_style_regular,
+                TextStyle::Bold => text_style_bold,
+            };
+            handle_show_text(display, chosen_style, &text, line)
+        }
         DisplayAction::Clear => {
             display.clear();
             Ok(())
