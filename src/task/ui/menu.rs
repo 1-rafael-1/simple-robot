@@ -18,8 +18,8 @@ pub const fn menu_selection_from_index(index: usize) -> MenuSelection {
 /// Map a drive mode submenu index to its drive mode.
 ///
 /// Currently only one mode exists; the index parameter is reserved for future expansion.
-#[allow(clippy::match_single_binding, unused_variables)]
-pub const fn drive_mode_from_index(index: usize) -> DriveMode {
+#[allow(clippy::match_single_binding)]
+pub const fn drive_mode_from_index(_index: usize) -> DriveMode {
     DriveMode::CoastAndAvoid
 }
 

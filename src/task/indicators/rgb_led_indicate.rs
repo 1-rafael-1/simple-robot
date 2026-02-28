@@ -153,13 +153,6 @@ pub async fn rgb_led_indicate(
             (green, red)
         };
 
-        defmt::debug!(
-            "LED Update: Battery level={}%, Red PWM={}%, Green PWM={}%",
-            batt_lvl,
-            red_pwm,
-            green_pwm
-        );
-
         match operation_mode {
             OperationMode::Manual => {
                 // Solid color indicating battery level

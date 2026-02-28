@@ -65,7 +65,7 @@ static START_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// Forward distance used to keep the robot driving until interrupted (cm).
 ///
-/// Set to 100 km — effectively infinite for any real-world run, but avoids
+/// Set to 1 km (100,000 cm) — effectively infinite for any real-world run, but avoids
 /// `f32::MAX` overflow in the distance calculations.
 const MAX_FORWARD_DISTANCE_CM: f32 = 100_000.0;
 
@@ -131,15 +131,17 @@ pub async fn coast_obstacle_avoid_task() {
 
         // Main loop: drive forward until interrupted, then avoid, repeat.
         while ACTIVE.load(Ordering::Relaxed) {
-            drive_forward().await;
+            let status = drive_forward().await;
 
             if !ACTIVE.load(Ordering::Relaxed) {
                 // stop() was called; exit without running avoidance.
                 break;
             }
 
-            // The forward drive was interrupted by an obstacle.
-            avoid_obstacle().await;
+            // Only run avoidance if the forward drive was actually cancelled.
+            if matches!(status, CompletionStatus::Cancelled) {
+                avoid_obstacle().await;
+            }
         }
 
         // Come to a clean stop before waiting for the next start signal.
@@ -153,14 +155,14 @@ pub async fn coast_obstacle_avoid_task() {
 
 /// Issue a near-infinite `DriveDistance` forward and wait for it to complete
 /// (either cancelled by an interrupt or, extremely unlikely, finished).
-async fn drive_forward() {
+async fn drive_forward() -> CompletionStatus {
     info!("coast-avoid: driving forward");
 
     let Ok(handle) = acquire_completion_handle().await else {
         // Pool exhausted — log and wait briefly so the loop doesn't spin hot.
         defmt::warn!("coast-avoid: completion pool exhausted, skipping forward step");
         Timer::after(Duration::from_millis(500)).await;
-        return;
+        return CompletionStatus::Failed("completion pool exhausted");
     };
 
     let sender = completion_sender(handle);
@@ -190,6 +192,8 @@ async fn drive_forward() {
             info!("coast-avoid: forward drive failed: {=str}", reason);
         }
     }
+
+    completion.status
 }
 
 /// Back up a fixed distance and then turn a random angle before resuming.
@@ -224,8 +228,19 @@ async fn avoid_obstacle() {
     let completion = wait_for_completion(&handle).await;
     release_completion_handle(handle).await;
 
-    if let CompletionStatus::Failed(reason) = completion.status {
-        info!("coast-avoid: backup failed: {=str}", reason);
+    match completion.status {
+        CompletionStatus::Cancelled => {
+            info!("coast-avoid: backup cancelled");
+            return;
+        }
+        CompletionStatus::Failed(reason) => {
+            info!("coast-avoid: backup failed: {=str}", reason);
+        }
+        CompletionStatus::Success => {}
+    }
+
+    if !ACTIVE.load(Ordering::Relaxed) {
+        return;
     }
 
     Timer::after(Duration::from_millis(100)).await;
@@ -263,8 +278,19 @@ async fn avoid_obstacle() {
     let completion = wait_for_completion(&handle).await;
     release_completion_handle(handle).await;
 
-    if let CompletionStatus::Failed(reason) = completion.status {
-        info!("coast-avoid: turn failed: {=str}", reason);
+    match completion.status {
+        CompletionStatus::Cancelled => {
+            info!("coast-avoid: turn cancelled");
+            return;
+        }
+        CompletionStatus::Failed(reason) => {
+            info!("coast-avoid: turn failed: {=str}", reason);
+        }
+        CompletionStatus::Success => {}
+    }
+
+    if !ACTIVE.load(Ordering::Relaxed) {
+        return;
     }
 
     Timer::after(Duration::from_millis(100)).await;
