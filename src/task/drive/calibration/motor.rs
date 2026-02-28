@@ -873,4 +873,6 @@ pub async fn run_motor_calibration() {
         line3: Some(line3),
     })
     .await;
+
+    event::raise_event(event::Events::CalibrationCompleted).await;
 }

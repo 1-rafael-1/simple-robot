@@ -58,6 +58,7 @@ async fn handle_event(event: Events) {
 
         Events::StartStopMotionDataCollection(start) => behavior::motion::handle_start_stop_motion_data(start),
         Events::StartStopUltrasonicSweep(start) => behavior::motion::handle_start_stop_ultrasonic_sweep(start).await,
+        Events::CalibrationCompleted => ui::handle_calibration_completed().await,
         Events::CalibrationStatus {
             header,
             line1,

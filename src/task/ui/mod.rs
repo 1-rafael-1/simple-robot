@@ -25,6 +25,12 @@ pub async fn ui_initialized() -> bool {
     state.is_initialized()
 }
 
+/// Returns true if the UI is currently showing a calibration flow.
+pub async fn ui_is_calibrating() -> bool {
+    let ui = UI_STATE.lock().await;
+    matches!(ui.mode, UiMode::Calibrating { .. })
+}
+
 /// Handle rotary encoder turns.
 pub async fn handle_rotary_turned(direction: RotaryDirection) {
     if !ui_initialized().await {
@@ -132,6 +138,7 @@ pub async fn handle_rotary_button_pressed() {
 
             let mut ui = UI_STATE.lock().await;
             ui.mode = UiMode::Calibrating { kind: selection };
+            ui.calibration_complete = false;
             let snapshot = *ui;
             drop(ui);
             render_current_ui(&snapshot).await;
@@ -169,7 +176,12 @@ pub async fn handle_rotary_button_pressed() {
                 }
             }
         }
-        UiMode::RunningTest | UiMode::RunningAutonomous { .. } | UiMode::Calibrating { .. } => {}
+        UiMode::Calibrating { .. } => {
+            if ui_snapshot.calibration_complete {
+                show_main_menu().await;
+            }
+        }
+        UiMode::RunningTest | UiMode::RunningAutonomous { .. } => {}
     }
 }
 
@@ -190,6 +202,12 @@ pub const fn handle_rotary_button_hold_end() {
 /// Handle testing completion by returning to the main menu.
 pub async fn handle_testing_completed() {
     show_main_menu().await;
+}
+
+/// Handle calibration completion by enabling exit via button press.
+pub async fn handle_calibration_completed() {
+    let mut ui = UI_STATE.lock().await;
+    ui.calibration_complete = true;
 }
 
 /// Handle a UI back action based on the current mode.
