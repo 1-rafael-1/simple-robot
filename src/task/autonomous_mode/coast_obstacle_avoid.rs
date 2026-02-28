@@ -204,7 +204,7 @@ async fn avoid_obstacle() {
     Timer::after(Duration::from_millis(200)).await;
 
     // ── Back up ───────────────────────────────────────────────────────────────
-    info!("coast-avoid: backing up {} cm", BACKUP_DISTANCE_CM as u32);
+    info!("coast-avoid: backing up {=f32} cm", BACKUP_DISTANCE_CM);
 
     let Ok(handle) = acquire_completion_handle().await else {
         defmt::warn!("coast-avoid: completion pool exhausted during backup");
