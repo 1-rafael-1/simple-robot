@@ -5,9 +5,9 @@
 use crate::{
     system::{
         event::RotaryDirection,
-        state::{CalibrationSelection, SYSTEM_STATE, UiMode},
+        state::{CalibrationSelection, DriveMode, SYSTEM_STATE, UiMode},
     },
-    task::{drive, testmode},
+    task::{autonomous_mode, drive, testmode},
 };
 
 pub mod menu;
@@ -51,6 +51,13 @@ pub async fn handle_rotary_turned(direction: RotaryDirection) {
             drop(ui);
             render_current_ui(&snapshot).await;
         }
+        UiMode::DriveModeMenu => {
+            let mut ui = UI_STATE.lock().await;
+            ui.drive_mode_index = next_menu_index(ui.drive_mode_index, screens::DRIVE_MODE_MENU_ITEMS.len(), direction);
+            let snapshot = *ui;
+            drop(ui);
+            render_current_ui(&snapshot).await;
+        }
         UiMode::SystemInfo { scroll_offset } => {
             let info = render::build_system_info_data().await;
             let max_scroll = menu::max_system_info_scroll(&info);
@@ -68,7 +75,7 @@ pub async fn handle_rotary_turned(direction: RotaryDirection) {
             drop(ui);
             render_current_ui(&snapshot).await;
         }
-        UiMode::RunningTest | UiMode::Calibrating { .. } => {}
+        UiMode::RunningTest | UiMode::RunningAutonomous { .. } | UiMode::Calibrating { .. } => {}
     }
 }
 
@@ -96,6 +103,14 @@ pub async fn handle_rotary_button_pressed() {
                 let mut ui = UI_STATE.lock().await;
                 ui.calibrate_index = 0;
                 ui.mode = UiMode::CalibrateMenu;
+                let snapshot = *ui;
+                drop(ui);
+                render_current_ui(&snapshot).await;
+            }
+            crate::system::state::MenuSelection::DriveMode => {
+                let mut ui = UI_STATE.lock().await;
+                ui.drive_mode_index = 0;
+                ui.mode = UiMode::DriveModeMenu;
                 let snapshot = *ui;
                 drop(ui);
                 render_current_ui(&snapshot).await;
@@ -139,7 +154,22 @@ pub async fn handle_rotary_button_pressed() {
                 }
             }
         }
-        UiMode::RunningTest | UiMode::Calibrating { .. } => {}
+        UiMode::DriveModeMenu => {
+            let mode = menu::drive_mode_from_index(ui_snapshot.drive_mode_index);
+
+            let mut ui = UI_STATE.lock().await;
+            ui.mode = UiMode::RunningAutonomous { mode };
+            let snapshot = *ui;
+            drop(ui);
+            render_current_ui(&snapshot).await;
+
+            match mode {
+                DriveMode::CoastAndAvoid => {
+                    autonomous_mode::coast_obstacle_avoid::start();
+                }
+            }
+        }
+        UiMode::RunningTest | UiMode::RunningAutonomous { .. } | UiMode::Calibrating { .. } => {}
     }
 }
 
@@ -170,7 +200,15 @@ pub async fn handle_ui_back() {
     };
 
     match mode {
-        UiMode::SystemInfo { .. } | UiMode::CalibrateMenu => {
+        UiMode::SystemInfo { .. } | UiMode::CalibrateMenu | UiMode::DriveModeMenu => {
+            show_main_menu().await;
+        }
+        UiMode::RunningAutonomous { mode } => {
+            match mode {
+                DriveMode::CoastAndAvoid => {
+                    autonomous_mode::coast_obstacle_avoid::stop();
+                }
+            }
             show_main_menu().await;
         }
         _ => {}

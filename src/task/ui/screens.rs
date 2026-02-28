@@ -19,7 +19,10 @@ pub const DISPLAY_LINES: usize = 4;
 pub const MAX_LINE_LEN: usize = 20;
 
 /// Main menu entries.
-pub const MAIN_MENU_ITEMS: [&str; 3] = ["System Info", "Calibrate", "Test Mode"];
+pub const MAIN_MENU_ITEMS: [&str; 4] = ["System Info", "Calibrate", "Drive Mode", "Test Mode"];
+
+/// Drive mode submenu entries.
+pub const DRIVE_MODE_MENU_ITEMS: [&str; 1] = ["Coast & Avoid"];
 
 /// Calibration submenu entries.
 pub const CALIBRATE_MENU_ITEMS: [&str; 4] = ["Motor", "Mag", "Accel", "Gyro"];
@@ -49,6 +52,11 @@ pub async fn render_main_menu(selected_index: usize) {
 /// Render the calibration submenu with the given selected index.
 pub async fn render_calibrate_menu(selected_index: usize) {
     render_menu("Calibrate", &CALIBRATE_MENU_ITEMS, selected_index).await;
+}
+
+/// Render the drive mode submenu with the given selected index.
+pub async fn render_drive_mode_menu(selected_index: usize) {
+    render_menu("Drive Mode", &DRIVE_MODE_MENU_ITEMS, selected_index).await;
 }
 
 /// Render system info lines with the provided scroll offset.

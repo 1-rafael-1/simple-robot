@@ -1,6 +1,7 @@
 //! Robot task implementations
 
 // pub mod autonomous_drive;
+pub mod autonomous_mode;
 pub mod battery_charge_read;
 pub mod motor_driver;
 pub mod orchestrate;

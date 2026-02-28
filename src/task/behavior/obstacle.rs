@@ -2,19 +2,29 @@
 
 use defmt::info;
 
+use crate::task::{
+    autonomous_mode::coast_obstacle_avoid,
+    drive::{InterruptKind, send_drive_interrupt},
+};
+
 /// Handle obstacle detection status changes.
+///
+/// When an obstacle is detected while coast-and-avoid autonomous mode is active,
+/// an `EmergencyBrake` interrupt is sent to the drive task so that the active
+/// `DriveDistance` command resolves immediately as `Cancelled`.  The
+/// coast-and-avoid loop will then run its avoidance maneuver and resume.
 #[allow(clippy::unused_async)]
-pub async fn handle_obstacle_detected(_detected: bool) {
-    info!("Obstacle detection status changed");
-    // TODO: Implement obstacle response
-    // - Trigger avoidance in autonomous mode
-    // - Update LED indicators
+pub async fn handle_obstacle_detected(detected: bool) {
+    info!("Obstacle detection status changed: {}", detected);
+
+    if detected && coast_obstacle_avoid::is_active() {
+        info!("coast-avoid active — issuing EmergencyBrake");
+        send_drive_interrupt(InterruptKind::EmergencyBrake);
+    }
 }
 
 /// Handle obstacle avoidance completion.
 #[allow(clippy::unused_async)]
 pub async fn handle_obstacle_avoidance_attempted() {
     info!("Obstacle avoidance attempted");
-    // TODO: Implement post-avoidance logic
-    // - Resume normal operation or retry
 }

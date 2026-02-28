@@ -76,9 +76,9 @@ const V_DIVIDER_RATIO: f32 = 0.333;
 const ADC_RANGE: f32 = 4096.0;
 
 /// Voltage calibration offset (V)
-/// Empirically determined: measured 8.22V when actual was 8.4V
+/// Empirically determined: measured 0.02V above actual
 /// This corrects for resistor tolerances, wire resistance, and ADC reference variations
-const VOLTAGE_CALIBRATION_OFFSET: f32 = 0.18;
+const VOLTAGE_CALIBRATION_OFFSET: f32 = -0.02;
 
 /// Battery monitoring task that continuously measures voltage and
 /// reports charge level as a percentage

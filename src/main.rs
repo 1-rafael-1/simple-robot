@@ -262,6 +262,9 @@ async fn main(spawner: Spawner) {
     // Initialize testing task for development
     task::testmode::init_testing(spawner);
 
+    // Initialize autonomous drive mode tasks
+    spawner.must_spawn(task::autonomous_mode::coast_obstacle_avoid::coast_obstacle_avoid_task());
+
     // main wishes you a great day
 }
 
