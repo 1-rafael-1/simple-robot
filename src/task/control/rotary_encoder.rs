@@ -10,15 +10,19 @@
 //!
 //! The button is connected to the port expander, so it is read via a signal triggered by the expander's interrupt when the button state changes.
 
+use defmt::debug;
 use embassy_futures::select::{Either, select};
 use embassy_rp::pio_programs::rotary_encoder::{Direction as PioDirection, PioEncoder};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 
 use crate::system::event::{Events, RotaryDirection, raise_event};
 
 /// Button hold threshold (ms)
 const HOLD_DURATION: Duration = Duration::from_millis(700);
+
+/// Rotary turn debounce window (ms)
+const TURN_DEBOUNCE_MS: u64 = 50;
 
 /// Button debounce delay (ms)
 const DEBOUNCE_DURATION: Duration = Duration::from_millis(30);
@@ -57,11 +61,25 @@ pub struct ButtonState {
 /// Task that reads quadrature turns and emits increment/decrement events.
 #[embassy_executor::task]
 pub async fn rotary_encoder_turns(mut encoder: PioEncoder<'static, embassy_rp::peripherals::PIO1, 3>) {
+    let mut last_turn_ms: u64 = 0;
+
     loop {
         let dir = encoder.read().await;
+        let now_ms = Instant::now().as_millis();
+        if now_ms.saturating_sub(last_turn_ms) < TURN_DEBOUNCE_MS {
+            continue;
+        }
+        last_turn_ms = now_ms;
+
         let event = match dir {
-            PioDirection::Clockwise => Events::RotaryTurned(RotaryDirection::Clockwise),
-            PioDirection::CounterClockwise => Events::RotaryTurned(RotaryDirection::CounterClockwise),
+            PioDirection::Clockwise => {
+                debug!("Rotary encoder turned clockwise");
+                Events::RotaryTurned(RotaryDirection::CounterClockwise)
+            }
+            PioDirection::CounterClockwise => {
+                debug!("Rotary encoder turned counter-clockwise");
+                Events::RotaryTurned(RotaryDirection::Clockwise)
+            }
         };
         raise_event(event).await;
     }
@@ -78,13 +96,18 @@ pub async fn rotary_encoder_button() {
             continue;
         }
 
+        debug!("Rotary encoder button pressed");
+
         match select(Timer::after(HOLD_DURATION), debounce()).await {
             Either::First(()) => {
+                debug!("Rotary encoder button hold start");
                 raise_event(Events::RotaryButtonHoldStart).await;
                 wait_for_released().await;
+                debug!("Rotary encoder button hold end");
                 raise_event(Events::RotaryButtonHoldEnd).await;
             }
             Either::Second(_) => {
+                debug!("Rotary encoder button short press");
                 raise_event(Events::RotaryButtonPressed).await;
             }
         }
