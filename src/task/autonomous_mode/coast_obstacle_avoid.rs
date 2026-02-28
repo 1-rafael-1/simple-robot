@@ -39,13 +39,14 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal}
 use embassy_time::{Duration, Instant, Timer};
 use nanorand::{Rng, WyRand};
 
-use crate::task::drive::types::{RotationDirection, RotationMotion};
 use crate::{
     system::event::{Events, raise_event},
     task::drive::{
         CompletionStatus, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, InterruptKind,
         acquire_completion_handle, completion_sender, release_completion_handle, send_drive_command,
-        send_drive_command_with_completion, send_drive_interrupt, wait_for_completion,
+        send_drive_command_with_completion, send_drive_interrupt,
+        types::{RotationDirection, RotationMotion},
+        wait_for_completion,
     },
 };
 
