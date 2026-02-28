@@ -265,6 +265,9 @@ async fn main(spawner: Spawner) {
     // Initialize autonomous drive mode tasks
     spawner.must_spawn(task::autonomous_mode::coast_obstacle_avoid::coast_obstacle_avoid_task());
 
+    // Trigger system initialization (loads calibration data + shows UI when ready)
+    crate::system::event::raise_event(crate::system::event::Events::Initialize).await;
+
     // main wishes you a great day
 }
 
