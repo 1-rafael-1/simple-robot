@@ -112,16 +112,6 @@ struct RCButtonPins {
     d: Peri<'static, embassy_rp::peripherals::PIN_8>,
 }
 
-/// Ultrasonic sensor sweep pins
-struct UltrasonicSweepPins {
-    /// Servo control pin
-    servo: Peri<'static, embassy_rp::peripherals::PIN_14>,
-    /// HC-SR04 trigger pin
-    trigger: Peri<'static, embassy_rp::peripherals::PIN_15>,
-    /// HC-SR04 echo pin
-    echo: Peri<'static, embassy_rp::peripherals::PIN_18>,
-}
-
 /// Grove Vision AI v2 module UART pins
 struct GroveVisionUartPins {
     /// UART TX pin
@@ -158,22 +148,25 @@ async fn main(spawner: Spawner) {
     // Initialize shared I2C bus
     let i2c_bus = init_i2c_bus(p.I2C0, p.PIN_13, p.PIN_12);
 
-    // Initialize PIO1 for various tasks
-    let Pio {
-        mut common,
-        sm0,
-        sm1,
-        sm2,
-        sm3,
-        ..
-    } = Pio::new(p.PIO1, Irqs);
-
+    // note: the order of PIO inits is important, PIO0 must be initialized before PIO1 or PIO1 will not work
+    // ...not sure why....
+    //
     // Initialize PIO0 for ultrasonic sweep
     let Pio {
-        common: mut us_common,
-        sm0: us_sm0,
+        common: mut pio0_common,
+        sm0: pio0_sm0,
         ..
     } = Pio::new(p.PIO0, Irqs);
+
+    // Initialize PIO1 for various tasks
+    let Pio {
+        common: mut pio1_common,
+        sm0: pio1_sm0,
+        sm1: pio1_sm1,
+        sm2: pio1_sm2,
+        sm3: pio1_sm3,
+        ..
+    } = Pio::new(p.PIO1, Irqs);
 
     // Initialize core tasks
     // Orchestrator
@@ -189,10 +182,10 @@ async fn main(spawner: Spawner) {
     // Initialize the rgb indicator led
     init_rgb_led(
         spawner,
-        &mut common,
-        sm0,
-        sm1,
-        sm2,
+        &mut pio1_common,
+        pio1_sm0,
+        pio1_sm1,
+        pio1_sm2,
         RgbLedPins {
             red: p.PIN_28,
             green: p.PIN_22,
@@ -203,8 +196,8 @@ async fn main(spawner: Spawner) {
     // Initialize the rotary encoder
     init_rotary_encoder(
         spawner,
-        &mut common,
-        sm3,
+        &mut pio1_common,
+        pio1_sm3,
         Ec11Pins {
             a: p.PIN_10,
             b: p.PIN_11,
@@ -245,11 +238,11 @@ async fn main(spawner: Spawner) {
     // init_autonomous_drive(&spawner);
     init_ir_obstacle_detect(spawner);
 
-    // Initialize the ultrasonic sweep task
+    // Initialize the ultrasonic sweep tasks
     init_ultrasonic_sweep(
         spawner,
-        &mut us_common,
-        us_sm0,
+        &mut pio0_common,
+        pio0_sm0,
         UltrasonicPins {
             servo: p.PIN_18,
             trigger: p.PIN_15,
