@@ -15,6 +15,7 @@ pub async fn render_current_ui(state: &UiState) {
     match state.mode {
         UiMode::MainMenu => screens::render_main_menu(state.main_index).await,
         UiMode::CalibrateMenu => screens::render_calibrate_menu(state.calibrate_index).await,
+        UiMode::DriveModeMenu => screens::render_drive_mode_menu(state.drive_mode_index).await,
         UiMode::SystemInfo { scroll_offset } => {
             let info = build_system_info_data().await;
             screens::render_system_info(scroll_offset as usize, &info).await;
