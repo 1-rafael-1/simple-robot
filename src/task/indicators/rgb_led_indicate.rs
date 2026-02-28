@@ -142,16 +142,23 @@ pub async fn rgb_led_indicate(
         let (green_pwm, red_pwm) = if batt_lvl >= 50 {
             // Upper half: Green fades to yellow
             let blend_factor = (batt_lvl - 50) * 2; // Scale 50-100 to 0-100
-            let green = (100_f32 * 0.4) as u8; // Reduce green intensity
-            let red = ((100 - blend_factor) as f32) as u8; // Keep red at full
+            let green = 100; // Keep green at full
+            let red = 100 - blend_factor; // Fade red
             (green, red)
         } else {
             // Lower half: Yellow fades to red
             let blend_factor = batt_lvl * 2; // Scale 0-50 to 0-100
-            let green = ((blend_factor as f32) * 0.4) as u8; // Reduce green intensity
+            let green = blend_factor; // Reduce green intensity
             let red = 100; // Keep red at full
             (green, red)
         };
+
+        defmt::debug!(
+            "LED Update: Battery level={}%, Red PWM={}%, Green PWM={}%",
+            batt_lvl,
+            red_pwm,
+            green_pwm
+        );
 
         match operation_mode {
             OperationMode::Manual => {

@@ -6,7 +6,7 @@ use heapless::String;
 
 use super::{screens, state::UiState};
 use crate::{
-    system::state::{CalibrationSelection, SYSTEM_STATE, UiMode},
+    system::state::{CalibrationSelection, DriveMode, SYSTEM_STATE, UiMode},
     task::io::display::{self, DisplayAction},
 };
 
@@ -22,6 +22,9 @@ pub async fn render_current_ui(state: &UiState) {
         UiMode::RunningTest => {
             render_test_running().await;
         }
+        UiMode::RunningAutonomous { mode } => {
+            render_autonomous_running(mode).await;
+        }
         UiMode::Calibrating { kind } => {
             render_calibrating(kind).await;
         }
@@ -35,6 +38,18 @@ pub async fn render_test_running() {
     show_line(1, "Running...").await;
     show_line(2, "").await;
     show_line(3, "").await;
+}
+
+/// Render the autonomous drive mode running screen.
+pub async fn render_autonomous_running(mode: DriveMode) {
+    display::display_update(DisplayAction::Clear).await;
+    show_line(0, "Drive Mode").await;
+    let mode_label = match mode {
+        DriveMode::CoastAndAvoid => "Coast & Avoid",
+    };
+    show_line(1, mode_label).await;
+    show_line(2, "Running...").await;
+    show_line(3, "Hold to stop").await;
 }
 
 /// Render the calibration-in-progress screen for the selected kind.

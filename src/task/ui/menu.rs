@@ -2,7 +2,7 @@
 
 use crate::system::{
     event::RotaryDirection,
-    state::{CalibrationSelection, MenuSelection},
+    state::{CalibrationSelection, DriveMode, MenuSelection},
 };
 
 /// Map a main menu index to its logical selection.
@@ -10,8 +10,17 @@ pub const fn menu_selection_from_index(index: usize) -> MenuSelection {
     match index {
         0 => MenuSelection::SystemInfo,
         1 => MenuSelection::Calibrate,
+        2 => MenuSelection::DriveMode,
         _ => MenuSelection::TestMode,
     }
+}
+
+/// Map a drive mode submenu index to its drive mode.
+///
+/// Currently only one mode exists; the index parameter is reserved for future expansion.
+#[allow(clippy::match_single_binding, unused_variables)]
+pub const fn drive_mode_from_index(index: usize) -> DriveMode {
+    DriveMode::CoastAndAvoid
 }
 
 /// Map a calibration menu index to its selection.

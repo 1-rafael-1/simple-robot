@@ -49,6 +49,13 @@ pub enum UiMode {
     },
     /// Calibration submenu
     CalibrateMenu,
+    /// Drive mode submenu
+    DriveModeMenu,
+    /// Autonomous drive mode is active
+    RunningAutonomous {
+        /// Which drive mode is running
+        mode: DriveMode,
+    },
     /// Test sequence running
     RunningTest,
     /// Optional: calibration running state
@@ -65,8 +72,17 @@ pub enum MenuSelection {
     SystemInfo,
     /// Enter calibration submenu
     Calibrate,
+    /// Enter drive mode submenu
+    DriveMode,
     /// Run the test sequence
     TestMode,
+}
+
+/// Autonomous drive mode selection
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Format)]
+pub enum DriveMode {
+    /// Coast until obstacle detected, then back up and turn randomly
+    CoastAndAvoid,
 }
 
 /// Calibration submenu selections

@@ -13,6 +13,8 @@ pub struct UiState {
     pub main_index: usize,
     /// Selected index in the calibration menu.
     pub calibrate_index: usize,
+    /// Selected index in the drive mode menu.
+    pub drive_mode_index: usize,
 }
 
 impl UiState {
@@ -22,6 +24,7 @@ impl UiState {
             mode: UiMode::MainMenu,
             main_index: 0,
             calibrate_index: 0,
+            drive_mode_index: 0,
         }
     }
 }
