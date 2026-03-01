@@ -217,6 +217,9 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
     }
 
     if run_mag {
+        const MAG_TIMEOUT_LIMIT: u32 = 25; // ~5s at 200ms
+        const MAG_MAX_SECONDS: u64 = 90;
+
         // Step 2: Magnetometer Calibration (moving through all axes)
         info!("Step 2: Magnetometer Calibration (CRITICAL - Manual Rotation Required)");
         let (line1, line2, line3) = if is_full {
@@ -284,8 +287,6 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
         let mut last_status_secs: u64 = 0;
         let start_time = Instant::now();
         let mut mag_failed = false;
-        const MAG_TIMEOUT_LIMIT: u32 = 25; // ~5s at 200ms
-        const MAG_MAX_SECONDS: u64 = 90;
 
         while mag_samples_collected < mag_samples {
             let elapsed_ms = Instant::now().duration_since(start_time).as_millis();
@@ -323,15 +324,10 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
                 mag_timeout_streak += 1;
             }
 
-            if elapsed_secs % 5 == 0 && elapsed_secs != last_status_secs {
+            if elapsed_secs.is_multiple_of(5) && elapsed_secs != last_status_secs {
                 last_status_secs = elapsed_secs;
                 let mut line = String::new();
-                if mag_samples_collected == 0 {
-                    let _ = write!(line, "No mag data");
-                } else {
-                    let remaining = 60u64.saturating_sub(elapsed_secs);
-                    let _ = write!(line, "{remaining}s left");
-                }
+                let _ = write!(line, "S:{mag_samples_collected}/{mag_samples} T:{elapsed_secs}s");
                 event::raise_event(event::Events::CalibrationStatus {
                     header: None,
                     line1: None,
