@@ -16,12 +16,16 @@ pub async fn render_current_ui(state: &UiState) {
         UiMode::MainMenu => screens::render_main_menu(state.main_index).await,
         UiMode::CalibrateMenu => screens::render_calibrate_menu(state.calibrate_index).await,
         UiMode::DriveModeMenu => screens::render_drive_mode_menu(state.drive_mode_index).await,
+        UiMode::TestMenu => screens::render_test_menu(state.test_index).await,
         UiMode::SystemInfo { scroll_offset } => {
             let info = build_system_info_data().await;
             screens::render_system_info(scroll_offset as usize, &info).await;
         }
         UiMode::RunningTest => {
             render_test_running().await;
+        }
+        UiMode::RunningImuTest => {
+            render_imu_test_running().await;
         }
         UiMode::RunningAutonomous { mode } => {
             render_autonomous_running(mode).await;
@@ -39,6 +43,15 @@ pub async fn render_test_running() {
     show_line(1, "Running...").await;
     show_line(2, "").await;
     show_line(3, "").await;
+}
+
+/// Render the IMU test placeholder screen.
+pub async fn render_imu_test_running() {
+    display::display_update(DisplayAction::Clear).await;
+    show_line(0, "IMU Test").await;
+    show_line(1, "Euler angles").await;
+    show_line(2, "Streaming...").await;
+    show_line(3, "Press to exit").await;
 }
 
 /// Render the autonomous drive mode running screen.

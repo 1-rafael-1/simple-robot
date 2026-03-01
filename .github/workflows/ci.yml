@@ -32,12 +32,6 @@ jobs:
           profile: minimal
           components: rustfmt
 
-      - name: Install cargo-binutils
-        run: cargo install cargo-binutils
-
-      - name: Install llvm tools
-        run: rustup component add llvm-tools-preview
-
       - name: Check formatting
         run: cargo +nightly fmt --all -- --check
 
@@ -45,13 +39,13 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --target thumbv8m.main-none-eabihf -- -D warnings
+          args: --target thumbv8m.main-none-eabihf -- -D warnings --no-deps
 
       - name: Run clippy (all features)
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --target thumbv8m.main-none-eabihf --all-features -- -D warnings
+          args: --target thumbv8m.main-none-eabihf --all-features -- -D warnings --no-deps
 
       - name: Build
         uses: actions-rs/cargo@v1

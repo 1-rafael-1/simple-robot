@@ -9,7 +9,7 @@ use heapless::{String, Vec};
 
 use crate::{
     system::state::CalibrationStatus,
-    task::io::display::{DisplayAction, display_update},
+    task::io::display::{DisplayAction, TextStyle, display_update},
 };
 
 /// Maximum number of text lines supported by the OLED layout.
@@ -22,10 +22,13 @@ pub const MAX_LINE_LEN: usize = 20;
 pub const MAIN_MENU_ITEMS: [&str; 4] = ["System Info", "Calibrate", "Drive Mode", "Test Mode"];
 
 /// Drive mode submenu entries.
-pub const DRIVE_MODE_MENU_ITEMS: [&str; 1] = ["Coast & Avoid"];
+pub const DRIVE_MODE_MENU_ITEMS: [&str; 2] = ["Coast & Avoid", "Back"];
+
+/// Test mode submenu entries.
+pub const TEST_MENU_ITEMS: [&str; 3] = ["Combined Test", "IMU Test", "Back"];
 
 /// Calibration submenu entries.
-pub const CALIBRATE_MENU_ITEMS: [&str; 4] = ["Motor", "Mag", "Accel", "Gyro"];
+pub const CALIBRATE_MENU_ITEMS: [&str; 5] = ["Motor", "Mag", "Accel", "Gyro", "Back"];
 
 /// Snapshot of the system info values needed for display.
 #[derive(Clone, Copy)]
@@ -57,6 +60,11 @@ pub async fn render_calibrate_menu(selected_index: usize) {
 /// Render the drive mode submenu with the given selected index.
 pub async fn render_drive_mode_menu(selected_index: usize) {
     render_menu("Drive Mode", &DRIVE_MODE_MENU_ITEMS, selected_index).await;
+}
+
+/// Render the test mode submenu with the given selected index.
+pub async fn render_test_menu(selected_index: usize) {
+    render_menu("Test Mode", &TEST_MENU_ITEMS, selected_index).await;
 }
 
 /// Render system info lines with the provided scroll offset.
@@ -94,11 +102,17 @@ async fn render_menu(header: &str, items: &[&str], selected_index: usize) {
 
     for i in 0..visible_items {
         let item_index = start_index + i;
-        let line = items.get(item_index).map_or_else(blank_line, |label| {
-            format_menu_item(label, item_index == selected_index)
-        });
+        let is_selected = item_index == selected_index;
+        let line = items
+            .get(item_index)
+            .map_or_else(blank_line, |label| format_menu_item(label, is_selected));
         let display_line = u8::try_from(i + 1).unwrap_or(0);
-        display_update(DisplayAction::ShowText(line, display_line)).await;
+        let style = if is_selected {
+            TextStyle::Bold
+        } else {
+            TextStyle::Normal
+        };
+        display_update(DisplayAction::ShowTextStyled(line, display_line, style)).await;
     }
 }
 
@@ -125,11 +139,11 @@ fn format_header(label: &str) -> String<MAX_LINE_LEN> {
 
 /// Format a menu item with selection highlight.
 ///
-/// Highlight style: leading `°` when selected, leading space otherwise.
+/// Highlight style: leading `> ` when selected, leading space otherwise.
 fn format_menu_item(label: &str, selected: bool) -> String<MAX_LINE_LEN> {
     let mut s: String<MAX_LINE_LEN> = String::new();
     if selected {
-        let _ = write!(s, "° {label}");
+        let _ = write!(s, "> {label}");
     } else {
         let _ = write!(s, "  {label}");
     }

@@ -276,8 +276,8 @@ impl Pca9555Driver {
         // Configure Port 0: All outputs
         self.write_register(REG_CONFIG_PORT0, 0x00).await?;
 
-        // Configure Port 1: Bits 0-3 inputs (buttons), bit 6 input (IR), 4-5/7 outputs
-        self.write_register(REG_CONFIG_PORT1, 0x4F).await?;
+        // Configure Port 1: Bits 0-3 inputs (buttons), bits 6-7 inputs (IR + encoder button), 4-5 outputs
+        self.write_register(REG_CONFIG_PORT1, 0xCF).await?;
 
         // Initialize outputs to safe state (all low)
         self.write_register(REG_OUTPUT_PORT0, 0x00).await?;

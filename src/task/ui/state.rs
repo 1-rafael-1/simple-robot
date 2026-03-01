@@ -15,6 +15,10 @@ pub struct UiState {
     pub calibrate_index: usize,
     /// Selected index in the drive mode menu.
     pub drive_mode_index: usize,
+    /// Selected index in the test menu.
+    pub test_index: usize,
+    /// Whether the current calibration run has completed.
+    pub calibration_complete: bool,
 }
 
 impl UiState {
@@ -25,6 +29,8 @@ impl UiState {
             main_index: 0,
             calibrate_index: 0,
             drive_mode_index: 0,
+            test_index: 0,
+            calibration_complete: false,
         }
     }
 }

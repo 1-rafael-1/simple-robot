@@ -176,7 +176,7 @@ async fn check_initialization_complete() {
         }
     };
 
-    if should_show_menu {
+    if should_show_menu && !ui::ui_is_calibrating().await {
         ui::show_main_menu().await;
     }
 }

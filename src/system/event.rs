@@ -185,6 +185,9 @@ pub enum Events {
         /// Optional status line 3
         line3: Option<heapless::String<20>>,
     },
+
+    /// Calibration procedure finished (success or failure)
+    CalibrationCompleted,
 }
 
 /// Rotary encoder direction

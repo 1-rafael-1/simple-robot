@@ -48,11 +48,13 @@
 //! sensors::imu::stop_imu_readings();
 //! ```
 
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use ahrs::{Ahrs, Madgwick};
 use defmt::{info, warn};
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_futures::select::{Either, select};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
 use embassy_time::{Delay, Duration, Instant, Timer};
 use icm20948::{
     AccelConfig, AccelDlpf, AccelFullScale, GyroConfig, GyroDlpf, GyroFullScale, I2cInterface, Icm20948Driver,
@@ -176,6 +178,12 @@ enum ImuCommand {
 /// Control signal for IMU reading state
 static IMU_CONTROL: Signal<CriticalSectionRawMutex, ImuCommand> = Signal::new();
 
+/// Tracks whether the magnetometer is available.
+static MAG_AVAILABLE: AtomicBool = AtomicBool::new(false);
+
+/// Latest IMU orientation snapshot for UI display.
+static LATEST_ORIENTATION: Mutex<CriticalSectionRawMutex, Option<Orientation>> = Mutex::new(None);
+
 /// Start continuous IMU readings
 pub fn start_imu_readings() {
     IMU_CONTROL.signal(ImuCommand::Start);
@@ -192,6 +200,12 @@ pub fn set_ahrs_fusion_mode(mode: AhrsFusionMode) {
 /// Stop IMU readings
 pub fn stop_imu_readings() {
     IMU_CONTROL.signal(ImuCommand::Stop);
+}
+
+/// Get the latest IMU orientation for display purposes.
+pub async fn get_latest_orientation() -> Option<Orientation> {
+    let latest = LATEST_ORIENTATION.lock().await;
+    *latest
 }
 
 /// Load and apply IMU calibration data
@@ -435,10 +449,12 @@ async fn configure_imu_sensor(sensor: &mut ImuSensor) -> bool {
     let mut delay = Delay;
     if let Err(e) = sensor.init_magnetometer(mag_config, &mut delay).await {
         info!("Failed to initialize magnetometer: {:?}", e);
-        info!("Sensor configuration failed - IMU task terminating");
-        return false;
+        info!("Magnetometer unavailable - continuing with 6-axis fusion");
+        MAG_AVAILABLE.store(false, Ordering::Relaxed);
+    } else {
+        info!("Magnetometer: Continuous 50Hz mode");
+        MAG_AVAILABLE.store(true, Ordering::Relaxed);
     }
-    info!("Magnetometer: Continuous 50Hz mode");
 
     Timer::after(Duration::from_millis(100)).await;
     info!("All sensors configured!");
@@ -453,7 +469,7 @@ fn init_madgwick() -> Madgwick<f32> {
     info!("Madgwick AHRS filter initialized:");
     info!("  Sample rate: {} Hz", SAMPLE_RATE_HZ);
     info!("  Beta: {} (balanced for tracked robot)", BETA);
-    info!("  Mode: 9-axis fusion (gyro + accel + mag)");
+    info!("  Mode: 9-axis fusion (gyro + accel + mag) when magnetometer is available");
 
     madgwick
 }
@@ -675,6 +691,11 @@ async fn sample_once(
         let orientation = quaternion_to_euler(quat);
         let timestamp_ms = Instant::now().as_millis();
 
+        {
+            let mut latest = LATEST_ORIENTATION.lock().await;
+            *latest = Some(orientation);
+        }
+
         let imu_measurement = ImuMeasurement {
             orientation,
             timestamp_ms,
@@ -701,7 +722,11 @@ async fn run_imu_command_loop(
 
     // Selectable AHRS fusion mode (default to 9-axis for normal operation).
     // Testing can switch this to Axis6 to avoid magnetometer issues while validating control flow.
-    let mut fusion_mode = AhrsFusionMode::Axis9;
+    let mut fusion_mode = if MAG_AVAILABLE.load(Ordering::Relaxed) {
+        AhrsFusionMode::Axis9
+    } else {
+        AhrsFusionMode::Axis6
+    };
 
     'command: loop {
         // Wait for a command, consuming it
@@ -728,8 +753,13 @@ async fn run_imu_command_loop(
                             continue 'command;
                         }
                         Either::First(ImuCommand::SetFusionMode(mode)) => {
-                            fusion_mode = mode;
-                            info!("IMU AHRS fusion mode set to {:?}", fusion_mode);
+                            if mode == AhrsFusionMode::Axis9 && !MAG_AVAILABLE.load(Ordering::Relaxed) {
+                                fusion_mode = AhrsFusionMode::Axis6;
+                                info!("IMU AHRS fusion mode set to Axis6 (mag unavailable)");
+                            } else {
+                                fusion_mode = mode;
+                                info!("IMU AHRS fusion mode set to {:?}", fusion_mode);
+                            }
                         }
                         Either::First(_) => {}
                         Either::Second(()) => {
@@ -784,8 +814,13 @@ async fn run_imu_command_loop(
                 info!("IMU calibration loaded and applied");
             }
             ImuCommand::SetFusionMode(mode) => {
-                fusion_mode = mode;
-                info!("IMU AHRS fusion mode set to {:?}", fusion_mode);
+                if mode == AhrsFusionMode::Axis9 && !MAG_AVAILABLE.load(Ordering::Relaxed) {
+                    fusion_mode = AhrsFusionMode::Axis6;
+                    info!("IMU AHRS fusion mode set to Axis6 (mag unavailable)");
+                } else {
+                    fusion_mode = mode;
+                    info!("IMU AHRS fusion mode set to {:?}", fusion_mode);
+                }
             }
         }
     }
