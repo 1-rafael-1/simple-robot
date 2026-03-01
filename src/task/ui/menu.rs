@@ -2,7 +2,7 @@
 
 use crate::system::{
     event::RotaryDirection,
-    state::{CalibrationSelection, DriveMode, MenuSelection},
+    state::{CalibrationSelection, DriveMode, MenuSelection, TestSelection},
 };
 
 /// Map a main menu index to its logical selection.
@@ -16,20 +16,33 @@ pub const fn menu_selection_from_index(index: usize) -> MenuSelection {
 }
 
 /// Map a drive mode submenu index to its drive mode.
-///
-/// Currently only one mode exists; the index parameter is reserved for future expansion.
-#[allow(clippy::match_single_binding)]
-pub const fn drive_mode_from_index(_index: usize) -> DriveMode {
-    DriveMode::CoastAndAvoid
+/// Returns `None` when the selection is the Back entry.
+pub const fn drive_mode_from_index(index: usize) -> Option<DriveMode> {
+    match index {
+        0 => Some(DriveMode::CoastAndAvoid),
+        _ => None,
+    }
 }
 
 /// Map a calibration menu index to its selection.
-pub const fn calibration_selection_from_index(index: usize) -> CalibrationSelection {
+/// Returns `None` when the selection is the Back entry.
+pub const fn calibration_selection_from_index(index: usize) -> Option<CalibrationSelection> {
     match index {
-        0 => CalibrationSelection::Motor,
-        1 => CalibrationSelection::Mag,
-        2 => CalibrationSelection::Accel,
-        _ => CalibrationSelection::Gyro,
+        0 => Some(CalibrationSelection::Motor),
+        1 => Some(CalibrationSelection::Mag),
+        2 => Some(CalibrationSelection::Accel),
+        3 => Some(CalibrationSelection::Gyro),
+        _ => None,
+    }
+}
+
+/// Map a test menu index to its selection.
+/// Returns `None` when the selection is the Back entry.
+pub const fn test_selection_from_index(index: usize) -> Option<TestSelection> {
+    match index {
+        0 => Some(TestSelection::Combined),
+        1 => Some(TestSelection::Imu),
+        _ => None,
     }
 }
 
