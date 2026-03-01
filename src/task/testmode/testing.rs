@@ -27,6 +27,7 @@
 //! Call `init_testing()` from main to spawn the test task.
 
 use core::sync::atomic::{AtomicBool, Ordering};
+
 use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};

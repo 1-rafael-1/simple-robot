@@ -48,8 +48,9 @@
 //! sensors::imu::stop_imu_readings();
 //! ```
 
-use ahrs::{Ahrs, Madgwick};
 use core::sync::atomic::{AtomicBool, Ordering};
+
+use ahrs::{Ahrs, Madgwick};
 use defmt::{info, warn};
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_futures::select::{Either, select};
