@@ -648,8 +648,8 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
         }
     }
 
-    // Step 10: Build calibration struct
-    info!("Step 10: Building complete calibration data structure");
+    // Step 9: Build calibration struct
+    info!("Step 9: Building complete calibration data structure");
     let (line1, line2) = if is_full {
         (status_text("Step 9/9"), status_text("Finalizing"))
     } else {

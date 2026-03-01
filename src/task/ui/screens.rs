@@ -139,7 +139,7 @@ fn format_header(label: &str) -> String<MAX_LINE_LEN> {
 
 /// Format a menu item with selection highlight.
 ///
-/// Highlight style: leading `.` when selected, leading space otherwise.
+/// Highlight style: leading `> ` when selected, leading space otherwise.
 fn format_menu_item(label: &str, selected: bool) -> String<MAX_LINE_LEN> {
     let mut s: String<MAX_LINE_LEN> = String::new();
     if selected {

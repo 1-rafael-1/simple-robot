@@ -74,11 +74,11 @@ pub async fn rotary_encoder_turns(mut encoder: PioEncoder<'static, embassy_rp::p
         let event = match dir {
             PioDirection::Clockwise => {
                 debug!("Rotary encoder turned clockwise");
-                Events::RotaryTurned(RotaryDirection::CounterClockwise)
+                Events::RotaryTurned(RotaryDirection::Clockwise)
             }
             PioDirection::CounterClockwise => {
                 debug!("Rotary encoder turned counter-clockwise");
-                Events::RotaryTurned(RotaryDirection::Clockwise)
+                Events::RotaryTurned(RotaryDirection::CounterClockwise)
             }
         };
         raise_event(event).await;

@@ -63,14 +63,14 @@ pub const fn next_menu_index(current: usize, len: usize, direction: RotaryDirect
     }
 
     match direction {
-        RotaryDirection::Clockwise => (current + 1) % len,
-        RotaryDirection::CounterClockwise => {
+        RotaryDirection::Clockwise => {
             if current == 0 {
                 len - 1
             } else {
                 current - 1
             }
         }
+        RotaryDirection::CounterClockwise => (current + 1) % len,
     }
 }
 
