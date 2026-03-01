@@ -75,8 +75,8 @@ pub async fn handle_rotary_turned(direction: RotaryDirection) {
             let info = render::build_system_info_data().await;
             let max_scroll = menu::max_system_info_scroll(&info);
             let new_offset = match direction {
-                RotaryDirection::Clockwise => (scroll_offset as usize + 1).min(max_scroll),
-                RotaryDirection::CounterClockwise => (scroll_offset as usize).saturating_sub(1),
+                RotaryDirection::Clockwise => (scroll_offset as usize).saturating_sub(1),
+                RotaryDirection::CounterClockwise => (scroll_offset as usize + 1).min(max_scroll),
             };
             let new_offset_u8 = u8::try_from(new_offset).unwrap_or(u8::MAX);
 

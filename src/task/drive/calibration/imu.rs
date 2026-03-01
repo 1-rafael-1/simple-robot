@@ -109,7 +109,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
         info!("Step 1: {=str}", step_label);
         let (line1, line2, line3) = if is_full {
             (
-                status_text("Step 1/9"),
+                status_text("Step 1/10"),
                 status_text(step_label),
                 status_text("Keep still 10s"),
             )
@@ -224,7 +224,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
         info!("Step 2: Magnetometer Calibration (CRITICAL - Manual Rotation Required)");
         let (line1, line2, line3) = if is_full {
             (
-                status_text("Step 2/9"),
+                status_text("Step 2/10"),
                 status_text("MAG CALIBRATION"),
                 status_text("Prepare to move"),
             )
@@ -242,7 +242,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
 
         let (line1, line2, line3) = if is_full {
             (
-                status_text("Step 2/9"),
+                status_text("Step 2/10"),
                 status_text("ROTATE SLOWLY"),
                 status_text("All axes 60s"),
             )
@@ -387,7 +387,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
                 line1: if is_full {
-                    status_text("Step 3/9")
+                    status_text("Step 3/10")
                 } else {
                     status_text("Mag interference")
                 },
@@ -409,7 +409,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
                 line1: if is_full {
-                    status_text("Step 4/9")
+                    status_text("Step 4/10")
                 } else {
                     status_text("Mag interference")
                 },
@@ -446,7 +446,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
                 line1: if is_full {
-                    status_text("Step 5/9")
+                    status_text("Step 5/10")
                 } else {
                     status_text("Mag interference")
                 },
@@ -483,7 +483,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
                 line1: if is_full {
-                    status_text("Step 6/9")
+                    status_text("Step 6/10")
                 } else {
                     status_text("Mag interference")
                 },
@@ -520,7 +520,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
                 line1: if is_full {
-                    status_text("Step 7/9")
+                    status_text("Step 7/10")
                 } else {
                     status_text("Mag interference")
                 },
@@ -557,7 +557,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
                 line1: if is_full {
-                    status_text("Step 8/9")
+                    status_text("Step 8/10")
                 } else {
                     status_text("Mag interference")
                 },
@@ -594,7 +594,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
                 line1: if is_full {
-                    status_text("Step 9/9")
+                    status_text("Step 9/10")
                 } else {
                     status_text("Mag interference")
                 },
@@ -648,10 +648,10 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
         }
     }
 
-    // Step 9: Build calibration struct
-    info!("Step 9: Building complete calibration data structure");
+    // Step 10: Build calibration struct
+    info!("Step 10: Building complete calibration data structure");
     let (line1, line2) = if is_full {
-        (status_text("Step 9/9"), status_text("Finalizing"))
+        (status_text("Step 10/10"), status_text("Finalizing"))
     } else {
         (status_text("Finalizing"), None)
     };
@@ -680,8 +680,8 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
         mag_z_interference_100,
     };
 
-    // Step 11: Save to flash
-    info!("Step 11: Saving complete calibration to flash");
+    // Save to flash
+    info!("Saving complete calibration to flash");
     info!("╔═══════════════════════════════════════════════════╗");
     info!("║        FINAL CALIBRATION SUMMARY                 ║");
     info!("╠═══════════════════════════════════════════════════╣");
@@ -720,7 +720,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
     // Brief delay to allow flash operation to complete
     Timer::after(Duration::from_millis(500)).await;
 
-    // Step 12: Apply to IMU task immediately
+    // Apply to IMU task immediately
     info!("Applying calibration to IMU task");
     imu_read::load_imu_calibration(imu_calibration);
 

@@ -469,7 +469,7 @@ fn init_madgwick() -> Madgwick<f32> {
     info!("Madgwick AHRS filter initialized:");
     info!("  Sample rate: {} Hz", SAMPLE_RATE_HZ);
     info!("  Beta: {} (balanced for tracked robot)", BETA);
-    info!("  Mode: 9-axis fusion (gyro + accel + mag)");
+    info!("  Mode: 9-axis fusion (gyro + accel + mag) when magnetometer is available");
 
     madgwick
 }
@@ -722,7 +722,11 @@ async fn run_imu_command_loop(
 
     // Selectable AHRS fusion mode (default to 9-axis for normal operation).
     // Testing can switch this to Axis6 to avoid magnetometer issues while validating control flow.
-    let mut fusion_mode = AhrsFusionMode::Axis9;
+    let mut fusion_mode = if MAG_AVAILABLE.load(Ordering::Relaxed) {
+        AhrsFusionMode::Axis9
+    } else {
+        AhrsFusionMode::Axis6
+    };
 
     'command: loop {
         // Wait for a command, consuming it

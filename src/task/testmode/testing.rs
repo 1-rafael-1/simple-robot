@@ -107,12 +107,12 @@ async fn imu_test_runner() {
         let mut tick: u32 = 0;
         let mut missing: u32 = 0;
 
-        loop {
-            if !IMU_TEST_ACTIVE.load(Ordering::Relaxed) {
-                stop_imu_readings();
-                break;
-            }
+        // Clear any pending stop signal so the next test doesn't end immediately.
+        while IMU_TEST_STOP_SIGNAL.signaled() {
+            IMU_TEST_STOP_SIGNAL.wait().await;
+        }
 
+        loop {
             match select(IMU_TEST_STOP_SIGNAL.wait(), Timer::after(Duration::from_millis(20))).await {
                 Either::First(()) => {
                     IMU_TEST_ACTIVE.store(false, Ordering::Relaxed);
@@ -120,6 +120,11 @@ async fn imu_test_runner() {
                     break;
                 }
                 Either::Second(()) => {
+                    if !IMU_TEST_ACTIVE.load(Ordering::Relaxed) {
+                        stop_imu_readings();
+                        break;
+                    }
+
                     let orientation = get_latest_orientation().await;
                     let accel = get_latest_accel_measurement().await;
                     let gyro = get_latest_gyro_measurement().await;
@@ -238,9 +243,11 @@ async fn run_testing_sequence() {
     show_line(2, "").await;
     show_line(3, "").await;
 
-    // Send initialization event to orchestrator
+    // Send initialization event to orchestrator (only if not already initialized)
     Timer::after(Duration::from_millis(100)).await;
-    raise_event(Events::Initialize).await;
+    if !crate::task::ui::ui_initialized().await {
+        raise_event(Events::Initialize).await;
+    }
 
     // Wait for system to stabilize and for orchestrator to load calibration from flash
     // (orchestrator automatically loads calibration on Initialize event)
