@@ -26653,7 +26653,7 @@
 		)
 	)
 	(gr_text "GND"
-		(at 76.55 106.5 90)
+		(at 76.55 106.7 90)
 		(layer "F.SilkS")
 		(uuid "4eebf6ab-2ed1-4628-b21d-32b560810589")
 		(effects
@@ -26701,7 +26701,7 @@
 		)
 	)
 	(gr_text "Echo"
-		(at 76.55 101.25 90)
+		(at 76.5 104.1 90)
 		(layer "F.SilkS")
 		(uuid "8a0898fd-c248-4ee5-bfc5-11b7bfcb64b7")
 		(effects
@@ -26713,7 +26713,7 @@
 		)
 	)
 	(gr_text "Trig"
-		(at 76.55 103.75 90)
+		(at 76.4 101.1 90)
 		(layer "F.SilkS")
 		(uuid "984c2f56-587f-4c43-97fb-18d3dc0ba8c0")
 		(effects

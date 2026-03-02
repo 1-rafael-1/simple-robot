@@ -8886,28 +8886,6 @@
 			)
 		)
 	)
-	(global_label "US_TRIG"
-		(shape output)
-		(at 30.48 71.12 180)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "217af0cf-ffa9-4f46-aed7-37bf53cb36c0")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 19.8748 71.12 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-				(hide yes)
-			)
-		)
-	)
 	(global_label "RC_B"
 		(shape input)
 		(at 124.46 105.41 0)
@@ -9060,28 +9038,6 @@
 			)
 		)
 	)
-	(global_label "US_ECHO"
-		(shape input)
-		(at 30.48 68.58 180)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "3489da13-a171-402e-9de8-9f28369a1073")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 18.9072 68.58 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-				(hide yes)
-			)
-		)
-	)
 	(global_label "RC_C"
 		(shape input)
 		(at 124.46 102.87 0)
@@ -9203,6 +9159,28 @@
 		(uuid "436e4933-42f3-48aa-9edd-ddbfef39e103")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 87.0034 87.63 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "US_TRIG"
+		(shape output)
+		(at 30.48 68.58 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "43a1ab11-5884-47da-b15a-1ddf8a67489d")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 19.8748 68.58 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10450,6 +10428,28 @@
 					(size 1.27 1.27)
 				)
 				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "US_ECHO"
+		(shape input)
+		(at 30.48 71.12 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "efd3bd93-6afa-47a1-a541-3b7f1cdaa172")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 18.9072 71.12 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
 				(hide yes)
 			)
 		)

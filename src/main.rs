@@ -125,9 +125,9 @@ struct UltrasonicPins {
     /// Servo control pin
     servo: Peri<'static, embassy_rp::peripherals::PIN_18>,
     /// Trigger pin
-    trigger: Peri<'static, embassy_rp::peripherals::PIN_15>,
+    trigger: Peri<'static, embassy_rp::peripherals::PIN_14>,
     /// Echo pin
-    echo: Peri<'static, embassy_rp::peripherals::PIN_14>,
+    echo: Peri<'static, embassy_rp::peripherals::PIN_15>,
 }
 
 /// Public type for shared I2C bus
@@ -245,8 +245,8 @@ async fn main(spawner: Spawner) {
         pio0_sm0,
         UltrasonicPins {
             servo: p.PIN_18,
-            trigger: p.PIN_15,
-            echo: p.PIN_14,
+            trigger: p.PIN_14,
+            echo: p.PIN_15,
         },
     );
 
