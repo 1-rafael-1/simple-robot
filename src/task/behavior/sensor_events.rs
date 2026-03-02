@@ -2,10 +2,13 @@
 //!
 //! Forwards sensor readings to the appropriate subsystems.
 
-use crate::task::{
-    drive,
-    io::display,
-    sensors::{encoders, imu},
+use crate::{
+    system::state::{SYSTEM_STATE, UiMode},
+    task::{
+        drive,
+        io::display,
+        sensors::{encoders, imu},
+    },
 };
 
 /// Handle encoder measurements.
@@ -18,8 +21,22 @@ pub fn handle_encoder_measurement(measurement: encoders::EncoderMeasurement) {
 
 /// Handle ultrasonic sensor readings.
 pub async fn handle_ultrasonic_sweep_reading(distance: f64, angle: f32) {
-    // Forward sweep data to display for visualization.
-    display::display_update(display::DisplayAction::ShowSweep(distance, angle)).await;
+    {
+        let mut state = SYSTEM_STATE.lock().await;
+        #[allow(clippy::cast_possible_truncation)]
+        let distance_cm = distance as f32;
+        state.ultrasonic_distance_cm = Some(distance_cm);
+        state.ultrasonic_angle_deg = Some(angle);
+    }
+
+    // Forward sweep data to display for visualization unless IR/US test mode owns the screen.
+    let ui_mode = {
+        let ui = crate::task::ui::state::UI_STATE.lock().await;
+        ui.mode
+    };
+    if !matches!(ui_mode, UiMode::RunningIrUltrasonicTest) {
+        display::display_update(display::DisplayAction::ShowSweep(distance, angle)).await;
+    }
 
     // TODO: Feed data to obstacle detection.
 }

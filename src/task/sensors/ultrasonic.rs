@@ -24,21 +24,31 @@ use crate::system::event::{Events, raise_event};
 
 /// Commands for ultrasonic sweep control
 enum UltrasonicSweepCommand {
-    /// Start ultrasonic sweep
-    Start,
-    /// Stop ultrasonic sweep
+    /// Start ultrasonic sweep mode
+    StartSweep,
+    /// Start ultrasonic fixed-angle mode
+    StartFixed {
+        /// Fixed angle in degrees.
+        angle_deg: f32,
+    },
+    /// Stop ultrasonic measurements
     Stop,
 }
 
 /// Control signal to trigger encoder measurements after specified duration
 static US_SWEEP_CONTROL: Signal<CriticalSectionRawMutex, UltrasonicSweepCommand> = Signal::new();
 
-/// Start continuous encoder readings
+/// Start continuous ultrasonic sweep readings
 pub fn start_ultrasonic_sweep() {
-    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::Start);
+    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartSweep);
 }
 
-/// Stop encoder readings
+/// Start fixed-angle ultrasonic readings (no servo sweep)
+pub fn start_ultrasonic_fixed(angle_deg: f32) {
+    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartFixed { angle_deg });
+}
+
+/// Stop ultrasonic readings
 pub fn stop_ultrasonic_sweep() {
     US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::Stop);
 }
@@ -239,41 +249,61 @@ pub async fn ultrasonic_sweep(
     let mut angle: f32 = 0.0;
     let mut angle_increment: f32 = 2.5;
     let mut filtered_distance: f64;
+    let mut sweeping = true;
+    let mut fixed_angle: f32 = 80.0;
 
     // 80 degrees is middle, 0 is right, 160 is left
     servo.rotate_float(80.0);
     Timer::after_millis(500).await;
 
     'command: loop {
-        info!("Waiting for ultrasonic sweep command");
+        info!("Waiting for ultrasonic command");
         // Wait for a command, consuming it
         match US_SWEEP_CONTROL.wait().await {
-            UltrasonicSweepCommand::Start => {
+            UltrasonicSweepCommand::StartSweep => {
                 info!("Starting ultrasonic sweep");
+                sweeping = true;
+            }
+            UltrasonicSweepCommand::StartFixed { angle_deg } => {
+                info!("Starting ultrasonic fixed-angle mode");
+                sweeping = false;
+                fixed_angle = angle_deg.clamp(0.0, servo.max_degree_rotation);
             }
             UltrasonicSweepCommand::Stop => {
-                info!("Stopping ultrasonic sweep");
+                info!("Stopping ultrasonic measurements");
                 continue 'command;
             }
         }
 
         loop {
             // Update servo position
-            servo.rotate_float(angle);
+            let current_angle = if sweeping { angle } else { fixed_angle };
+            servo.rotate_float(current_angle);
 
-            // Give servo time to reach position, also see if we must stop the sweep
+            // Give servo time to reach position, also see if we must stop or switch modes
             match select(Timer::after_millis(25), US_SWEEP_CONTROL.wait()).await {
                 Either::First(()) => {}
-                Either::Second(_) => {
-                    info!("Stopping ultrasonic sweep");
-                    continue 'command;
-                }
+                Either::Second(command) => match command {
+                    UltrasonicSweepCommand::Stop => {
+                        info!("Stopping ultrasonic measurements");
+                        continue 'command;
+                    }
+                    UltrasonicSweepCommand::StartSweep => {
+                        info!("Switching to ultrasonic sweep");
+                        sweeping = true;
+                    }
+                    UltrasonicSweepCommand::StartFixed { angle_deg } => {
+                        info!("Switching to ultrasonic fixed-angle mode");
+                        sweeping = false;
+                        fixed_angle = angle_deg.clamp(0.0, servo.max_degree_rotation);
+                    }
+                },
             }
 
             // Take multiple measurements based on ULTRASONIC_MEDIAN_WINDOW_SIZE
             for _ in 0..ULTRASONIC_MEDIAN_WINDOW_SIZE {
                 Timer::after_millis(90).await;
-                median_filter.add_value(match sensor.measure(ULTRASONIC_TEMPERATURE).await {
+                let sample = match sensor.measure(ULTRASONIC_TEMPERATURE).await {
                     Ok(distance_cm) => {
                         if distance_cm > 400.0 {
                             400.0
@@ -283,26 +313,30 @@ pub async fn ultrasonic_sweep(
                     }
                     Err(e) => {
                         error!("{}", e);
+                        Timer::after_millis(20).await;
                         400.0 // Return safe distance on error to prevent false positives
                     }
-                });
+                };
+                median_filter.add_value(sample);
             }
 
             // Calculate median distance from the filtered measurements
             filtered_distance = median_filter.median();
 
             // Send reading event to orchestration task
-            raise_event(Events::UltrasonicSweepReadingTaken(filtered_distance, angle)).await;
+            raise_event(Events::UltrasonicSweepReadingTaken(filtered_distance, current_angle)).await;
 
             // Update angle and check for direction change
-            angle += angle_increment;
-            let max_degree_rotation = servo.max_degree_rotation;
-            if angle >= max_degree_rotation {
-                angle = max_degree_rotation;
-                angle_increment = -angle_increment; // Start moving back
-            } else if angle <= 0.0 {
-                angle = 0.0;
-                angle_increment = -angle_increment; // Start moving forward
+            if sweeping {
+                angle += angle_increment;
+                let max_degree_rotation = servo.max_degree_rotation;
+                if angle >= max_degree_rotation {
+                    angle = max_degree_rotation;
+                    angle_increment = -angle_increment; // Start moving back
+                } else if angle <= 0.0 {
+                    angle = 0.0;
+                    angle_increment = -angle_increment; // Start moving forward
+                }
             }
         }
     }

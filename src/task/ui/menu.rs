@@ -42,6 +42,7 @@ pub const fn test_selection_from_index(index: usize) -> Option<TestSelection> {
     match index {
         0 => Some(TestSelection::Combined),
         1 => Some(TestSelection::Imu),
+        2 => Some(TestSelection::IrUltrasonic),
         _ => None,
     }
 }

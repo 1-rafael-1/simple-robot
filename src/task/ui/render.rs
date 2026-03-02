@@ -27,6 +27,9 @@ pub async fn render_current_ui(state: &UiState) {
         UiMode::RunningImuTest => {
             render_imu_test_running().await;
         }
+        UiMode::RunningIrUltrasonicTest => {
+            render_ir_ultrasonic_test_running().await;
+        }
         UiMode::RunningAutonomous { mode } => {
             render_autonomous_running(mode).await;
         }
@@ -51,6 +54,15 @@ pub async fn render_imu_test_running() {
     show_line(0, "IMU Test").await;
     show_line(1, "Euler angles").await;
     show_line(2, "Streaming...").await;
+    show_line(3, "Press to exit").await;
+}
+
+/// Render the IR + ultrasonic test placeholder screen.
+pub async fn render_ir_ultrasonic_test_running() {
+    display::display_update(DisplayAction::Clear).await;
+    show_line(0, "IR+US Test").await;
+    show_line(1, "IR: ----").await;
+    show_line(2, "US: ---- cm").await;
     show_line(3, "Press to exit").await;
 }
 

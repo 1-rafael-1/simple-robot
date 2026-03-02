@@ -2,9 +2,12 @@
 
 use defmt::info;
 
-use crate::task::{
-    autonomous_mode::coast_obstacle_avoid,
-    drive::{InterruptKind, send_drive_interrupt},
+use crate::{
+    system::state::SYSTEM_STATE,
+    task::{
+        autonomous_mode::coast_obstacle_avoid,
+        drive::{InterruptKind, send_drive_interrupt},
+    },
 };
 
 /// Handle obstacle detection status changes.
@@ -16,6 +19,11 @@ use crate::task::{
 #[allow(clippy::unused_async)]
 pub async fn handle_obstacle_detected(detected: bool) {
     info!("Obstacle detection status changed: {}", detected);
+
+    {
+        let mut state = SYSTEM_STATE.lock().await;
+        state.obstacle_detected = detected;
+    }
 
     if detected && coast_obstacle_avoid::is_active() {
         info!("coast-avoid active — issuing EmergencyBrake");

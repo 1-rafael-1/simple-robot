@@ -34,7 +34,10 @@ use embassy_time::{Duration, Timer};
 use heapless::String;
 
 use crate::{
-    system::event::{Events, raise_event},
+    system::{
+        event::{Events, raise_event},
+        state::SYSTEM_STATE,
+    },
     task::{
         drive::{
             CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind,
@@ -43,9 +46,12 @@ use crate::{
             release_completion_handle, send_drive_command, send_drive_command_with_completion, wait_for_completion,
         },
         io::display::{DisplayAction, display_update},
-        sensors::imu::{
-            AhrsFusionMode, Orientation, get_latest_orientation, set_ahrs_fusion_mode, start_imu_readings,
-            stop_imu_readings,
+        sensors::{
+            imu::{
+                AhrsFusionMode, Orientation, get_latest_orientation, set_ahrs_fusion_mode, start_imu_readings,
+                stop_imu_readings,
+            },
+            ultrasonic::{start_ultrasonic_fixed, stop_ultrasonic_sweep},
         },
     },
 };
@@ -61,6 +67,15 @@ static IMU_TEST_STOP_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new()
 
 /// Tracks whether the IMU test mode is active.
 static IMU_TEST_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Signal used to start the IR + ultrasonic test mode.
+static IR_ULTRASONIC_TEST_START_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// Signal used to stop the IR + ultrasonic test mode.
+static IR_ULTRASONIC_TEST_STOP_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// Tracks whether the IR + ultrasonic test mode is active.
+static IR_ULTRASONIC_TEST_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Request the test sequence to start.
 pub fn start_testing_sequence() {
@@ -79,10 +94,23 @@ pub fn stop_imu_test_mode() {
     IMU_TEST_STOP_SIGNAL.signal(());
 }
 
+/// Request the IR + ultrasonic test mode to start.
+pub fn start_ir_ultrasonic_test_mode() {
+    IR_ULTRASONIC_TEST_ACTIVE.store(true, Ordering::Relaxed);
+    IR_ULTRASONIC_TEST_START_SIGNAL.signal(());
+}
+
+/// Request the IR + ultrasonic test mode to stop.
+pub fn stop_ir_ultrasonic_test_mode() {
+    IR_ULTRASONIC_TEST_ACTIVE.store(false, Ordering::Relaxed);
+    IR_ULTRASONIC_TEST_STOP_SIGNAL.signal(());
+}
+
 /// Initialize testing task (idle until `start_testing_sequence` is called).
 pub fn init_testing(spawner: embassy_executor::Spawner) {
     spawner.must_spawn(testing_sequence_runner());
     spawner.must_spawn(imu_test_runner());
+    spawner.must_spawn(ir_ultrasonic_test_runner());
 }
 
 /// Main testing sequence runner (waits for on-demand start signals).
@@ -162,6 +190,77 @@ async fn imu_test_runner() {
                             missing
                         );
                     }
+                }
+            }
+        }
+    }
+}
+
+/// IR + ultrasonic test mode runner (updates display at 10Hz while active).
+#[embassy_executor::task]
+async fn ir_ultrasonic_test_runner() {
+    loop {
+        IR_ULTRASONIC_TEST_START_SIGNAL.wait().await;
+        start_ultrasonic_fixed(80.0);
+        display_update(DisplayAction::Clear).await;
+
+        // Clear any pending stop signal so the next test doesn't end immediately.
+        while IR_ULTRASONIC_TEST_STOP_SIGNAL.signaled() {
+            IR_ULTRASONIC_TEST_STOP_SIGNAL.wait().await;
+        }
+
+        loop {
+            match select(
+                IR_ULTRASONIC_TEST_STOP_SIGNAL.wait(),
+                Timer::after(Duration::from_millis(100)),
+            )
+            .await
+            {
+                Either::First(()) => {
+                    IR_ULTRASONIC_TEST_ACTIVE.store(false, Ordering::Relaxed);
+                    stop_ultrasonic_sweep();
+                    break;
+                }
+                Either::Second(()) => {
+                    if !IR_ULTRASONIC_TEST_ACTIVE.load(Ordering::Relaxed) {
+                        stop_ultrasonic_sweep();
+                        break;
+                    }
+
+                    let (ir_detected, distance_cm) = {
+                        let state = SYSTEM_STATE.lock().await;
+                        (state.obstacle_detected, state.ultrasonic_distance_cm)
+                    };
+
+                    let header = {
+                        let mut s: String<20> = String::new();
+                        let _ = s.push_str("IR+US Test");
+                        s
+                    };
+                    display_update(DisplayAction::ShowText(header, 0)).await;
+
+                    let ir_line = if ir_detected { "IR: obstacle" } else { "IR: nothing" };
+                    let mut line1: String<20> = String::new();
+                    let _ = line1.push_str(ir_line);
+                    display_update(DisplayAction::ShowText(line1, 1)).await;
+
+                    let line2 = {
+                        let mut s: String<20> = String::new();
+                        match distance_cm {
+                            Some(cm) => {
+                                let _ = core::fmt::write(&mut s, format_args!("US: {cm:>6.1} cm"));
+                            }
+                            None => {
+                                let _ = s.push_str("US: ---- cm");
+                            }
+                        }
+                        s
+                    };
+                    display_update(DisplayAction::ShowText(line2, 2)).await;
+
+                    let mut line3: String<20> = String::new();
+                    let _ = line3.push_str("Press to exit");
+                    display_update(DisplayAction::ShowText(line3, 3)).await;
                 }
             }
         }
