@@ -6,8 +6,8 @@
 	(paper "A4")
 	(title_block
 		(title "simple-robot")
-		(date "2026-02-22")
-		(rev "5")
+		(date "2026-03-03")
+		(rev "6")
 		(company "Rafael Koch")
 	)
 	(lib_symbols
@@ -7568,7 +7568,7 @@
 	)
 	(rectangle
 		(start 115.57 151.13)
-		(end 172.72 189.23)
+		(end 172.72 196.85)
 		(stroke
 			(width 0)
 			(type default)
@@ -8899,6 +8899,28 @@
 		(uuid "2426c4d5-fdbe-4df4-b57d-723ff7c0e8fa")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 132.2228 105.41 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "IR_OBST"
+		(shape output)
+		(at 157.48 193.04 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "24535d72-7fa7-47d0-9049-465b30ac5684")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 168.0852 193.04 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15883,6 +15905,73 @@
 			(project ""
 				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
 					(reference "R7")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "PCM_SL_Resistors:10k")
+		(at 153.67 193.04 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "64e96ef0-28b0-4cc8-bc26-072ed9d7aa49")
+		(property "Reference" "R1"
+			(at 153.67 188.722 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "10k"
+			(at 153.924 190.754 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal"
+			(at 154.559 197.358 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 154.178 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "10kΩ, 1/4W Resistor"
+			(at 153.67 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "186d1a8b-efde-436e-b704-b7873ec852f0")
+		)
+		(pin "1"
+			(uuid "4ef5348b-2efb-466d-a1ca-6057698df9d5")
+		)
+		(instances
+			(project "simple-robot"
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "R1")
 					(unit 1)
 				)
 			)
@@ -23254,6 +23343,73 @@
 			(project "simple-robot"
 				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
 					(reference "C23")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 149.86 193.04 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "f9761ec6-7d7d-4470-b4c8-1fe15e1e5c1a")
+		(property "Reference" "#PWR0117"
+			(at 143.51 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 146.05 193.802 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+		(property "Footprint" ""
+			(at 149.86 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 149.86 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 149.86 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "aa6e32c7-44b3-4510-bdf7-6a37b88e6af1")
+		)
+		(instances
+			(project "simple-robot"
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "#PWR0117")
 					(unit 1)
 				)
 			)
