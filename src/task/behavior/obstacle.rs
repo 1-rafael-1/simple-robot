@@ -7,6 +7,7 @@ use crate::{
     task::{
         autonomous_mode::coast_obstacle_avoid,
         drive::{InterruptKind, send_drive_interrupt},
+        indicators::rgb_led_indicate::update_indicator,
     },
 };
 
@@ -28,6 +29,10 @@ pub async fn handle_obstacle_detected(detected: bool) {
     if detected && coast_obstacle_avoid::is_active() {
         info!("coast-avoid active — issuing EmergencyBrake");
         send_drive_interrupt(InterruptKind::EmergencyBrake);
+    }
+
+    if detected {
+        update_indicator(true);
     }
 }
 
