@@ -43,6 +43,7 @@ pub const fn test_selection_from_index(index: usize) -> Option<TestSelection> {
         0 => Some(TestSelection::Combined),
         1 => Some(TestSelection::Imu),
         2 => Some(TestSelection::IrUltrasonic),
+        3 => Some(TestSelection::UltrasonicSweep),
         _ => None,
     }
 }

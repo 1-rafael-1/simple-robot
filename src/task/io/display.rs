@@ -15,10 +15,10 @@
 /// Sweep Visualization:
 /// - Half-circle arc at bottom (160° span)
 /// - Moving line showing current servo angle
-/// - Length represents maximum range (400cm)
+/// - Length represents maximum range (200cm)
 ///
 /// Distance Points:
-/// - Created when object detected (distance < 400cm)
+/// - Created when object detected (distance < 200cm)
 /// - Position: polar to cartesian conversion from sweep angle
 /// - Cleared when sweep line approaches (10° zone)
 /// - Maximum 1500 points stored
@@ -121,7 +121,7 @@ const RADIUS: i32 = 45;
 /// Diameter of the sweep display in pixels
 const DIAMETER: u32 = (RADIUS * 2) as u32;
 /// Maximum distance to display (maps to RADIUS pixels)
-const MAX_DISTANCE_CM: f64 = 400.0;
+const MAX_DISTANCE_CM: f64 = 200.0;
 /// Maximum number of stored points for display, limited to define heapless Vec
 const MAX_POINTS: usize = 1500;
 

@@ -51,7 +51,7 @@ use crate::{
                 AhrsFusionMode, Orientation, get_latest_orientation, set_ahrs_fusion_mode, start_imu_readings,
                 stop_imu_readings,
             },
-            ultrasonic::{start_ultrasonic_fixed, stop_ultrasonic_sweep},
+            ultrasonic::{start_ultrasonic_fixed, start_ultrasonic_sweep, stop_ultrasonic_sweep},
         },
     },
 };
@@ -76,6 +76,15 @@ static IR_ULTRASONIC_TEST_STOP_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Sig
 
 /// Tracks whether the IR + ultrasonic test mode is active.
 static IR_ULTRASONIC_TEST_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Signal used to start the ultrasonic sweep test mode.
+static ULTRASONIC_SWEEP_TEST_START_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// Signal used to stop the ultrasonic sweep test mode.
+static ULTRASONIC_SWEEP_TEST_STOP_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// Tracks whether the ultrasonic sweep test mode is active.
+static ULTRASONIC_SWEEP_TEST_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Request the test sequence to start.
 pub fn start_testing_sequence() {
@@ -106,11 +115,80 @@ pub fn stop_ir_ultrasonic_test_mode() {
     IR_ULTRASONIC_TEST_STOP_SIGNAL.signal(());
 }
 
+/// Request the ultrasonic sweep test mode to start.
+pub fn start_ultrasonic_sweep_test_mode() {
+    ULTRASONIC_SWEEP_TEST_ACTIVE.store(true, Ordering::Relaxed);
+    ULTRASONIC_SWEEP_TEST_START_SIGNAL.signal(());
+}
+
+/// Request the ultrasonic sweep test mode to stop.
+pub fn stop_ultrasonic_sweep_test_mode() {
+    ULTRASONIC_SWEEP_TEST_ACTIVE.store(false, Ordering::Relaxed);
+    ULTRASONIC_SWEEP_TEST_STOP_SIGNAL.signal(());
+}
+
 /// Initialize testing task (idle until `start_testing_sequence` is called).
 pub fn init_testing(spawner: embassy_executor::Spawner) {
     spawner.must_spawn(testing_sequence_runner());
     spawner.must_spawn(imu_test_runner());
     spawner.must_spawn(ir_ultrasonic_test_runner());
+    spawner.must_spawn(ultrasonic_sweep_test_runner());
+}
+
+/// Ultrasonic sweep test mode runner (keeps sweep active while selected).
+#[embassy_executor::task]
+async fn ultrasonic_sweep_test_runner() {
+    loop {
+        ULTRASONIC_SWEEP_TEST_START_SIGNAL.wait().await;
+        start_ultrasonic_sweep();
+
+        // Clear any pending stop signal so the next test doesn't end immediately.
+        while ULTRASONIC_SWEEP_TEST_STOP_SIGNAL.signaled() {
+            ULTRASONIC_SWEEP_TEST_STOP_SIGNAL.wait().await;
+        }
+
+        loop {
+            match select(
+                ULTRASONIC_SWEEP_TEST_STOP_SIGNAL.wait(),
+                Timer::after(Duration::from_millis(100)),
+            )
+            .await
+            {
+                Either::First(()) => {
+                    ULTRASONIC_SWEEP_TEST_ACTIVE.store(false, Ordering::Relaxed);
+                    stop_ultrasonic_sweep();
+                    display_update(DisplayAction::Clear).await;
+                    break;
+                }
+                Either::Second(()) => {
+                    if !ULTRASONIC_SWEEP_TEST_ACTIVE.load(Ordering::Relaxed) {
+                        stop_ultrasonic_sweep();
+                        display_update(DisplayAction::Clear).await;
+                        break;
+                    }
+
+                    let distance_cm = {
+                        let state = SYSTEM_STATE.lock().await;
+                        state.ultrasonic_distance_cm
+                    };
+
+                    let header = {
+                        let mut s: String<20> = String::new();
+                        match distance_cm {
+                            Some(cm) => {
+                                let _ = core::fmt::write(&mut s, format_args!("US: {cm:>6.1} cm"));
+                            }
+                            None => {
+                                let _ = s.push_str("US: ---- cm");
+                            }
+                        }
+                        s
+                    };
+                    display_update(DisplayAction::ShowText(header, 0)).await;
+                }
+            }
+        }
+    }
 }
 
 /// Main testing sequence runner (waits for on-demand start signals).

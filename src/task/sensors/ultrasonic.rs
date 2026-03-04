@@ -271,6 +271,7 @@ pub async fn ultrasonic_sweep(
             }
             UltrasonicSweepCommand::Stop => {
                 info!("Stopping ultrasonic measurements");
+                servo.rotate_float(80.0);
                 continue 'command;
             }
         }
@@ -286,6 +287,7 @@ pub async fn ultrasonic_sweep(
                 Either::Second(command) => match command {
                     UltrasonicSweepCommand::Stop => {
                         info!("Stopping ultrasonic measurements");
+                        servo.rotate_float(80.0);
                         continue 'command;
                     }
                     UltrasonicSweepCommand::StartSweep => {
@@ -305,8 +307,8 @@ pub async fn ultrasonic_sweep(
                 Timer::after_millis(90).await;
                 let sample = match sensor.measure(ULTRASONIC_TEMPERATURE).await {
                     Ok(distance_cm) => {
-                        if distance_cm > 400.0 {
-                            400.0
+                        if distance_cm > 200.0 {
+                            200.0
                         } else {
                             distance_cm
                         }
@@ -314,7 +316,7 @@ pub async fn ultrasonic_sweep(
                     Err(e) => {
                         error!("{}", e);
                         Timer::after_millis(20).await;
-                        400.0 // Return safe distance on error to prevent false positives
+                        200.0 // Return safe distance on error to prevent false positives
                     }
                 };
                 median_filter.add_value(sample);

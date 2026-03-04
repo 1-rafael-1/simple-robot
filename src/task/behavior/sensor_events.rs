@@ -29,12 +29,12 @@ pub async fn handle_ultrasonic_sweep_reading(distance: f64, angle: f32) {
         state.ultrasonic_angle_deg = Some(angle);
     }
 
-    // Forward sweep data to display for visualization unless IR/US test mode owns the screen.
+    // Forward sweep data to the display only while the sweep test owns the screen.
     let ui_mode = {
         let ui = crate::task::ui::state::UI_STATE.lock().await;
         ui.mode
     };
-    if !matches!(ui_mode, UiMode::RunningIrUltrasonicTest) {
+    if matches!(ui_mode, UiMode::RunningUltrasonicSweepTest) {
         display::display_update(display::DisplayAction::ShowSweep(distance, angle)).await;
     }
 

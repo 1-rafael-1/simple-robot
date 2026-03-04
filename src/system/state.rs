@@ -64,6 +64,8 @@ pub enum UiMode {
     RunningImuTest,
     /// IR + ultrasonic live test mode
     RunningIrUltrasonicTest,
+    /// Ultrasonic sweep test mode
+    RunningUltrasonicSweepTest,
     /// Optional: calibration running state
     Calibrating {
         /// Selected calibration kind
@@ -100,6 +102,8 @@ pub enum TestSelection {
     Imu,
     /// IR + ultrasonic live display test
     IrUltrasonic,
+    /// Ultrasonic sweep test
+    UltrasonicSweep,
 }
 
 /// Calibration submenu selections
