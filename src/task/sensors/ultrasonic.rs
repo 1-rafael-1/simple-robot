@@ -236,6 +236,7 @@ pub fn setup_servo(
 /// This task combines a servo motor sweep with ultrasonic distance measurements
 /// to create a scanning range finder effect. Measurements are filtered through
 /// a moving median filter to reduce noise.
+#[allow(clippy::too_many_lines)]
 #[embassy_executor::task]
 pub async fn ultrasonic_sweep(
     pwm_pio: PioPwm<'static, embassy_rp::peripherals::PIO0, 0>,
