@@ -49,7 +49,7 @@ pub fn start_ultrasonic_fixed(angle_deg: f32) {
 }
 
 /// Stop ultrasonic readings
-pub fn stop_ultrasonic_sweep() {
+pub fn stop_ultrasonic_measurements() {
     US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::Stop);
 }
 

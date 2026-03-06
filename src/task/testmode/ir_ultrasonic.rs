@@ -15,7 +15,7 @@ use crate::{
     system::state::SYSTEM_STATE,
     task::{
         io::display::{DisplayAction, display_update},
-        sensors::ultrasonic::{start_ultrasonic_fixed, stop_ultrasonic_sweep},
+        sensors::ultrasonic::{start_ultrasonic_fixed, stop_ultrasonic_measurements},
     },
 };
 
@@ -113,7 +113,7 @@ async fn ir_ultrasonic_test_task() {
         }
     }
 
-    stop_ultrasonic_sweep();
+    stop_ultrasonic_measurements();
     display_update(DisplayAction::Clear).await;
     {
         let mut state = SYSTEM_STATE.lock().await;

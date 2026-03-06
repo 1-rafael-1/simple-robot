@@ -12,7 +12,7 @@ use embassy_time::{Duration, Timer};
 use super::{TestCommand, release_testmode, request_start};
 use crate::{
     system::state::SYSTEM_STATE,
-    task::sensors::ultrasonic::{start_ultrasonic_sweep, stop_ultrasonic_sweep},
+    task::sensors::ultrasonic::{start_ultrasonic_sweep, stop_ultrasonic_measurements},
 };
 
 /// Signal used to stop the ultrasonic sweep test mode.
@@ -67,7 +67,7 @@ async fn ultrasonic_sweep_test_task() {
         }
     }
 
-    stop_ultrasonic_sweep();
+    stop_ultrasonic_measurements();
     {
         let mut state = SYSTEM_STATE.lock().await;
         state.ultrasonic_reading = None;
