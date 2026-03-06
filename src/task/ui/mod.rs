@@ -124,13 +124,23 @@ pub async fn handle_rotary_button_pressed() {
         UiMode::RunningBasicMotorTest => handle_running_basic_motor_test_press().await,
         UiMode::RunningIrUltrasonicTest => handle_running_ir_ultrasonic_test_press().await,
         UiMode::RunningUltrasonicSweepTest => handle_running_ultrasonic_sweep_test_press().await,
-        UiMode::RunningTest | UiMode::RunningAutonomous { .. } => {}
+        UiMode::RunningAutonomous { .. } => handle_ui_back().await,
+        UiMode::RunningTest => {}
     }
 }
 
 /// Handle rotary encoder button hold start.
 pub async fn handle_rotary_button_hold_start() {
     if !ui_initialized().await {
+        return;
+    }
+
+    let mode = {
+        let ui = UI_STATE.lock().await;
+        ui.mode
+    };
+
+    if matches!(mode, UiMode::RunningAutonomous { .. }) {
         return;
     }
 

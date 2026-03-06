@@ -34,7 +34,9 @@ async fn handle_event(event: Events) {
         Events::CalibrationDataLoaded(kind, data) => initialization::handle_calibration_data_loaded(kind, data).await,
         Events::ImuCalibrationFlagsLoaded(flags) => initialization::handle_imu_calibration_flags_loaded(flags).await,
         Events::OperationModeSet(mode) => behavior::operation_mode::handle_operation_mode_set(mode).await,
-        Events::ObstacleDetected(detected) => behavior::obstacle::handle_obstacle_detected(detected).await,
+        Events::ObstacleDetected { source, detected } => {
+            behavior::obstacle::handle_obstacle_detected(source, detected).await;
+        }
         Events::ObstacleAvoidanceAttempted => behavior::obstacle::handle_obstacle_avoidance_attempted().await,
         Events::BatteryMeasured { level, voltage } => behavior::battery::handle_battery_measured(level, voltage).await,
         Events::RCButtonPressed(button_id) => behavior::input::handle_button_pressed(button_id).await,

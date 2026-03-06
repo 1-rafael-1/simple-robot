@@ -41,12 +41,15 @@ use nanorand::{Rng, WyRand};
 
 use crate::{
     system::event::{Events, raise_event},
-    task::drive::{
-        CompletionStatus, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, InterruptKind,
-        acquire_completion_handle, completion_sender, release_completion_handle, send_drive_command,
-        send_drive_command_with_completion, send_drive_interrupt,
-        types::{RotationDirection, RotationMotion},
-        wait_for_completion,
+    task::{
+        drive::{
+            CompletionStatus, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, InterruptKind,
+            acquire_completion_handle, completion_sender, release_completion_handle, send_drive_command,
+            send_drive_command_with_completion, send_drive_interrupt,
+            types::{RotationDirection, RotationMotion},
+            wait_for_completion,
+        },
+        sensors::ultrasonic::{start_ultrasonic_centered_obstacle_detect, stop_ultrasonic_measurements},
     },
 };
 
@@ -99,6 +102,7 @@ pub fn is_active() -> bool {
 /// Sets the active flag and wakes the task that is waiting on [`START_SIGNAL`].
 pub fn start() {
     ACTIVE.store(true, Ordering::Relaxed);
+    start_ultrasonic_centered_obstacle_detect();
     START_SIGNAL.signal(());
 }
 
@@ -109,6 +113,7 @@ pub fn start() {
 /// [`DriveDistance`] or [`RotateExact`] command immediately.
 pub fn stop() {
     ACTIVE.store(false, Ordering::Relaxed);
+    stop_ultrasonic_measurements();
     send_drive_interrupt(InterruptKind::EmergencyBrake);
 }
 

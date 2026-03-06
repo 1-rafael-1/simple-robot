@@ -16,7 +16,7 @@
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
 
-use crate::system::event::{Events, raise_event};
+use crate::system::event::{Events, ObstacleSource, raise_event};
 
 /// Debounce delay to filter out noise
 const DEBOUNCE_DELAY: Duration = Duration::from_millis(100);
@@ -43,7 +43,11 @@ pub async fn ir_obstacle_detect() {
 
         // Only send event if state has changed
         if last_obstacle_detected != Some(obstacle_detected) {
-            raise_event(Events::ObstacleDetected(obstacle_detected)).await;
+            raise_event(Events::ObstacleDetected {
+                source: ObstacleSource::Ir,
+                detected: obstacle_detected,
+            })
+            .await;
             last_obstacle_detected = Some(obstacle_detected);
         }
     }

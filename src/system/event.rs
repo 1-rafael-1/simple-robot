@@ -59,6 +59,15 @@ pub async fn wait() -> Events {
     EVENT_CHANNEL.receiver().receive().await
 }
 
+/// Source of obstacle detection events.
+#[derive(Debug, Clone, Copy, Format, PartialEq, Eq)]
+pub enum ObstacleSource {
+    /// Infrared obstacle sensors.
+    Ir,
+    /// Ultrasonic obstacle detection.
+    Ultrasonic,
+}
+
 /// System-wide events that can occur during robot operation
 #[derive(Debug, Clone)]
 pub enum Events {
@@ -86,9 +95,15 @@ pub enum Events {
     OperationModeSet(OperationMode),
 
     /// Obstacle detection status changed
-    /// - true: Obstacle detected within threshold
-    /// - false: Path is clear
-    ObstacleDetected(bool),
+    /// - source: which sensor reported the change
+    /// - detected: true if obstacle within threshold, false if clear
+    ObstacleDetected {
+        /// Sensor source reporting the change
+        source: ObstacleSource,
+        /// true: Obstacle detected within threshold
+        /// false: Path is clear
+        detected: bool,
+    },
 
     /// Obstacle avoidance maneuver completed
     /// - Triggered after attempting to navigate around obstacle
