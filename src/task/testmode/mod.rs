@@ -2,6 +2,8 @@
 //!
 //! Provides on-demand test mode tasks spawned via a controller task.
 
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
@@ -28,6 +30,9 @@ pub(super) enum TestCommand {
     UltrasonicSweep,
 }
 
+/// Tracks whether any testmode is currently active.
+static TESTMODE_ACTIVE: AtomicBool = AtomicBool::new(false);
+
 /// Command channel for testmode spawn requests.
 static TESTMODE_COMMAND: Channel<CriticalSectionRawMutex, TestCommand, 4> = Channel::new();
 
@@ -38,7 +43,19 @@ pub fn init_testing(spawner: Spawner) {
 
 /// Request that a test be spawned on demand.
 pub(super) async fn request_start(command: TestCommand) {
+    if TESTMODE_ACTIVE
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+        .is_err()
+    {
+        return;
+    }
+
     TESTMODE_COMMAND.send(command).await;
+}
+
+/// Mark the testmode controller as idle again.
+pub(super) fn release_testmode() {
+    TESTMODE_ACTIVE.store(false, Ordering::Release);
 }
 
 /// Controller task that spawns test tasks on demand.

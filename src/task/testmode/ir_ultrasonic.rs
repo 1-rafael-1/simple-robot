@@ -10,7 +10,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal}
 use embassy_time::{Duration, Timer};
 use heapless::String;
 
-use super::{TestCommand, request_start};
+use super::{TestCommand, release_testmode, request_start};
 use crate::{
     system::state::SYSTEM_STATE,
     task::{
@@ -115,5 +115,6 @@ async fn ir_ultrasonic_test_task() {
 
     stop_ultrasonic_sweep();
     display_update(DisplayAction::Clear).await;
+    release_testmode();
     IR_ULTRASONIC_TEST_ACTIVE.store(false, Ordering::Relaxed);
 }

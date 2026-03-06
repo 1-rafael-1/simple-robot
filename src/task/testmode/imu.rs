@@ -10,7 +10,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal}
 use embassy_time::{Duration, Timer};
 use heapless::String;
 
-use super::{TestCommand, request_start};
+use super::{TestCommand, release_testmode, request_start};
 use crate::task::{
     drive::{get_latest_accel_measurement, get_latest_gyro_measurement, get_latest_mag_measurement},
     io::display::{DisplayAction, display_update},
@@ -112,6 +112,7 @@ async fn imu_test_task() {
 
     stop_imu_readings();
     display_update(DisplayAction::Clear).await;
+    release_testmode();
     IMU_TEST_ACTIVE.store(false, Ordering::Relaxed);
 }
 

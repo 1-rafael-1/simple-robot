@@ -27,7 +27,7 @@ use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use heapless::String;
 
-use super::{TestCommand, request_start};
+use super::{TestCommand, release_testmode, request_start};
 use crate::{
     system::event::{Events, raise_event},
     task::{
@@ -61,6 +61,7 @@ pub(super) fn spawn(spawner: Spawner) {
 #[embassy_executor::task]
 async fn testing_sequence_task() {
     run_testing_sequence().await;
+    release_testmode();
     TEST_SEQUENCE_ACTIVE.store(false, Ordering::Relaxed);
     raise_event(Events::TestingCompleted).await;
 }
