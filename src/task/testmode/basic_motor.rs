@@ -30,7 +30,9 @@ pub async fn start_basic_motor_test_mode() {
         return;
     }
 
-    request_start(TestCommand::BasicMotor).await;
+    if !request_start(TestCommand::BasicMotor).await {
+        BASIC_MOTOR_TEST_ACTIVE.store(false, Ordering::Relaxed);
+    }
 }
 
 /// Request the basic motor test mode to stop.
@@ -198,7 +200,6 @@ async fn basic_motor_test_task() {
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
     encoders::send_command(EncoderCommand::Stop).await;
-    display_update(DisplayAction::Clear).await;
     release_testmode();
     BASIC_MOTOR_TEST_ACTIVE.store(false, Ordering::Relaxed);
 }
