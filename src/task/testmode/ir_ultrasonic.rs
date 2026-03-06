@@ -115,6 +115,11 @@ async fn ir_ultrasonic_test_task() {
 
     stop_ultrasonic_sweep();
     display_update(DisplayAction::Clear).await;
+    {
+        let mut state = SYSTEM_STATE.lock().await;
+        state.ultrasonic_reading = None;
+        state.ultrasonic_angle_deg = None;
+    }
     release_testmode();
     IR_ULTRASONIC_TEST_ACTIVE.store(false, Ordering::Relaxed);
 }

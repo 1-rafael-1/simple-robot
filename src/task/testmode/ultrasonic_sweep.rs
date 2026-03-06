@@ -10,7 +10,10 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal}
 use embassy_time::{Duration, Timer};
 
 use super::{TestCommand, release_testmode, request_start};
-use crate::task::sensors::ultrasonic::{start_ultrasonic_sweep, stop_ultrasonic_sweep};
+use crate::{
+    system::state::SYSTEM_STATE,
+    task::sensors::ultrasonic::{start_ultrasonic_sweep, stop_ultrasonic_sweep},
+};
 
 /// Signal used to stop the ultrasonic sweep test mode.
 static ULTRASONIC_SWEEP_TEST_STOP_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
@@ -65,6 +68,11 @@ async fn ultrasonic_sweep_test_task() {
     }
 
     stop_ultrasonic_sweep();
+    {
+        let mut state = SYSTEM_STATE.lock().await;
+        state.ultrasonic_reading = None;
+        state.ultrasonic_angle_deg = None;
+    }
     release_testmode();
     ULTRASONIC_SWEEP_TEST_ACTIVE.store(false, Ordering::Relaxed);
 }
