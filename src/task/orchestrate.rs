@@ -49,8 +49,8 @@ async fn handle_event(event: Events) {
         Events::EncoderMeasurementTaken(measurement) => {
             behavior::sensor_events::handle_encoder_measurement(measurement);
         }
-        Events::UltrasonicSweepReadingTaken(distance, angle) => {
-            behavior::sensor_events::handle_ultrasonic_sweep_reading(distance, angle).await;
+        Events::UltrasonicSweepReadingTaken(reading, angle) => {
+            behavior::sensor_events::handle_ultrasonic_sweep_reading(reading, angle).await;
         }
         Events::ImuMeasurementTaken(measurement) => {
             behavior::sensor_events::handle_imu_measurement(measurement);

@@ -3,7 +3,10 @@
 //! Forwards sensor readings to the appropriate subsystems.
 
 use crate::{
-    system::state::{SYSTEM_STATE, UiMode},
+    system::{
+        event::UltrasonicReading,
+        state::{SYSTEM_STATE, UiMode},
+    },
     task::{
         drive,
         io::display,
@@ -20,12 +23,10 @@ pub fn handle_encoder_measurement(measurement: encoders::EncoderMeasurement) {
 }
 
 /// Handle ultrasonic sensor readings.
-pub async fn handle_ultrasonic_sweep_reading(distance: f64, angle: f32) {
+pub async fn handle_ultrasonic_sweep_reading(reading: UltrasonicReading, angle: f32) {
     {
         let mut state = SYSTEM_STATE.lock().await;
-        #[allow(clippy::cast_possible_truncation)]
-        let distance_cm = distance as f32;
-        state.ultrasonic_distance_cm = Some(distance_cm);
+        state.ultrasonic_reading = Some(reading);
         state.ultrasonic_angle_deg = Some(angle);
     }
 
@@ -35,7 +36,12 @@ pub async fn handle_ultrasonic_sweep_reading(distance: f64, angle: f32) {
         ui.mode
     };
     if matches!(ui_mode, UiMode::RunningUltrasonicSweepTest) {
-        display::display_update(display::DisplayAction::ShowSweep(distance, angle)).await;
+        match reading {
+            UltrasonicReading::Distance(distance) => {
+                display::display_update(display::DisplayAction::ShowSweep(distance, angle)).await;
+            }
+            UltrasonicReading::Timeout | UltrasonicReading::Error => {}
+        }
     }
 
     // TODO: Feed data to obstacle detection.

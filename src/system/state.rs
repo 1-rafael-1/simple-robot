@@ -26,6 +26,8 @@
 use defmt::Format;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 
+use crate::system::event::UltrasonicReading;
+
 /// Calibration data status
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Format)]
 pub enum CalibrationStatus {
@@ -133,7 +135,7 @@ pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::ne
     battery_level: None,
     battery_voltage: None,
     obstacle_detected: false,
-    ultrasonic_distance_cm: None,
+    ultrasonic_reading: None,
     ultrasonic_angle_deg: None,
     standby: false,
     motor_calibration_status: CalibrationStatus::NotLoaded,
@@ -170,8 +172,8 @@ pub struct SystemState {
     /// - true: Obstacle detected within threshold distance
     /// - false: Path is clear
     pub obstacle_detected: bool,
-    /// Latest ultrasonic distance reading (cm), if available
-    pub ultrasonic_distance_cm: Option<f32>,
+    /// Latest ultrasonic reading status, if available
+    pub ultrasonic_reading: Option<UltrasonicReading>,
     /// Latest ultrasonic angle reading (degrees), if available
     pub ultrasonic_angle_deg: Option<f32>,
     /// Standby mode status

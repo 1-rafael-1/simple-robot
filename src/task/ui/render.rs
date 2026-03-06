@@ -69,6 +69,7 @@ pub async fn render_ir_ultrasonic_test_running() {
     show_line(3, "Press to exit").await;
 }
 
+/// Render the ultrasonic sweep test placeholder screen.
 pub async fn render_ultrasonic_sweep_test_running() {
     display::display_update(DisplayAction::Clear).await;
     show_line(0, "US Sweep: Press").await;

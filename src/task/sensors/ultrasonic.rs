@@ -15,12 +15,12 @@ use embassy_rp::{
     pio_programs::pwm::PioPwm,
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
-use embassy_time::{Delay, Instant, Timer};
+use embassy_time::{Delay, Instant, Timer, with_timeout};
 use hcsr04_async::{Config, DistanceUnit, Hcsr04, Now, TemperatureUnit};
 use moving_median::MovingMedian;
 use panic_probe as _;
 
-use crate::system::event::{Events, raise_event};
+use crate::system::event::{Events, UltrasonicReading, raise_event};
 
 /// Commands for ultrasonic sweep control
 enum UltrasonicSweepCommand {
@@ -76,6 +76,9 @@ const ULTRASONIC_MEDIAN_WINDOW_SIZE: usize = 3;
 /// Slight inaccuracy acceptable as we care more about consistent readings
 const ULTRASONIC_TEMPERATURE: f64 = 21.5;
 
+/// Maximum supported ultrasonic distance in centimeters
+const ULTRASONIC_MAX_DISTANCE_CM: f64 = 200.0;
+
 /// Builder for configuring and creating a servo instance
 ///
 /// Provides a fluent interface for setting servo parameters like pulse widths
@@ -124,7 +127,6 @@ impl<'d, T: Instance, const SM: usize> ServoBuilder<'d, T, SM> {
     }
 
     /// Build the configured servo instance.
-    #[allow(clippy::missing_const_for_fn)]
     pub fn build(mut self) -> Servo<'d, T, SM> {
         self.pwm.set_period(self.period);
         Servo {
@@ -247,8 +249,8 @@ pub async fn ultrasonic_sweep(
     let mut median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
 
     let mut angle: f32 = 0.0;
-    let mut angle_increment: f32 = 2.5;
-    let mut filtered_distance: f64;
+    let mut angle_increment: f32 = 1.0;
+    let mut reading: UltrasonicReading;
     let mut sweeping = true;
     let mut fixed_angle: f32 = 80.0;
 
@@ -282,7 +284,7 @@ pub async fn ultrasonic_sweep(
             servo.rotate_float(current_angle);
 
             // Give servo time to reach position, also see if we must stop or switch modes
-            match select(Timer::after_millis(25), US_SWEEP_CONTROL.wait()).await {
+            match select(Timer::after_millis(15), US_SWEEP_CONTROL.wait()).await {
                 Either::First(()) => {}
                 Either::Second(command) => match command {
                     UltrasonicSweepCommand::Stop => {
@@ -303,30 +305,42 @@ pub async fn ultrasonic_sweep(
             }
 
             // Take multiple measurements based on ULTRASONIC_MEDIAN_WINDOW_SIZE
+            let mut saw_timeout = false;
+            let mut saw_error = false;
+            let mut had_success = false;
+            median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
             for _ in 0..ULTRASONIC_MEDIAN_WINDOW_SIZE {
-                Timer::after_millis(90).await;
-                let sample = match sensor.measure(ULTRASONIC_TEMPERATURE).await {
-                    Ok(distance_cm) => {
-                        if distance_cm > 200.0 {
-                            200.0
-                        } else {
-                            distance_cm
-                        }
+                Timer::after_millis(50).await;
+                let sensor_fut = sensor.measure(ULTRASONIC_TEMPERATURE);
+                match with_timeout(embassy_time::Duration::from_millis(20), sensor_fut).await {
+                    Ok(Ok(distance_cm)) => {
+                        let clamped = distance_cm.min(ULTRASONIC_MAX_DISTANCE_CM);
+                        median_filter.add_value(clamped);
+                        had_success = true;
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
+                        saw_error = true;
                         error!("{}", e);
                         Timer::after_millis(20).await;
-                        200.0 // Return safe distance on error to prevent false positives
                     }
-                };
-                median_filter.add_value(sample);
+                    Err(_) => {
+                        saw_timeout = true;
+                        error!("Ultrasonic measurement timed out");
+                        Timer::after_millis(20).await;
+                    }
+                }
             }
 
-            // Calculate median distance from the filtered measurements
-            filtered_distance = median_filter.median();
+            reading = if had_success {
+                UltrasonicReading::Distance(median_filter.median())
+            } else if saw_error {
+                UltrasonicReading::Error
+            } else {
+                UltrasonicReading::Timeout
+            };
 
             // Send reading event to orchestration task
-            raise_event(Events::UltrasonicSweepReadingTaken(filtered_distance, current_angle)).await;
+            raise_event(Events::UltrasonicSweepReadingTaken(reading, current_angle)).await;
 
             // Update angle and check for direction change
             if sweeping {

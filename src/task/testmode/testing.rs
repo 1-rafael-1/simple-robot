@@ -167,16 +167,22 @@ async fn ultrasonic_sweep_test_runner() {
                         break;
                     }
 
-                    let distance_cm = {
+                    let reading = {
                         let state = SYSTEM_STATE.lock().await;
-                        state.ultrasonic_distance_cm
+                        state.ultrasonic_reading
                     };
 
                     let header = {
                         let mut s: String<20> = String::new();
-                        match distance_cm {
-                            Some(cm) => {
+                        match reading {
+                            Some(crate::system::event::UltrasonicReading::Distance(cm)) => {
                                 let _ = core::fmt::write(&mut s, format_args!("US: {cm:>6.1} cm"));
+                            }
+                            Some(crate::system::event::UltrasonicReading::Timeout) => {
+                                let _ = s.push_str("US: timeout");
+                            }
+                            Some(crate::system::event::UltrasonicReading::Error) => {
+                                let _ = s.push_str("US: error");
                             }
                             None => {
                                 let _ = s.push_str("US: ---- cm");
@@ -305,9 +311,9 @@ async fn ir_ultrasonic_test_runner() {
                         break;
                     }
 
-                    let (ir_detected, distance_cm) = {
+                    let (ir_detected, reading) = {
                         let state = SYSTEM_STATE.lock().await;
-                        (state.obstacle_detected, state.ultrasonic_distance_cm)
+                        (state.obstacle_detected, state.ultrasonic_reading)
                     };
 
                     let header = {
@@ -324,9 +330,15 @@ async fn ir_ultrasonic_test_runner() {
 
                     let line2 = {
                         let mut s: String<20> = String::new();
-                        match distance_cm {
-                            Some(cm) => {
+                        match reading {
+                            Some(crate::system::event::UltrasonicReading::Distance(cm)) => {
                                 let _ = core::fmt::write(&mut s, format_args!("US: {cm:>6.1} cm"));
+                            }
+                            Some(crate::system::event::UltrasonicReading::Timeout) => {
+                                let _ = s.push_str("US: timeout");
+                            }
+                            Some(crate::system::event::UltrasonicReading::Error) => {
+                                let _ = s.push_str("US: error");
                             }
                             None => {
                                 let _ = s.push_str("US: ---- cm");

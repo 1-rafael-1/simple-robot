@@ -152,7 +152,7 @@ pub enum Events {
     /// - Contains distance measurements and servo angle
     /// - used for display and obstacle detection
     /// - TODO: Use for autonomous navigation
-    UltrasonicSweepReadingTaken(f64, f32),
+    UltrasonicSweepReadingTaken(UltrasonicReading, f32),
 
     /// IMU measurement data available
     /// - Contains orientation and timestamp
@@ -188,6 +188,17 @@ pub enum Events {
 
     /// Calibration procedure finished (success or failure)
     CalibrationCompleted,
+}
+
+/// Ultrasonic sensor reading status
+#[derive(Debug, Clone, Copy, Format, PartialEq)]
+pub enum UltrasonicReading {
+    /// Valid distance reading in centimeters
+    Distance(f64),
+    /// Measurement timed out
+    Timeout,
+    /// Measurement failed with an error
+    Error,
 }
 
 /// Rotary encoder direction
