@@ -2,10 +2,18 @@
 //!
 //! Forwards sensor readings to the appropriate subsystems.
 
-use crate::task::{
-    drive,
-    io::display,
-    sensors::{encoders, imu},
+use heapless::String;
+
+use crate::{
+    system::{
+        event::UltrasonicReading,
+        state::{SYSTEM_STATE, UiMode},
+    },
+    task::{
+        drive,
+        io::display,
+        sensors::{encoders, imu},
+    },
 };
 
 /// Handle encoder measurements.
@@ -17,9 +25,34 @@ pub fn handle_encoder_measurement(measurement: encoders::EncoderMeasurement) {
 }
 
 /// Handle ultrasonic sensor readings.
-pub async fn handle_ultrasonic_sweep_reading(distance: f64, angle: f32) {
-    // Forward sweep data to display for visualization.
-    display::display_update(display::DisplayAction::ShowSweep(distance, angle)).await;
+pub async fn handle_ultrasonic_sweep_reading(reading: UltrasonicReading, angle: f32) {
+    {
+        let mut state = SYSTEM_STATE.lock().await;
+        state.ultrasonic_reading = Some(reading);
+        state.ultrasonic_angle_deg = Some(angle);
+    }
+
+    // Forward sweep data to the display only while the sweep test owns the screen.
+    let ui_mode = {
+        let ui = crate::task::ui::state::UI_STATE.lock().await;
+        ui.mode
+    };
+    if matches!(ui_mode, UiMode::RunningUltrasonicSweepTest) {
+        let mut header: String<20> = String::new();
+        match reading {
+            UltrasonicReading::Distance(distance) => {
+                let _ = core::fmt::write(&mut header, format_args!("US:{distance:>5.1} A:{angle:>4.1}"));
+                display::display_update(display::DisplayAction::ShowSweep(distance, angle)).await;
+            }
+            UltrasonicReading::Timeout => {
+                let _ = core::fmt::write(&mut header, format_args!("US:timeout A:{angle:>4.1}"));
+            }
+            UltrasonicReading::Error => {
+                let _ = core::fmt::write(&mut header, format_args!("US:error A:{angle:>4.1}"));
+            }
+        }
+        display::display_update(display::DisplayAction::ShowText(header, 0)).await;
+    }
 
     // TODO: Feed data to obstacle detection.
 }

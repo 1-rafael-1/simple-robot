@@ -31,18 +31,33 @@ use embassy_time::{Duration, Timer};
 
 use crate::system::state::{OperationMode, SYSTEM_STATE};
 
+/// Indicator events used to trigger LED state updates
+pub enum IndicatorEvent {
+    /// Trigger state change confirmation blink sequence
+    Affirm(bool),
+    /// Obstacle status update (true = obstacle detected)
+    Obstacle(bool),
+}
+
 /// Signal for triggering LED state updates
-pub static INDICATOR_CHANGED: Signal<CriticalSectionRawMutex, bool> = Signal::new();
+pub static INDICATOR_CHANGED: Signal<CriticalSectionRawMutex, IndicatorEvent> = Signal::new();
 
 /// Triggers an LED indicator state update
 ///
 /// - affirm: true to show state change confirmation blink sequence
 pub fn update_indicator(affirm: bool) {
-    INDICATOR_CHANGED.signal(affirm);
+    INDICATOR_CHANGED.signal(IndicatorEvent::Affirm(affirm));
+}
+
+/// Triggers an LED obstacle status update
+///
+/// - detected: true for obstacle present, false for clear
+pub fn update_obstacle_indicator(detected: bool) {
+    INDICATOR_CHANGED.signal(IndicatorEvent::Obstacle(detected));
 }
 
 /// Waits for next indicator state change signal
-async fn wait() -> bool {
+async fn wait() -> IndicatorEvent {
     INDICATOR_CHANGED.wait().await
 }
 
@@ -52,6 +67,8 @@ const MODE_BLINK_INTERVAL: Duration = Duration::from_millis(700);
 
 /// Interval for state change confirmation blinks (30ms is quick but noticeable)
 const AFFIRM_BLINK_INTERVAL: Duration = Duration::from_millis(30);
+/// Interval for obstacle status blinks (short burst)
+const OBSTACLE_BLINK_INTERVAL: Duration = Duration::from_millis(60);
 
 /// PWM period for the PIO-driven RGB LED (100 Hz).
 const PWM_PERIOD: CoreDuration = CoreDuration::from_micros(10_000);
@@ -106,8 +123,45 @@ pub async fn rgb_led_indicate(
     let mut led_on = false;
     set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, 0, 0, 0);
 
-    loop {
-        let affirm = wait().await;
+    let mut pending_event: Option<IndicatorEvent> = None;
+
+    'main: loop {
+        let event = if let Some(event) = pending_event.take() {
+            event
+        } else {
+            wait().await
+        };
+
+        let mut affirm = false;
+
+        match event {
+            IndicatorEvent::Affirm(value) => {
+                affirm = value;
+            }
+            IndicatorEvent::Obstacle(detected) => {
+                let (base_red, base_green, base_blue) = if detected { (100, 0, 0) } else { (0, 0, 100) };
+
+                for _ in 0..5 {
+                    if led_on {
+                        set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, 100, 100, 100);
+                    } else {
+                        set_rgb(
+                            &mut pwm_red,
+                            &mut pwm_green,
+                            &mut pwm_blue,
+                            base_red,
+                            base_green,
+                            base_blue,
+                        );
+                    }
+
+                    led_on = !led_on;
+                    Timer::after(OBSTACLE_BLINK_INTERVAL).await;
+                }
+
+                led_on = false;
+            }
+        }
 
         // Show state change confirmation sequence if requested
         if affirm {
@@ -170,9 +224,9 @@ pub async fn rgb_led_indicate(
                     led_on = !led_on;
 
                     // Break blink loop if new indicator update received
-                    if let Either::Second(_) = select(Timer::after(MODE_BLINK_INTERVAL), wait()).await {
-                        update_indicator(true);
-                        break 'autonomous_blink;
+                    if let Either::Second(event) = select(Timer::after(MODE_BLINK_INTERVAL), wait()).await {
+                        pending_event = Some(event);
+                        continue 'main;
                     }
                 }
             }

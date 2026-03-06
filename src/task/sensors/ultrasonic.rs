@@ -15,31 +15,41 @@ use embassy_rp::{
     pio_programs::pwm::PioPwm,
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
-use embassy_time::{Delay, Instant, Timer};
+use embassy_time::{Delay, Instant, Timer, with_timeout};
 use hcsr04_async::{Config, DistanceUnit, Hcsr04, Now, TemperatureUnit};
 use moving_median::MovingMedian;
 use panic_probe as _;
 
-use crate::system::event::{Events, raise_event};
+use crate::system::event::{Events, UltrasonicReading, raise_event};
 
 /// Commands for ultrasonic sweep control
 enum UltrasonicSweepCommand {
-    /// Start ultrasonic sweep
-    Start,
-    /// Stop ultrasonic sweep
+    /// Start ultrasonic sweep mode
+    StartSweep,
+    /// Start ultrasonic fixed-angle mode
+    StartFixed {
+        /// Fixed angle in degrees.
+        angle_deg: f32,
+    },
+    /// Stop ultrasonic measurements
     Stop,
 }
 
 /// Control signal to trigger encoder measurements after specified duration
 static US_SWEEP_CONTROL: Signal<CriticalSectionRawMutex, UltrasonicSweepCommand> = Signal::new();
 
-/// Start continuous encoder readings
+/// Start continuous ultrasonic sweep readings
 pub fn start_ultrasonic_sweep() {
-    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::Start);
+    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartSweep);
 }
 
-/// Stop encoder readings
-pub fn stop_ultrasonic_sweep() {
+/// Start fixed-angle ultrasonic readings (no servo sweep)
+pub fn start_ultrasonic_fixed(angle_deg: f32) {
+    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartFixed { angle_deg });
+}
+
+/// Stop ultrasonic readings
+pub fn stop_ultrasonic_measurements() {
     US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::Stop);
 }
 
@@ -65,6 +75,9 @@ const ULTRASONIC_MEDIAN_WINDOW_SIZE: usize = 3;
 /// Fixed ambient temperature for distance calculations
 /// Slight inaccuracy acceptable as we care more about consistent readings
 const ULTRASONIC_TEMPERATURE: f64 = 21.5;
+
+/// Maximum supported ultrasonic distance in centimeters
+const ULTRASONIC_MAX_DISTANCE_CM: f64 = 200.0;
 
 /// Builder for configuring and creating a servo instance
 ///
@@ -114,7 +127,6 @@ impl<'d, T: Instance, const SM: usize> ServoBuilder<'d, T, SM> {
     }
 
     /// Build the configured servo instance.
-    #[allow(clippy::missing_const_for_fn)]
     pub fn build(mut self) -> Servo<'d, T, SM> {
         self.pwm.set_period(self.period);
         Servo {
@@ -224,6 +236,7 @@ pub fn setup_servo(
 /// This task combines a servo motor sweep with ultrasonic distance measurements
 /// to create a scanning range finder effect. Measurements are filtered through
 /// a moving median filter to reduce noise.
+#[allow(clippy::too_many_lines)]
 #[embassy_executor::task]
 pub async fn ultrasonic_sweep(
     pwm_pio: PioPwm<'static, embassy_rp::peripherals::PIO0, 0>,
@@ -237,72 +250,113 @@ pub async fn ultrasonic_sweep(
     let mut median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
 
     let mut angle: f32 = 0.0;
-    let mut angle_increment: f32 = 2.5;
-    let mut filtered_distance: f64;
+    let mut angle_increment: f32 = 1.0;
+    let mut reading: UltrasonicReading;
+    let mut sweeping = true;
+    let mut fixed_angle: f32 = 80.0;
 
     // 80 degrees is middle, 0 is right, 160 is left
     servo.rotate_float(80.0);
     Timer::after_millis(500).await;
 
     'command: loop {
-        info!("Waiting for ultrasonic sweep command");
+        info!("Waiting for ultrasonic command");
         // Wait for a command, consuming it
         match US_SWEEP_CONTROL.wait().await {
-            UltrasonicSweepCommand::Start => {
+            UltrasonicSweepCommand::StartSweep => {
                 info!("Starting ultrasonic sweep");
+                sweeping = true;
+            }
+            UltrasonicSweepCommand::StartFixed { angle_deg } => {
+                info!("Starting ultrasonic fixed-angle mode");
+                sweeping = false;
+                fixed_angle = angle_deg.clamp(0.0, servo.max_degree_rotation);
             }
             UltrasonicSweepCommand::Stop => {
-                info!("Stopping ultrasonic sweep");
+                info!("Stopping ultrasonic measurements");
+                servo.rotate_float(80.0);
                 continue 'command;
             }
         }
 
         loop {
             // Update servo position
-            servo.rotate_float(angle);
+            let current_angle = if sweeping { angle } else { fixed_angle };
+            servo.rotate_float(current_angle);
 
-            // Give servo time to reach position, also see if we must stop the sweep
-            match select(Timer::after_millis(25), US_SWEEP_CONTROL.wait()).await {
+            // Give servo time to reach position, also see if we must stop or switch modes
+            match select(Timer::after_millis(15), US_SWEEP_CONTROL.wait()).await {
                 Either::First(()) => {}
-                Either::Second(_) => {
-                    info!("Stopping ultrasonic sweep");
-                    continue 'command;
-                }
+                Either::Second(command) => match command {
+                    UltrasonicSweepCommand::Stop => {
+                        info!("Stopping ultrasonic measurements");
+                        servo.rotate_float(80.0);
+                        continue 'command;
+                    }
+                    UltrasonicSweepCommand::StartSweep => {
+                        info!("Switching to ultrasonic sweep");
+                        sweeping = true;
+                    }
+                    UltrasonicSweepCommand::StartFixed { angle_deg } => {
+                        info!("Switching to ultrasonic fixed-angle mode");
+                        sweeping = false;
+                        fixed_angle = angle_deg.clamp(0.0, servo.max_degree_rotation);
+                    }
+                },
             }
 
             // Take multiple measurements based on ULTRASONIC_MEDIAN_WINDOW_SIZE
+            let mut saw_timeout = false;
+            let mut saw_error = false;
+            let mut had_success = false;
+            median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
             for _ in 0..ULTRASONIC_MEDIAN_WINDOW_SIZE {
-                Timer::after_millis(90).await;
-                median_filter.add_value(match sensor.measure(ULTRASONIC_TEMPERATURE).await {
-                    Ok(distance_cm) => {
-                        if distance_cm > 400.0 {
-                            400.0
+                Timer::after_millis(50).await;
+                let sensor_fut = sensor.measure(ULTRASONIC_TEMPERATURE);
+                match with_timeout(embassy_time::Duration::from_millis(20), sensor_fut).await {
+                    Ok(Ok(distance_cm)) => {
+                        if distance_cm > ULTRASONIC_MAX_DISTANCE_CM {
+                            saw_timeout = true;
                         } else {
-                            distance_cm
+                            median_filter.add_value(distance_cm);
+                            had_success = true;
                         }
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
+                        saw_error = true;
                         error!("{}", e);
-                        400.0 // Return safe distance on error to prevent false positives
+                        Timer::after_millis(20).await;
                     }
-                });
+                    Err(_) => {
+                        saw_timeout = true;
+                        error!("Ultrasonic measurement timed out");
+                        Timer::after_millis(20).await;
+                    }
+                }
             }
 
-            // Calculate median distance from the filtered measurements
-            filtered_distance = median_filter.median();
+            reading = if had_success {
+                UltrasonicReading::Distance(median_filter.median())
+            } else if saw_error {
+                UltrasonicReading::Error
+            } else {
+                UltrasonicReading::Timeout
+            };
 
             // Send reading event to orchestration task
-            raise_event(Events::UltrasonicSweepReadingTaken(filtered_distance, angle)).await;
+            raise_event(Events::UltrasonicSweepReadingTaken(reading, current_angle)).await;
 
             // Update angle and check for direction change
-            angle += angle_increment;
-            let max_degree_rotation = servo.max_degree_rotation;
-            if angle >= max_degree_rotation {
-                angle = max_degree_rotation;
-                angle_increment = -angle_increment; // Start moving back
-            } else if angle <= 0.0 {
-                angle = 0.0;
-                angle_increment = -angle_increment; // Start moving forward
+            if sweeping {
+                angle += angle_increment;
+                let max_degree_rotation = servo.max_degree_rotation;
+                if angle >= max_degree_rotation {
+                    angle = max_degree_rotation;
+                    angle_increment = -angle_increment; // Start moving back
+                } else if angle <= 0.0 {
+                    angle = 0.0;
+                    angle_increment = -angle_increment; // Start moving forward
+                }
             }
         }
     }

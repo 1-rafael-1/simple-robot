@@ -6,8 +6,8 @@
 	(paper "A4")
 	(title_block
 		(title "simple-robot")
-		(date "2026-02-22")
-		(rev "5")
+		(date "2026-03-03")
+		(rev "6")
 		(company "Rafael Koch")
 	)
 	(lib_symbols
@@ -7568,7 +7568,7 @@
 	)
 	(rectangle
 		(start 115.57 151.13)
-		(end 172.72 189.23)
+		(end 172.72 196.85)
 		(stroke
 			(width 0)
 			(type default)
@@ -8886,28 +8886,6 @@
 			)
 		)
 	)
-	(global_label "US_TRIG"
-		(shape output)
-		(at 30.48 71.12 180)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "217af0cf-ffa9-4f46-aed7-37bf53cb36c0")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 19.8748 71.12 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-				(hide yes)
-			)
-		)
-	)
 	(global_label "RC_B"
 		(shape input)
 		(at 124.46 105.41 0)
@@ -8921,6 +8899,28 @@
 		(uuid "2426c4d5-fdbe-4df4-b57d-723ff7c0e8fa")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 132.2228 105.41 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "IR_OBST"
+		(shape output)
+		(at 157.48 193.04 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "24535d72-7fa7-47d0-9049-465b30ac5684")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 168.0852 193.04 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -9060,28 +9060,6 @@
 			)
 		)
 	)
-	(global_label "US_ECHO"
-		(shape input)
-		(at 30.48 68.58 180)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "3489da13-a171-402e-9de8-9f28369a1073")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 18.9072 68.58 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-				(hide yes)
-			)
-		)
-	)
 	(global_label "RC_C"
 		(shape input)
 		(at 124.46 102.87 0)
@@ -9203,6 +9181,28 @@
 		(uuid "436e4933-42f3-48aa-9edd-ddbfef39e103")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 87.0034 87.63 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "US_TRIG"
+		(shape output)
+		(at 30.48 68.58 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "43a1ab11-5884-47da-b15a-1ddf8a67489d")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 19.8748 68.58 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10450,6 +10450,28 @@
 					(size 1.27 1.27)
 				)
 				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "US_ECHO"
+		(shape input)
+		(at 30.48 71.12 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "efd3bd93-6afa-47a1-a541-3b7f1cdaa172")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 18.9072 71.12 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
 				(hide yes)
 			)
 		)
@@ -15883,6 +15905,73 @@
 			(project ""
 				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
 					(reference "R7")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "PCM_SL_Resistors:10k")
+		(at 153.67 193.04 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "64e96ef0-28b0-4cc8-bc26-072ed9d7aa49")
+		(property "Reference" "R1"
+			(at 153.67 188.722 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "10k"
+			(at 153.924 190.754 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal"
+			(at 154.559 197.358 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 154.178 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "10kΩ, 1/4W Resistor"
+			(at 153.67 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "186d1a8b-efde-436e-b704-b7873ec852f0")
+		)
+		(pin "1"
+			(uuid "4ef5348b-2efb-466d-a1ca-6057698df9d5")
+		)
+		(instances
+			(project "simple-robot"
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "R1")
 					(unit 1)
 				)
 			)
@@ -23254,6 +23343,73 @@
 			(project "simple-robot"
 				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
 					(reference "C23")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 149.86 193.04 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "f9761ec6-7d7d-4470-b4c8-1fe15e1e5c1a")
+		(property "Reference" "#PWR0117"
+			(at 143.51 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 146.05 193.802 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+		(property "Footprint" ""
+			(at 149.86 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 149.86 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 149.86 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "aa6e32c7-44b3-4510-bdf7-6a37b88e6af1")
+		)
+		(instances
+			(project "simple-robot"
+				(path "/bab01379-5d77-437e-95b1-5e737eb23384"
+					(reference "#PWR0117")
 					(unit 1)
 				)
 			)

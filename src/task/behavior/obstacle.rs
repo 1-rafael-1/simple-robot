@@ -2,9 +2,13 @@
 
 use defmt::info;
 
-use crate::task::{
-    autonomous_mode::coast_obstacle_avoid,
-    drive::{InterruptKind, send_drive_interrupt},
+use crate::{
+    system::state::SYSTEM_STATE,
+    task::{
+        autonomous_mode::coast_obstacle_avoid,
+        drive::{InterruptKind, send_drive_interrupt},
+        indicators::rgb_led_indicate::update_obstacle_indicator,
+    },
 };
 
 /// Handle obstacle detection status changes.
@@ -17,10 +21,17 @@ use crate::task::{
 pub async fn handle_obstacle_detected(detected: bool) {
     info!("Obstacle detection status changed: {}", detected);
 
+    {
+        let mut state = SYSTEM_STATE.lock().await;
+        state.obstacle_detected = detected;
+    }
+
     if detected && coast_obstacle_avoid::is_active() {
         info!("coast-avoid active — issuing EmergencyBrake");
         send_drive_interrupt(InterruptKind::EmergencyBrake);
     }
+
+    update_obstacle_indicator(detected);
 }
 
 /// Handle obstacle avoidance completion.
