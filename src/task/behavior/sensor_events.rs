@@ -2,6 +2,8 @@
 //!
 //! Forwards sensor readings to the appropriate subsystems.
 
+use heapless::String;
+
 use crate::{
     system::{
         event::UltrasonicReading,
@@ -13,7 +15,6 @@ use crate::{
         sensors::{encoders, imu},
     },
 };
-use heapless::String;
 
 /// Handle encoder measurements.
 pub fn handle_encoder_measurement(measurement: encoders::EncoderMeasurement) {
