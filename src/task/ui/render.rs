@@ -27,6 +27,9 @@ pub async fn render_current_ui(state: &UiState) {
         UiMode::RunningImuTest => {
             render_imu_test_running().await;
         }
+        UiMode::RunningBasicMotorTest => {
+            render_basic_motor_test_running().await;
+        }
         UiMode::RunningIrUltrasonicTest => {
             render_ir_ultrasonic_test_running().await;
         }
@@ -57,6 +60,15 @@ pub async fn render_imu_test_running() {
     show_line(0, "IMU Test").await;
     show_line(1, "Euler angles").await;
     show_line(2, "Streaming...").await;
+    show_line(3, "Press to exit").await;
+}
+
+/// Render the basic motor test placeholder screen.
+pub async fn render_basic_motor_test_running() {
+    display::display_update(DisplayAction::Clear).await;
+    show_line(0, "Basic Motor Test").await;
+    show_line(1, "Motor: ----").await;
+    show_line(2, "ENC: ------").await;
     show_line(3, "Press to exit").await;
 }
 

@@ -201,6 +201,14 @@ mod motor_port_mapping {
         }
     }
 
+    /// Returns true when a motor's forward direction is inverted.
+    pub const fn motor_forward_inverted(track: Track, motor: Motor) -> bool {
+        matches!(
+            (track, motor),
+            (Track::Left, Motor::Front) | (Track::Right, Motor::Rear)
+        )
+    }
+
     /// Create port expander command to set a motor's direction
     pub const fn set_motor_direction_cmd(
         track: Track,
@@ -209,12 +217,16 @@ mod motor_port_mapping {
     ) -> PortExpanderOutputCommand {
         let (fwd_bit, bwd_bit) = get_motor_direction_bits(track, motor);
 
-        let (fwd_state, bwd_state) = match direction {
+        let (mut fwd_state, mut bwd_state) = match direction {
             MotorDirection::Forward => (true, false),
             MotorDirection::Backward => (false, true),
             MotorDirection::Coast => (false, false),
             MotorDirection::Brake => (true, true),
         };
+
+        if motor_forward_inverted(track, motor) {
+            core::mem::swap(&mut fwd_state, &mut bwd_state);
+        }
 
         // Create a mask for the two bits we're controlling
         let mask = (1 << fwd_bit) | (1 << bwd_bit);
@@ -239,12 +251,15 @@ mod motor_port_mapping {
         // Helper to set direction bits
         let set_direction = |value: &mut u8, track: Track, motor: Motor, motor_dir: MotorDirection| {
             let (fwd_bit, bwd_bit) = get_motor_direction_bits(track, motor);
-            let (fwd_state, bwd_state) = match motor_dir {
+            let (mut fwd_state, mut bwd_state) = match motor_dir {
                 MotorDirection::Forward => (true, false),
                 MotorDirection::Backward => (false, true),
                 MotorDirection::Coast => (false, false),
                 MotorDirection::Brake => (true, true),
             };
+            if motor_forward_inverted(track, motor) {
+                core::mem::swap(&mut fwd_state, &mut bwd_state);
+            }
             if fwd_state {
                 *value |= 1 << fwd_bit;
             }
