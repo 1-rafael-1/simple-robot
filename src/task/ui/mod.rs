@@ -282,7 +282,7 @@ async fn handle_test_menu_press(index: usize) {
             let snapshot = *ui;
             drop(ui);
             render_current_ui(&snapshot).await;
-            testmode::start_testing_sequence();
+            testmode::start_testing_sequence().await;
         }
         Some(TestSelection::Imu) => {
             let mut ui = UI_STATE.lock().await;
@@ -290,7 +290,7 @@ async fn handle_test_menu_press(index: usize) {
             let snapshot = *ui;
             drop(ui);
             render_current_ui(&snapshot).await;
-            testmode::start_imu_test_mode();
+            testmode::start_imu_test_mode().await;
         }
         Some(TestSelection::IrUltrasonic) => {
             let mut ui = UI_STATE.lock().await;
@@ -298,7 +298,7 @@ async fn handle_test_menu_press(index: usize) {
             let snapshot = *ui;
             drop(ui);
             render_current_ui(&snapshot).await;
-            testmode::start_ir_ultrasonic_test_mode();
+            testmode::start_ir_ultrasonic_test_mode().await;
         }
         Some(TestSelection::UltrasonicSweep) => {
             let mut ui = UI_STATE.lock().await;
@@ -306,7 +306,7 @@ async fn handle_test_menu_press(index: usize) {
             let snapshot = *ui;
             drop(ui);
             render_current_ui(&snapshot).await;
-            testmode::start_ultrasonic_sweep_test_mode();
+            testmode::start_ultrasonic_sweep_test_mode().await;
         }
         None => {
             show_main_menu().await;
