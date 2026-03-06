@@ -31,7 +31,9 @@ pub async fn start_ir_ultrasonic_test_mode() {
         return;
     }
 
-    request_start(TestCommand::IrUltrasonic).await;
+    if !request_start(TestCommand::IrUltrasonic).await {
+        IR_ULTRASONIC_TEST_ACTIVE.store(false, Ordering::Relaxed);
+    }
 }
 
 /// Request the IR + ultrasonic test mode to stop.
@@ -114,7 +116,6 @@ async fn ir_ultrasonic_test_task() {
     }
 
     stop_ultrasonic_measurements();
-    display_update(DisplayAction::Clear).await;
     {
         let mut state = SYSTEM_STATE.lock().await;
         state.ultrasonic_reading = None;

@@ -50,7 +50,9 @@ pub async fn start_testing_sequence() {
         return;
     }
 
-    request_start(TestCommand::Sequence).await;
+    if !request_start(TestCommand::Sequence).await {
+        TEST_SEQUENCE_ACTIVE.store(false, Ordering::Relaxed);
+    }
 }
 
 /// Spawn the test sequence task via the controller.

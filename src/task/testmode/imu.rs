@@ -32,7 +32,9 @@ pub async fn start_imu_test_mode() {
         return;
     }
 
-    request_start(TestCommand::Imu).await;
+    if !request_start(TestCommand::Imu).await {
+        IMU_TEST_ACTIVE.store(false, Ordering::Relaxed);
+    }
 }
 
 /// Request the IMU test mode to stop.
@@ -41,11 +43,12 @@ pub fn stop_imu_test_mode() {
     IMU_TEST_STOP_SIGNAL.signal(());
 }
 
-/// IMU test mode runner (updates display at 50Hz while active).
 /// Spawn the IMU test task via the controller.
 pub(super) fn spawn(spawner: Spawner) {
     spawner.must_spawn(imu_test_task());
 }
+
+/// IMU test mode runner (updates display at 50Hz while active).
 
 #[embassy_executor::task]
 async fn imu_test_task() {
@@ -111,7 +114,6 @@ async fn imu_test_task() {
     }
 
     stop_imu_readings();
-    display_update(DisplayAction::Clear).await;
     release_testmode();
     IMU_TEST_ACTIVE.store(false, Ordering::Relaxed);
 }

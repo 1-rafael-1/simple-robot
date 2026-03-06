@@ -42,15 +42,17 @@ pub fn init_testing(spawner: Spawner) {
 }
 
 /// Request that a test be spawned on demand.
-pub(super) async fn request_start(command: TestCommand) {
+/// Returns true if the request was accepted.
+pub(super) async fn request_start(command: TestCommand) -> bool {
     if TESTMODE_ACTIVE
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
         .is_err()
     {
-        return;
+        return false;
     }
 
     TESTMODE_COMMAND.send(command).await;
+    true
 }
 
 /// Mark the testmode controller as idle again.

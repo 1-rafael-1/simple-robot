@@ -27,7 +27,9 @@ pub async fn start_ultrasonic_sweep_test_mode() {
         return;
     }
 
-    request_start(TestCommand::UltrasonicSweep).await;
+    if !request_start(TestCommand::UltrasonicSweep).await {
+        ULTRASONIC_SWEEP_TEST_ACTIVE.store(false, Ordering::Relaxed);
+    }
 }
 
 /// Request the ultrasonic sweep test mode to stop.
