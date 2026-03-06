@@ -314,9 +314,12 @@ pub async fn ultrasonic_sweep(
                 let sensor_fut = sensor.measure(ULTRASONIC_TEMPERATURE);
                 match with_timeout(embassy_time::Duration::from_millis(20), sensor_fut).await {
                     Ok(Ok(distance_cm)) => {
-                        let clamped = distance_cm.min(ULTRASONIC_MAX_DISTANCE_CM);
-                        median_filter.add_value(clamped);
-                        had_success = true;
+                        if distance_cm > ULTRASONIC_MAX_DISTANCE_CM {
+                            saw_timeout = true;
+                        } else {
+                            median_filter.add_value(distance_cm);
+                            had_success = true;
+                        }
                     }
                     Ok(Err(e)) => {
                         saw_error = true;
