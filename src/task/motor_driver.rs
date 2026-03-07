@@ -202,7 +202,9 @@ mod motor_port_mapping {
     }
 
     /// Wiring-specific forward inversion mapping (update for board/wiring revisions).
+    /// Left-front motor forward direction is inverted for the current wiring.
     const INVERT_LEFT_FRONT: (Track, Motor) = (Track::Left, Motor::Front);
+    /// Right-rear motor forward direction is inverted for the current wiring.
     const INVERT_RIGHT_REAR: (Track, Motor) = (Track::Right, Motor::Rear);
 
     /// Returns true when a motor's forward direction is inverted.

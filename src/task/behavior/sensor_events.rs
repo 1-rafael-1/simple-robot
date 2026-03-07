@@ -31,6 +31,7 @@ pub fn handle_encoder_measurement(measurement: encoders::EncoderMeasurement) {
 }
 
 /// Handle ultrasonic sensor readings.
+#[allow(clippy::cast_possible_truncation)]
 pub async fn handle_ultrasonic_sweep_reading(reading: UltrasonicReading, angle: f32) {
     {
         let mut state = perception::PERCEPTION_STATE.lock().await;

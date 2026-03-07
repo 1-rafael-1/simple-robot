@@ -108,36 +108,32 @@ pub async fn render_autonomous_running(mode: DriveMode) {
         DriveMode::CoastAndAvoid => "Coast & Avoid",
     };
 
-    let mut line0: String<20> = String::new();
-    let _ = line0.push_str(mode_label);
+    let mut rows: [String<20>; 4] = core::array::from_fn(|_| String::new());
+    let _ = rows[0].push_str(mode_label);
 
-    let mut line1: String<20> = String::new();
     let ir_label = if ir_detected { "IR: detect" } else { "IR: clear" };
-    let _ = line1.push_str(ir_label);
+    let _ = rows[1].push_str(ir_label);
 
-    let mut line2: String<20> = String::new();
     match ultrasonic_reading {
         Some(UltrasonicReading::Distance(cm)) => {
-            let _ = core::fmt::write(&mut line2, format_args!("US:{cm:>5.1}cm"));
+            let _ = core::fmt::write(&mut rows[2], format_args!("US:{cm:>5.1}cm"));
         }
         Some(UltrasonicReading::Timeout) => {
-            let _ = line2.push_str("US: timeout");
+            let _ = rows[2].push_str("US: timeout");
         }
         Some(UltrasonicReading::Error) => {
-            let _ = line2.push_str("US: error");
+            let _ = rows[2].push_str("US: error");
         }
         None => {
-            let _ = line2.push_str("US: ----");
+            let _ = rows[2].push_str("US: ----");
         }
     }
 
-    let mut line3: String<20> = String::new();
     let obs_label = if obstacle_detected { "OBS: YES" } else { "OBS: NO" };
-    let _ = line3.push_str(obs_label);
+    let _ = rows[3].push_str(obs_label);
 
-    let lines = [line0, line1, line2, line3];
-    if !display::display_try_update(DisplayAction::ShowLines(lines.clone())) {
-        display::display_update(DisplayAction::ShowLines(lines)).await;
+    if !display::display_try_update(DisplayAction::ShowLines(rows.clone())) {
+        display::display_update(DisplayAction::ShowLines(rows)).await;
     }
 }
 
@@ -164,13 +160,13 @@ pub async fn show_line(line: u8, msg: &str) {
 /// Build a snapshot of system info for the UI renderer.
 pub async fn build_system_info_data() -> screens::SystemInfoData {
     let power_state = power::POWER_STATE.lock().await;
-    let calibration = calibration::CALIBRATION_STATE.lock().await;
+    let calibration_state = calibration::CALIBRATION_STATE.lock().await;
     screens::SystemInfoData {
         battery_level: power_state.battery_level,
         battery_voltage: power_state.battery_voltage,
-        motor_calibration_status: calibration.motor_calibration_status,
-        mag_calibration_status: calibration.mag_calibration_status,
-        accel_calibration_status: calibration.accel_calibration_status,
-        gyro_calibration_status: calibration.gyro_calibration_status,
+        motor_calibration_status: calibration_state.motor_calibration_status,
+        mag_calibration_status: calibration_state.mag_calibration_status,
+        accel_calibration_status: calibration_state.accel_calibration_status,
+        gyro_calibration_status: calibration_state.gyro_calibration_status,
     }
 }
