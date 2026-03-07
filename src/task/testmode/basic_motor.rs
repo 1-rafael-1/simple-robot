@@ -200,6 +200,7 @@ async fn basic_motor_test_task() {
 
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
     encoders::send_command(EncoderCommand::Stop).await;
+    motor_driver::send_motor_command(MotorCommand::SetAllDriversEnable { enabled: false }).await;
     release_testmode();
     BASIC_MOTOR_TEST_ACTIVE.store(false, Ordering::Relaxed);
 }

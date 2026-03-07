@@ -201,12 +201,13 @@ mod motor_port_mapping {
         }
     }
 
+    /// Wiring-specific forward inversion mapping (update for board/wiring revisions).
+    const INVERT_LEFT_FRONT: (Track, Motor) = (Track::Left, Motor::Front);
+    const INVERT_RIGHT_REAR: (Track, Motor) = (Track::Right, Motor::Rear);
+
     /// Returns true when a motor's forward direction is inverted.
     pub const fn motor_forward_inverted(track: Track, motor: Motor) -> bool {
-        matches!(
-            (track, motor),
-            (Track::Left, Motor::Front) | (Track::Right, Motor::Rear)
-        )
+        matches!((track, motor), INVERT_LEFT_FRONT | INVERT_RIGHT_REAR)
     }
 
     /// Create port expander command to set a motor's direction

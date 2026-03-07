@@ -40,10 +40,9 @@ pub async fn set_track_speeds(left: i8, right: i8) {
         let mut state = MOTION_STATE.lock().await;
         state.left_track_speed = left;
         state.right_track_speed = right;
+        LEFT_TRACK_SPEED_ATOMIC.store(left, Ordering::Relaxed);
+        RIGHT_TRACK_SPEED_ATOMIC.store(right, Ordering::Relaxed);
     }
-
-    LEFT_TRACK_SPEED_ATOMIC.store(left, Ordering::Relaxed);
-    RIGHT_TRACK_SPEED_ATOMIC.store(right, Ordering::Relaxed);
 }
 
 /// Reads the latest track speeds from the atomic mirrors.

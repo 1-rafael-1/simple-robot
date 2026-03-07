@@ -104,8 +104,12 @@ pub async fn render_autonomous_running(mode: DriveMode) {
         )
     };
 
+    let mode_label = match mode {
+        DriveMode::CoastAndAvoid => "Coast & Avoid",
+    };
+
     let mut line0: String<20> = String::new();
-    let _ = line0.push_str("Drive Mode");
+    let _ = line0.push_str(mode_label);
 
     let mut line1: String<20> = String::new();
     let ir_label = if ir_detected { "IR: detect" } else { "IR: clear" };
@@ -131,9 +135,10 @@ pub async fn render_autonomous_running(mode: DriveMode) {
     let obs_label = if obstacle_detected { "OBS: YES" } else { "OBS: NO" };
     let _ = line3.push_str(obs_label);
 
-    let _ = display::display_try_update(DisplayAction::ShowLines([line0, line1, line2, line3]));
-
-    let _ = mode;
+    let lines = [line0, line1, line2, line3];
+    if !display::display_try_update(DisplayAction::ShowLines(lines.clone())) {
+        display::display_update(DisplayAction::ShowLines(lines)).await;
+    }
 }
 
 /// Render the calibration-in-progress screen for the selected kind.
