@@ -8,7 +8,7 @@ use super::{screens, state::UiState};
 use crate::{
     system::{
         event::UltrasonicReading,
-        state::{CalibrationSelection, DriveMode, SYSTEM_STATE, UiMode, calibration, power},
+        state::{CalibrationSelection, DriveMode, UiMode, calibration, perception, power},
     },
     task::io::display::{self, DisplayAction},
 };
@@ -93,7 +93,7 @@ pub async fn render_ultrasonic_sweep_test_running() {
 /// Render the autonomous drive mode running screen.
 pub async fn render_autonomous_running(mode: DriveMode) {
     let (ir_detected, ultrasonic_reading, obstacle_detected) = {
-        let state = SYSTEM_STATE.lock().await;
+        let state = perception::PERCEPTION_STATE.lock().await;
         (
             state.ir_obstacle_detected,
             state.ultrasonic_reading,

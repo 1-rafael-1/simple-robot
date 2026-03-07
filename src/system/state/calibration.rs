@@ -1,6 +1,12 @@
 //! Calibration state module.
 //!
 //! Holds calibration status flags and exposes helpers for initialization checks.
+//!
+//! Lock order (when multiple state mutexes are needed):
+//! 1) `POWER_STATE`
+//! 2) `SYSTEM_STATE`
+//! 3) `CALIBRATION_STATE`
+//! 4) `PERCEPTION_STATE`
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 

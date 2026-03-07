@@ -10,7 +10,7 @@ use heapless::String;
 use crate::{
     system::{
         event::UltrasonicReading,
-        state::{SYSTEM_STATE, UiMode},
+        state::{UiMode, perception},
     },
     task::{
         drive,
@@ -36,7 +36,7 @@ pub fn handle_encoder_measurement(measurement: encoders::EncoderMeasurement) {
 /// Handle ultrasonic sensor readings.
 pub async fn handle_ultrasonic_sweep_reading(reading: UltrasonicReading, angle: f32) {
     {
-        let mut state = SYSTEM_STATE.lock().await;
+        let mut state = perception::PERCEPTION_STATE.lock().await;
         state.ultrasonic_reading = Some(reading);
         state.ultrasonic_angle_deg = Some(angle);
     }

@@ -2,7 +2,7 @@
 //!
 //! Manages the robot's global state including:
 //! - Operation mode (Manual/Autonomous)
-//! - Sensor states
+//! - Motion telemetry (track speeds)
 //!
 //! The state is protected by a mutex to ensure safe concurrent access
 //! from multiple tasks. All state changes are atomic and immediately
@@ -10,7 +10,7 @@
 //!
 //! # State Components
 //! - Operation Mode: Determines if robot is under manual control or autonomous
-//! - Obstacle Detection: Whether an obstacle is currently detected
+//! - Track Speeds: Current left/right track speeds
 //!
 //! # State Access Pattern
 //! ```rust
@@ -22,9 +22,8 @@
 use defmt::Format;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 
-use crate::system::event::UltrasonicReading;
-
 pub mod calibration;
+pub mod perception;
 pub mod power;
 
 /// Calibration data status
@@ -128,14 +127,9 @@ pub enum CalibrationSelection {
 ///
 /// Initialized to:
 /// - Manual operation mode
-/// - No obstacles detected
+/// - Track speeds set to zero
 pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::new(SystemState {
     operation_mode: OperationMode::Manual,
-    obstacle_detected: false,
-    ir_obstacle_detected: false,
-    ultrasonic_obstacle_detected: false,
-    ultrasonic_reading: None,
-    ultrasonic_angle_deg: None,
     left_track_speed: 0,
     right_track_speed: 0,
 });
@@ -146,23 +140,9 @@ pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::ne
 /// Changes to these values trigger corresponding system behaviors through
 /// the event system.
 #[derive(Format)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct SystemState {
     /// Current operation mode (Manual/Autonomous)
     pub operation_mode: OperationMode,
-
-    /// Obstacle detection status (combined)
-    /// - true: Obstacle detected within threshold distance
-    /// - false: Path is clear
-    pub obstacle_detected: bool,
-    /// IR obstacle detection status
-    pub ir_obstacle_detected: bool,
-    /// Ultrasonic obstacle detection status
-    pub ultrasonic_obstacle_detected: bool,
-    /// Latest ultrasonic reading status, if available
-    pub ultrasonic_reading: Option<UltrasonicReading>,
-    /// Latest ultrasonic angle reading (degrees), if available
-    pub ultrasonic_angle_deg: Option<f32>,
 
     /// Current left track speed (-100 to +100)
     /// - Negative values: reverse

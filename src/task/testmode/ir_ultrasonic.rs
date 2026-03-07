@@ -11,12 +11,9 @@ use embassy_time::{Duration, Timer};
 use heapless::String;
 
 use super::{TestCommand, release_testmode, request_start};
-use crate::{
-    system::state::SYSTEM_STATE,
-    task::{
-        io::display::{DisplayAction, display_update},
-        sensors::ultrasonic::{start_ultrasonic_fixed, stop_ultrasonic_measurements},
-    },
+use crate::task::{
+    io::display::{DisplayAction, display_update},
+    sensors::ultrasonic::{start_ultrasonic_fixed, stop_ultrasonic_measurements},
 };
 
 /// Signal used to stop the IR + ultrasonic test mode.
@@ -72,7 +69,7 @@ async fn ir_ultrasonic_test_task() {
                 }
 
                 let (ir_detected, reading) = {
-                    let state = SYSTEM_STATE.lock().await;
+                    let state = crate::system::state::perception::PERCEPTION_STATE.lock().await;
                     (state.obstacle_detected, state.ultrasonic_reading)
                 };
 
@@ -117,7 +114,7 @@ async fn ir_ultrasonic_test_task() {
 
     stop_ultrasonic_measurements();
     {
-        let mut state = SYSTEM_STATE.lock().await;
+        let mut state = crate::system::state::perception::PERCEPTION_STATE.lock().await;
         state.ultrasonic_reading = None;
         state.ultrasonic_angle_deg = None;
     }

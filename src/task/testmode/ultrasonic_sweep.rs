@@ -11,7 +11,7 @@ use embassy_time::{Duration, Timer};
 
 use super::{TestCommand, release_testmode, request_start};
 use crate::{
-    system::state::SYSTEM_STATE,
+    system::state::perception,
     task::sensors::ultrasonic::{start_ultrasonic_sweep, stop_ultrasonic_measurements},
 };
 
@@ -71,7 +71,7 @@ async fn ultrasonic_sweep_test_task() {
 
     stop_ultrasonic_measurements();
     {
-        let mut state = SYSTEM_STATE.lock().await;
+        let mut state = perception::PERCEPTION_STATE.lock().await;
         state.ultrasonic_reading = None;
         state.ultrasonic_angle_deg = None;
     }

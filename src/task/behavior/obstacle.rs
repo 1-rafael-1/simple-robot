@@ -7,7 +7,7 @@ use defmt::info;
 use crate::{
     system::{
         event::ObstacleSource,
-        state::{SYSTEM_STATE, UiMode},
+        state::{UiMode, perception},
     },
     task::{
         autonomous_mode::coast_obstacle_avoid,
@@ -28,7 +28,7 @@ pub async fn reset_obstacle_state() {
     ULTRASONIC_OBSTACLE_DETECTED.store(false, Ordering::Relaxed);
 
     {
-        let mut state = SYSTEM_STATE.lock().await;
+        let mut state = perception::PERCEPTION_STATE.lock().await;
         state.ir_obstacle_detected = false;
         state.ultrasonic_obstacle_detected = false;
         state.obstacle_detected = false;
@@ -72,7 +72,7 @@ pub async fn handle_obstacle_detected(source: ObstacleSource, detected: bool) {
     let combined = ir_detected || ultrasonic_detected;
 
     let changed = {
-        let mut state = SYSTEM_STATE.lock().await;
+        let mut state = perception::PERCEPTION_STATE.lock().await;
         state.ir_obstacle_detected = ir_detected;
         state.ultrasonic_obstacle_detected = ultrasonic_detected;
         let changed = state.obstacle_detected != combined;

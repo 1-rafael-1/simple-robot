@@ -5,7 +5,7 @@
 use crate::{
     system::{
         event::RotaryDirection,
-        state::{CalibrationSelection, DriveMode, SYSTEM_STATE, TestSelection, UiMode, calibration},
+        state::{CalibrationSelection, DriveMode, TestSelection, UiMode, calibration, perception},
     },
     task::{autonomous_mode, drive, testmode},
 };
@@ -274,7 +274,7 @@ async fn handle_drive_mode_menu_press(index: usize) {
     if let Some(mode) = menu::drive_mode_from_index(index) {
         crate::task::behavior::obstacle::reset_obstacle_state().await;
         {
-            let mut state = SYSTEM_STATE.lock().await;
+            let mut state = perception::PERCEPTION_STATE.lock().await;
             state.ultrasonic_reading = None;
             state.ultrasonic_angle_deg = None;
         }
@@ -324,7 +324,7 @@ async fn handle_test_menu_press(index: usize) {
         Some(TestSelection::IrUltrasonic) => {
             crate::task::behavior::obstacle::reset_obstacle_state().await;
             {
-                let mut state = SYSTEM_STATE.lock().await;
+                let mut state = perception::PERCEPTION_STATE.lock().await;
                 state.ultrasonic_reading = None;
                 state.ultrasonic_angle_deg = None;
             }

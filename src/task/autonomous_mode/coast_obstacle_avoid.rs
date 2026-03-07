@@ -42,7 +42,7 @@ use nanorand::{Rng, WyRand};
 use crate::{
     system::{
         event::{Events, UltrasonicReading, raise_event},
-        state::SYSTEM_STATE,
+        state::perception,
     },
     task::{
         drive::{
@@ -143,7 +143,7 @@ pub async fn coast_obstacle_avoid_task() {
         // Main loop: drive forward until interrupted, then avoid, repeat.
         while ACTIVE.load(Ordering::Relaxed) {
             let (obstacle_detected, ultrasonic_reading) = {
-                let state = SYSTEM_STATE.lock().await;
+                let state = perception::PERCEPTION_STATE.lock().await;
                 (state.obstacle_detected, state.ultrasonic_reading)
             };
 
@@ -325,7 +325,7 @@ async fn avoid_obstacle() {
     Timer::after(Duration::from_millis(100)).await;
 
     {
-        let mut state = SYSTEM_STATE.lock().await;
+        let mut state = perception::PERCEPTION_STATE.lock().await;
         state.ultrasonic_reading = None;
     }
 
