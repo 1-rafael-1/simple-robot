@@ -2,9 +2,7 @@
 //!
 //! Manages the robot's global state including:
 //! - Operation mode (Manual/Autonomous)
-//! - Battery status
 //! - Sensor states
-//! - Power management
 //!
 //! The state is protected by a mutex to ensure safe concurrent access
 //! from multiple tasks. All state changes are atomic and immediately
@@ -12,9 +10,7 @@
 //!
 //! # State Components
 //! - Operation Mode: Determines if robot is under manual control or autonomous
-//! - Battery Level: Current charge level as percentage (0-100)
 //! - Obstacle Detection: Whether an obstacle is currently detected
-//! - Standby Status: Power saving mode indicator
 //!
 //! # State Access Pattern
 //! ```rust
@@ -29,6 +25,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use crate::system::event::UltrasonicReading;
 
 pub mod calibration;
+pub mod power;
 
 /// Calibration data status
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Format)]
@@ -131,20 +128,14 @@ pub enum CalibrationSelection {
 ///
 /// Initialized to:
 /// - Manual operation mode
-/// - 100% battery level
-/// - No battery voltage reading yet
 /// - No obstacles detected
-/// - Standby mode disabled
 pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::new(SystemState {
     operation_mode: OperationMode::Manual,
-    battery_level: None,
-    battery_voltage: None,
     obstacle_detected: false,
     ir_obstacle_detected: false,
     ultrasonic_obstacle_detected: false,
     ultrasonic_reading: None,
     ultrasonic_angle_deg: None,
-    standby: false,
     left_track_speed: 0,
     right_track_speed: 0,
 });
@@ -159,18 +150,7 @@ pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::ne
 pub struct SystemState {
     /// Current operation mode (Manual/Autonomous)
     pub operation_mode: OperationMode,
-    /// Battery level percentage (0-100)
-    /// - 0: Critical, needs immediate charging
-    /// - 1-20: Low battery warning
-    /// - 21-99: Normal operation
-    /// - 100: Fully charged
-    pub battery_level: Option<u8>,
-    /// Battery voltage in volts (2S Li-Ion: 6.0V-8.4V)
-    /// - None: No reading available yet
-    /// - Some(voltage): Latest voltage measurement
-    ///
-    /// Used by motor driver for voltage compensation
-    pub battery_voltage: Option<f32>,
+
     /// Obstacle detection status (combined)
     /// - true: Obstacle detected within threshold distance
     /// - false: Path is clear
@@ -183,10 +163,7 @@ pub struct SystemState {
     pub ultrasonic_reading: Option<UltrasonicReading>,
     /// Latest ultrasonic angle reading (degrees), if available
     pub ultrasonic_angle_deg: Option<f32>,
-    /// Standby mode status
-    /// - true: Power saving mode active
-    /// - false: Normal power mode
-    pub standby: bool,
+
     /// Current left track speed (-100 to +100)
     /// - Negative values: reverse
     /// - 0: stopped

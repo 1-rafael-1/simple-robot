@@ -8,7 +8,7 @@ use super::{screens, state::UiState};
 use crate::{
     system::{
         event::UltrasonicReading,
-        state::{CalibrationSelection, DriveMode, SYSTEM_STATE, UiMode, calibration},
+        state::{CalibrationSelection, DriveMode, SYSTEM_STATE, UiMode, calibration, power},
     },
     task::io::display::{self, DisplayAction},
 };
@@ -155,11 +155,11 @@ pub async fn show_line(line: u8, msg: &str) {
 
 /// Build a snapshot of system info for the UI renderer.
 pub async fn build_system_info_data() -> screens::SystemInfoData {
-    let state = SYSTEM_STATE.lock().await;
+    let power_state = power::POWER_STATE.lock().await;
     let calibration = calibration::CALIBRATION_STATE.lock().await;
     screens::SystemInfoData {
-        battery_level: state.battery_level,
-        battery_voltage: state.battery_voltage,
+        battery_level: power_state.battery_level,
+        battery_voltage: power_state.battery_voltage,
         motor_calibration_status: calibration.motor_calibration_status,
         mag_calibration_status: calibration.mag_calibration_status,
         accel_calibration_status: calibration.accel_calibration_status,

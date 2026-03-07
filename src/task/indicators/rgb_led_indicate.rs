@@ -29,7 +29,7 @@ use embassy_rp::{peripherals::PIO1, pio_programs::pwm::PioPwm};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 
-use crate::system::state::{OperationMode, SYSTEM_STATE};
+use crate::system::state::{OperationMode, SYSTEM_STATE, power};
 
 /// Indicator events used to trigger LED state updates
 pub enum IndicatorEvent {
@@ -180,8 +180,12 @@ pub async fn rgb_led_indicate(
 
         // Get current system state
         let (battery_level, operation_mode) = {
-            let state = SYSTEM_STATE.lock().await;
-            (state.battery_level, state.operation_mode)
+            let power_state = power::POWER_STATE.lock().await;
+            let operation_mode = {
+                let state = SYSTEM_STATE.lock().await;
+                state.operation_mode
+            };
+            (power_state.battery_level, operation_mode)
         };
 
         // Calculate PWM duty cycles based on battery level

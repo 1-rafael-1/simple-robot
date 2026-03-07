@@ -96,7 +96,7 @@ use embassy_rp::pwm::{Pwm, SetDutyCycle};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
 use crate::{
-    system::state,
+    system::state::power,
     task::io::port_expander::{self},
 };
 
@@ -107,7 +107,7 @@ const TARGET_MOTOR_VOLTAGE: f32 = 6.0;
 /// Returns None if no voltage reading available yet OR if mutex is busy
 fn try_get_battery_voltage() -> Option<f32> {
     // Use try_lock to avoid blocking - if mutex is busy, just return None
-    state::SYSTEM_STATE.try_lock().ok()?.battery_voltage
+    power::POWER_STATE.try_lock().ok()?.battery_voltage
 }
 
 /// Wait for first battery voltage reading from system state
