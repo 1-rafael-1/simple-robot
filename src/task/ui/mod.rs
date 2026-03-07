@@ -273,6 +273,12 @@ async fn handle_calibrate_menu_press(index: usize) {
 /// Handle a button press while the drive mode menu is active.
 async fn handle_drive_mode_menu_press(index: usize) {
     if let Some(mode) = menu::drive_mode_from_index(index) {
+        crate::task::behavior::obstacle::reset_obstacle_state().await;
+        {
+            let mut state = SYSTEM_STATE.lock().await;
+            state.ultrasonic_reading = None;
+            state.ultrasonic_angle_deg = None;
+        }
         let mut ui = UI_STATE.lock().await;
         ui.mode = UiMode::RunningAutonomous { mode };
         let snapshot = *ui;
@@ -317,6 +323,12 @@ async fn handle_test_menu_press(index: usize) {
             testmode::start_basic_motor_test_mode().await;
         }
         Some(TestSelection::IrUltrasonic) => {
+            crate::task::behavior::obstacle::reset_obstacle_state().await;
+            {
+                let mut state = SYSTEM_STATE.lock().await;
+                state.ultrasonic_reading = None;
+                state.ultrasonic_angle_deg = None;
+            }
             let mut ui = UI_STATE.lock().await;
             ui.mode = UiMode::RunningIrUltrasonicTest;
             let snapshot = *ui;

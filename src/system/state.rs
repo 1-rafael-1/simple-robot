@@ -139,6 +139,8 @@ pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::ne
     battery_level: None,
     battery_voltage: None,
     obstacle_detected: false,
+    ir_obstacle_detected: false,
+    ultrasonic_obstacle_detected: false,
     ultrasonic_reading: None,
     ultrasonic_angle_deg: None,
     standby: false,
@@ -172,10 +174,14 @@ pub struct SystemState {
     ///
     /// Used by motor driver for voltage compensation
     pub battery_voltage: Option<f32>,
-    /// Obstacle detection status
+    /// Obstacle detection status (combined)
     /// - true: Obstacle detected within threshold distance
     /// - false: Path is clear
     pub obstacle_detected: bool,
+    /// IR obstacle detection status
+    pub ir_obstacle_detected: bool,
+    /// Ultrasonic obstacle detection status
+    pub ultrasonic_obstacle_detected: bool,
     /// Latest ultrasonic reading status, if available
     pub ultrasonic_reading: Option<UltrasonicReading>,
     /// Latest ultrasonic angle reading (degrees), if available

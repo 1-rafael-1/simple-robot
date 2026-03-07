@@ -2,6 +2,9 @@
 //!
 //! Forwards sensor readings to the appropriate subsystems.
 
+use core::sync::atomic::{AtomicU32, Ordering};
+
+use embassy_time::Instant;
 use heapless::String;
 
 use crate::{
@@ -13,8 +16,13 @@ use crate::{
         drive,
         io::display,
         sensors::{encoders, imu},
+        ui,
     },
 };
+
+/// Throttle UI refresh while autonomous mode is running (ms).
+const AUTONOMOUS_UI_REFRESH_INTERVAL_MS: u32 = 500;
+static LAST_AUTONOMOUS_REFRESH_MS: AtomicU32 = AtomicU32::new(0);
 
 /// Handle encoder measurements.
 pub fn handle_encoder_measurement(measurement: encoders::EncoderMeasurement) {
@@ -52,6 +60,15 @@ pub async fn handle_ultrasonic_sweep_reading(reading: UltrasonicReading, angle: 
             }
         }
         display::display_update(display::DisplayAction::ShowText(header, 0)).await;
+    }
+
+    if matches!(ui_mode, UiMode::RunningAutonomous { .. }) {
+        let now_ms = Instant::now().as_millis() as u32;
+        let last_ms = LAST_AUTONOMOUS_REFRESH_MS.load(Ordering::Relaxed);
+        if now_ms.saturating_sub(last_ms) >= AUTONOMOUS_UI_REFRESH_INTERVAL_MS {
+            LAST_AUTONOMOUS_REFRESH_MS.store(now_ms, Ordering::Relaxed);
+            ui::refresh().await;
+        }
     }
 
     // TODO: Feed data to obstacle detection.

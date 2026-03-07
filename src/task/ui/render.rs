@@ -6,7 +6,10 @@ use heapless::String;
 
 use super::{screens, state::UiState};
 use crate::{
-    system::state::{CalibrationSelection, DriveMode, SYSTEM_STATE, UiMode},
+    system::{
+        event::UltrasonicReading,
+        state::{CalibrationSelection, DriveMode, SYSTEM_STATE, UiMode},
+    },
     task::io::display::{self, DisplayAction},
 };
 
@@ -89,14 +92,45 @@ pub async fn render_ultrasonic_sweep_test_running() {
 
 /// Render the autonomous drive mode running screen.
 pub async fn render_autonomous_running(mode: DriveMode) {
-    display::display_update(DisplayAction::Clear).await;
-    show_line(0, "Drive Mode").await;
-    let mode_label = match mode {
-        DriveMode::CoastAndAvoid => "Coast & Avoid",
+    let (ir_detected, ultrasonic_reading, obstacle_detected) = {
+        let state = SYSTEM_STATE.lock().await;
+        (
+            state.ir_obstacle_detected,
+            state.ultrasonic_reading,
+            state.obstacle_detected,
+        )
     };
-    show_line(1, mode_label).await;
-    show_line(2, "Running...").await;
-    show_line(3, "Hold to stop").await;
+
+    let mut line0: String<20> = String::new();
+    let _ = line0.push_str("Drive Mode");
+
+    let mut line1: String<20> = String::new();
+    let ir_label = if ir_detected { "IR: detect" } else { "IR: clear" };
+    let _ = line1.push_str(ir_label);
+
+    let mut line2: String<20> = String::new();
+    match ultrasonic_reading {
+        Some(UltrasonicReading::Distance(cm)) => {
+            let _ = core::fmt::write(&mut line2, format_args!("US:{cm:>5.1}cm"));
+        }
+        Some(UltrasonicReading::Timeout) => {
+            let _ = line2.push_str("US: timeout");
+        }
+        Some(UltrasonicReading::Error) => {
+            let _ = line2.push_str("US: error");
+        }
+        None => {
+            let _ = line2.push_str("US: ----");
+        }
+    }
+
+    let mut line3: String<20> = String::new();
+    let obs_label = if obstacle_detected { "OBS: YES" } else { "OBS: NO" };
+    let _ = line3.push_str(obs_label);
+
+    let _ = display::display_try_update(DisplayAction::ShowLines([line0, line1, line2, line3]));
+
+    let _ = mode;
 }
 
 /// Render the calibration-in-progress screen for the selected kind.

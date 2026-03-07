@@ -5,11 +5,15 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::info;
 
 use crate::{
-    system::{event::ObstacleSource, state::SYSTEM_STATE},
+    system::{
+        event::ObstacleSource,
+        state::{SYSTEM_STATE, UiMode},
+    },
     task::{
         autonomous_mode::coast_obstacle_avoid,
         drive::{InterruptKind, send_drive_interrupt},
         indicators::rgb_led_indicate::update_obstacle_indicator,
+        ui,
     },
 };
 
@@ -17,6 +21,29 @@ use crate::{
 static IR_OBSTACLE_DETECTED: AtomicBool = AtomicBool::new(false);
 /// Tracks obstacle detection by ultrasonic sensor.
 static ULTRASONIC_OBSTACLE_DETECTED: AtomicBool = AtomicBool::new(false);
+
+/// Reset obstacle detection state (clears IR/US flags and combined state).
+pub async fn reset_obstacle_state() {
+    IR_OBSTACLE_DETECTED.store(false, Ordering::Relaxed);
+    ULTRASONIC_OBSTACLE_DETECTED.store(false, Ordering::Relaxed);
+
+    {
+        let mut state = SYSTEM_STATE.lock().await;
+        state.ir_obstacle_detected = false;
+        state.ultrasonic_obstacle_detected = false;
+        state.obstacle_detected = false;
+    }
+
+    update_obstacle_indicator(false);
+
+    let ui_mode = {
+        let ui_state = crate::task::ui::state::UI_STATE.lock().await;
+        ui_state.mode
+    };
+    if matches!(ui_mode, UiMode::RunningAutonomous { .. }) {
+        ui::refresh().await;
+    }
+}
 
 /// Handle obstacle detection status changes.
 ///
@@ -40,10 +67,14 @@ pub async fn handle_obstacle_detected(source: ObstacleSource, detected: bool) {
         }
     }
 
-    let combined = IR_OBSTACLE_DETECTED.load(Ordering::Relaxed) || ULTRASONIC_OBSTACLE_DETECTED.load(Ordering::Relaxed);
+    let ir_detected = IR_OBSTACLE_DETECTED.load(Ordering::Relaxed);
+    let ultrasonic_detected = ULTRASONIC_OBSTACLE_DETECTED.load(Ordering::Relaxed);
+    let combined = ir_detected || ultrasonic_detected;
 
     let changed = {
         let mut state = SYSTEM_STATE.lock().await;
+        state.ir_obstacle_detected = ir_detected;
+        state.ultrasonic_obstacle_detected = ultrasonic_detected;
         let changed = state.obstacle_detected != combined;
         if changed {
             state.obstacle_detected = combined;
@@ -58,6 +89,14 @@ pub async fn handle_obstacle_detected(source: ObstacleSource, detected: bool) {
         }
 
         update_obstacle_indicator(combined);
+
+        let ui_mode = {
+            let ui_state = crate::task::ui::state::UI_STATE.lock().await;
+            ui_state.mode
+        };
+        if matches!(ui_mode, UiMode::RunningAutonomous { .. }) {
+            ui::refresh().await;
+        }
     }
 }
 

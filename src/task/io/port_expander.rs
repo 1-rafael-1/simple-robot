@@ -347,6 +347,7 @@ pub async fn port_expander(i2c_bus: &'static I2cBusShared, mut interrupt: Input<
         Ok(value) => {
             state.last_input_state = InputState::from_port1(value);
             debug!("Initial input state: {:?}", state.last_input_state);
+            signal_ir_obstacle(state.last_input_state.ir_obstacle).await;
         }
         Err(()) => {
             error!("Failed to read initial input state");
