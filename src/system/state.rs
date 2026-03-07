@@ -1,16 +1,15 @@
 //! System State Management
 //!
 //! Manages the robot's global state including:
-//! - Operation mode (Manual/Autonomous)
-//! - Motion telemetry (track speeds)
+//! - Shared enums and cross-cutting state modules
 //!
 //! The state is protected by a mutex to ensure safe concurrent access
 //! from multiple tasks. All state changes are atomic and immediately
 //! visible to all tasks.
 //!
 //! # State Components
-//! - Operation Mode: Determines if robot is under manual control or autonomous
-//! - Track Speeds: Current left/right track speeds
+//! - Operation Mode: Defined here and used by the `motion` module
+//! - Domain state lives in dedicated submodules
 //!
 //! # State Access Pattern
 //! ```rust
@@ -23,6 +22,7 @@ use defmt::Format;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 
 pub mod calibration;
+pub mod motion;
 pub mod perception;
 pub mod power;
 
@@ -125,14 +125,8 @@ pub enum CalibrationSelection {
 
 /// Global system state protected by a mutex
 ///
-/// Initialized to:
-/// - Manual operation mode
-/// - Track speeds set to zero
-pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::new(SystemState {
-    operation_mode: OperationMode::Manual,
-    left_track_speed: 0,
-    right_track_speed: 0,
-});
+/// Initialized to an empty struct; domain state lives in submodules.
+pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::new(SystemState {});
 
 /// Robot system state containing all runtime state information
 ///
@@ -140,28 +134,9 @@ pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::ne
 /// Changes to these values trigger corresponding system behaviors through
 /// the event system.
 #[derive(Format)]
-pub struct SystemState {
-    /// Current operation mode (Manual/Autonomous)
-    pub operation_mode: OperationMode,
+pub struct SystemState {}
 
-    /// Current left track speed (-100 to +100)
-    /// - Negative values: reverse
-    /// - 0: stopped
-    /// - Positive values: forward
-    pub left_track_speed: i8,
-    /// Current right track speed (-100 to +100)
-    /// - Negative values: reverse
-    /// - 0: stopped
-    /// - Positive values: forward
-    pub right_track_speed: i8,
-}
-
-impl SystemState {
-    /// Updates operation mode and ensures state consistency
-    pub const fn set_operation_mode(&mut self, new_mode: OperationMode) {
-        self.operation_mode.set(new_mode);
-    }
-}
+// Motion state helpers moved to the `motion` module.
 
 /// Robot operation modes defining control behavior
 #[derive(Debug, Clone, Eq, PartialEq, Format, Copy)]

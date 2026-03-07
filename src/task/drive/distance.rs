@@ -56,17 +56,14 @@
 use embassy_time::Instant;
 use micromath::F32Ext;
 
-use crate::{
-    system::state::SYSTEM_STATE,
-    task::{
-        drive::{
-            drift::math as compensation,
-            sensors::data::{self as feedback, IMU_FEEDBACK_CHANNEL},
-            types,
-        },
-        motor_driver::{self, MotorCommand},
-        sensors::encoders::{self as encoder_read, EncoderMeasurement},
+use crate::task::{
+    drive::{
+        drift::math as compensation,
+        sensors::data::{self as feedback, IMU_FEEDBACK_CHANNEL},
+        types,
     },
+    motor_driver::{self, MotorCommand},
+    sensors::encoders::{self as encoder_read, EncoderMeasurement},
 };
 
 /// Stall timeout during distance driving (milliseconds).
@@ -342,10 +339,7 @@ pub(super) async fn run_distance_control_step(state: &mut DistanceDriveState) ->
         })
         .await;
 
-        let mut sys = SYSTEM_STATE.lock().await;
-        sys.left_track_speed = 0;
-        sys.right_track_speed = 0;
-        drop(sys);
+        crate::system::state::motion::set_track_speeds(0, 0).await;
 
         return DistanceStepResult::Completed { telemetry };
     }
@@ -417,9 +411,7 @@ pub(super) async fn run_distance_control_step(state: &mut DistanceDriveState) ->
     })
     .await;
 
-    let mut sys = SYSTEM_STATE.lock().await;
-    sys.left_track_speed = adjusted_left;
-    sys.right_track_speed = adjusted_right;
+    crate::system::state::motion::set_track_speeds(adjusted_left, adjusted_right).await;
 
     DistanceStepResult::InProgress
 }
@@ -434,9 +426,7 @@ pub(super) async fn distance_stop_motors() {
     })
     .await;
 
-    let mut sys = SYSTEM_STATE.lock().await;
-    sys.left_track_speed = 0;
-    sys.right_track_speed = 0;
+    crate::system::state::motion::set_track_speeds(0, 0).await;
 }
 
 /// Apply drift compensation to scaled left/right targets for distance driving.

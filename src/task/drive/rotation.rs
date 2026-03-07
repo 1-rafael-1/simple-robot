@@ -23,7 +23,7 @@
 use embassy_time::{Duration, Instant, Timer};
 
 use crate::{
-    system::state::SYSTEM_STATE,
+    system::state::motion,
     task::{
         drive::{sensors::data::IMU_FEEDBACK_CHANNEL, types},
         motor_driver::{self, MotorCommand},
@@ -246,11 +246,7 @@ pub(super) async fn run_rotation_control_step(
             })
             .await;
 
-            {
-                let mut sys = SYSTEM_STATE.lock().await;
-                sys.left_track_speed = 0;
-                sys.right_track_speed = 0;
-            }
+            motion::set_track_speeds(0, 0).await;
 
             let accumulated = rotation_state.accumulated_angle.abs();
             let target = rotation_state.target_angle.abs();
@@ -292,11 +288,7 @@ pub(super) async fn run_rotation_control_step(
         })
         .await;
 
-        {
-            let mut sys = SYSTEM_STATE.lock().await;
-            sys.left_track_speed = 0;
-            sys.right_track_speed = 0;
-        }
+        motion::set_track_speeds(0, 0).await;
 
         let accumulated = rotation_state.accumulated_angle.abs();
         let target = rotation_state.target_angle.abs();
@@ -319,9 +311,7 @@ pub(super) async fn run_rotation_control_step(
     })
     .await;
 
-    let mut sys = SYSTEM_STATE.lock().await;
-    sys.left_track_speed = left_speed;
-    sys.right_track_speed = right_speed;
+    motion::set_track_speeds(left_speed, right_speed).await;
 
     RotationStepResult::InProgress
 }

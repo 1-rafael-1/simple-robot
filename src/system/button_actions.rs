@@ -62,10 +62,7 @@ pub enum ButtonActionType {
 pub async fn handle_button_action(button_id: event::ButtonId, action_type: ButtonActionType) {
     if let ButtonActionType::Press = action_type {
         // Any button press in autonomous mode switches to manual
-        let operation_mode = {
-            let state = state::SYSTEM_STATE.lock().await;
-            state.operation_mode
-        };
+        let operation_mode = crate::system::state::motion::get_operation_mode().await;
         if operation_mode == state::OperationMode::Autonomous {
             event::send_event(event::Events::OperationModeSet(state::OperationMode::Manual)).await;
             return;
@@ -76,10 +73,7 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
         // Button A - Forward/Mode control
         (event::ButtonId::A, ButtonActionType::HoldEnd) => {
             // Toggle operation mode
-            let operation_mode = {
-                let state = state::SYSTEM_STATE.lock().await;
-                state.operation_mode
-            };
+            let operation_mode = crate::system::state::motion::get_operation_mode().await;
             event::send_event(event::Events::OperationModeSet(
                 if operation_mode == state::OperationMode::Manual {
                     state::OperationMode::Autonomous

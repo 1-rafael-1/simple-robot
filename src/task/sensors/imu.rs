@@ -67,7 +67,7 @@ use crate::{
     I2cBusShared,
     system::{
         event::{Events, raise_event},
-        state::SYSTEM_STATE,
+        state::motion,
     },
     task::{drive, io::flash_storage},
 };
@@ -605,8 +605,8 @@ async fn prepare_magnetometer(
 
     // Apply motor interference correction if calibrated
     if let Some(cal) = current_calibration {
-        let state = SYSTEM_STATE.lock().await;
-        apply_motor_interference_correction(&mut mag_data, cal, state.left_track_speed, state.right_track_speed);
+        let (left_speed, right_speed) = motion::get_track_speeds_atomic();
+        apply_motor_interference_correction(&mut mag_data, cal, left_speed, right_speed);
     }
 
     // Check if magnetometer reading is reasonable

@@ -122,6 +122,23 @@ The orchestration is based on events, which are raised from the tasks to the orc
 
 There are two modules, `system` and `task`. The `system` module contains rather general things like the event system and state. The `task` module contains the tasks that are run by the system.
 
+### State Modules and Lock Order
+
+The global state is split into domain-specific modules under `system/state/*` to reduce contention and keep hot paths lock-free where possible:
+
+- `system/state/power.rs`
+- `system/state/motion.rs`
+- `system/state/perception.rs`
+- `system/state/calibration.rs`
+
+When multiple state mutexes must be held at the same time, a uniform lock order is required to avoid deadlocks:
+
+1. `POWER_STATE`
+2. `SYSTEM_STATE`
+3. `CALIBRATION_STATE`
+4. `PERCEPTION_STATE`
+5. `MOTION_STATE`
+
 The `main.rs` file is the entry point of the program but does nothing besides initializing some resources and then spawning all the tasks.
 
 Right now I am using just one core of the RP2350 and the nominal 150 MHz clock speed. The firmware uses just a few percent of the flash space and about 20% of the RAM. So there should be plenty of room to fit the system into. 

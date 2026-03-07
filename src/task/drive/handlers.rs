@@ -27,7 +27,7 @@ use embassy_time::{Duration, Instant, Timer};
 use micromath::F32Ext;
 
 use crate::{
-    system::state::SYSTEM_STATE,
+    system::state::motion,
     task::{
         drive::{
             api::{self, DriveCommandEnvelope},
@@ -206,9 +206,7 @@ impl DriveLoop {
         })
         .await;
 
-        let mut state = SYSTEM_STATE.lock().await;
-        state.left_track_speed = self.drift.adjusted_left;
-        state.right_track_speed = self.drift.adjusted_right;
+        motion::set_track_speeds(self.drift.adjusted_left, self.drift.adjusted_right).await;
     }
 
     /// Handle a `RotateExact` command.
@@ -235,10 +233,7 @@ impl DriveLoop {
         })
         .await;
 
-        let mut state = SYSTEM_STATE.lock().await;
-        state.left_track_speed = left_speed;
-        state.right_track_speed = right_speed;
-        drop(state);
+        motion::set_track_speeds(left_speed, right_speed).await;
 
         self.active_intent = Some(ActiveIntent::RotateExact {
             state: rotation_state,
@@ -332,10 +327,7 @@ impl DriveLoop {
         })
         .await;
 
-        let mut sys = SYSTEM_STATE.lock().await;
-        sys.left_track_speed = left_speed;
-        sys.right_track_speed = right_speed;
-        drop(sys);
+        motion::set_track_speeds(left_speed, right_speed).await;
 
         self.active_intent = Some(ActiveIntent::DriveDistance { state, completion });
     }
@@ -350,9 +342,7 @@ impl DriveLoop {
         lifecycle::stop_encoder_sampling().await;
         motor_driver::send_motor_command(MotorCommand::CoastAll).await;
 
-        let mut state = SYSTEM_STATE.lock().await;
-        state.left_track_speed = 0;
-        state.right_track_speed = 0;
+        motion::set_track_speeds(0, 0).await;
     }
 
     /// Handle a `Brake` command.
@@ -365,9 +355,7 @@ impl DriveLoop {
         lifecycle::stop_encoder_sampling().await;
         motor_driver::send_motor_command(MotorCommand::BrakeAll).await;
 
-        let mut state = SYSTEM_STATE.lock().await;
-        state.left_track_speed = 0;
-        state.right_track_speed = 0;
+        motion::set_track_speeds(0, 0).await;
     }
 
     /// Handle a `Standby` command.
@@ -387,9 +375,7 @@ impl DriveLoop {
             motor_driver::send_motor_command(MotorCommand::SetAllDriversEnable { enabled: false }).await;
             self.standby_enabled = true;
 
-            let mut state = SYSTEM_STATE.lock().await;
-            state.left_track_speed = 0;
-            state.right_track_speed = 0;
+            motion::set_track_speeds(0, 0).await;
         }
     }
 
@@ -465,8 +451,6 @@ impl DriveLoop {
         // Bump epoch to invalidate queued commands.
         api::CURRENT_EPOCH.fetch_add(1, Ordering::Relaxed);
 
-        let mut state = SYSTEM_STATE.lock().await;
-        state.left_track_speed = 0;
-        state.right_track_speed = 0;
+        motion::set_track_speeds(0, 0).await;
     }
 }
