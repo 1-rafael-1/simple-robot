@@ -5,7 +5,7 @@
 use crate::{
     system::{
         event::RotaryDirection,
-        state::{CalibrationSelection, DriveMode, SYSTEM_STATE, TestSelection, UiMode},
+        state::{CalibrationSelection, DriveMode, SYSTEM_STATE, TestSelection, UiMode, calibration},
     },
     task::{autonomous_mode, drive, testmode},
 };
@@ -21,8 +21,7 @@ use state::UI_STATE;
 
 /// Returns true once calibration data has been queried.
 pub async fn ui_initialized() -> bool {
-    let state = SYSTEM_STATE.lock().await;
-    state.is_initialized()
+    calibration::is_initialized().await
 }
 
 /// Returns true if the UI is currently showing a calibration flow.

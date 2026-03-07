@@ -8,7 +8,7 @@ use defmt::info;
 use heapless::String;
 
 use crate::{
-    system::state::{CalibrationStatus, SYSTEM_STATE},
+    system::state::{CalibrationStatus, calibration},
     task::{
         io::{display, flash_storage},
         motor_driver,
@@ -64,7 +64,7 @@ pub async fn handle_calibration_data_loaded(
                 );
 
                 {
-                    let mut state = SYSTEM_STATE.lock().await;
+                    let mut state = calibration::CALIBRATION_STATE.lock().await;
                     state.motor_calibration_status = CalibrationStatus::Loaded;
                 }
 
@@ -77,7 +77,7 @@ pub async fn handle_calibration_data_loaded(
                 info!("No motor calibration found - using defaults");
 
                 {
-                    let mut state = SYSTEM_STATE.lock().await;
+                    let mut state = calibration::CALIBRATION_STATE.lock().await;
                     state.motor_calibration_status = CalibrationStatus::NotAvailable;
                 }
 
@@ -91,7 +91,7 @@ pub async fn handle_calibration_data_loaded(
                 info!("IMU calibration loaded from flash");
 
                 {
-                    let mut state = SYSTEM_STATE.lock().await;
+                    let mut state = calibration::CALIBRATION_STATE.lock().await;
                     state.imu_calibration_status = CalibrationStatus::Loaded;
                 }
 
@@ -104,7 +104,7 @@ pub async fn handle_calibration_data_loaded(
                 info!("No IMU calibration found - using defaults");
 
                 {
-                    let mut state = SYSTEM_STATE.lock().await;
+                    let mut state = calibration::CALIBRATION_STATE.lock().await;
                     state.imu_calibration_status = CalibrationStatus::NotAvailable;
                     state.mag_calibration_status = CalibrationStatus::NotAvailable;
                     state.accel_calibration_status = CalibrationStatus::NotAvailable;
@@ -124,7 +124,7 @@ pub async fn handle_calibration_data_loaded(
 /// Handle IMU calibration flags loaded from flash.
 pub async fn handle_imu_calibration_flags_loaded(flags: Option<flash_storage::ImuCalibrationFlags>) {
     {
-        let mut state = SYSTEM_STATE.lock().await;
+        let mut state = calibration::CALIBRATION_STATE.lock().await;
         if let Some(flags) = flags {
             state.gyro_calibration_status = if flags.gyro {
                 CalibrationStatus::Loaded
@@ -164,7 +164,7 @@ pub async fn handle_imu_calibration_flags_loaded(flags: Option<flash_storage::Im
 /// Check if initialization is complete and update display if so.
 async fn check_initialization_complete() {
     let should_show_menu = {
-        let state = SYSTEM_STATE.lock().await;
+        let state = calibration::CALIBRATION_STATE.lock().await;
 
         if state.is_initialized() {
             info!("System initialization complete");

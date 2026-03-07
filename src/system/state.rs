@@ -28,6 +28,8 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 
 use crate::system::event::UltrasonicReading;
 
+pub mod calibration;
+
 /// Calibration data status
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Format)]
 pub enum CalibrationStatus {
@@ -133,7 +135,6 @@ pub enum CalibrationSelection {
 /// - No battery voltage reading yet
 /// - No obstacles detected
 /// - Standby mode disabled
-/// - No calibration data loaded
 pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::new(SystemState {
     operation_mode: OperationMode::Manual,
     battery_level: None,
@@ -144,11 +145,6 @@ pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::ne
     ultrasonic_reading: None,
     ultrasonic_angle_deg: None,
     standby: false,
-    motor_calibration_status: CalibrationStatus::NotLoaded,
-    imu_calibration_status: CalibrationStatus::NotLoaded,
-    mag_calibration_status: CalibrationStatus::NotLoaded,
-    accel_calibration_status: CalibrationStatus::NotLoaded,
-    gyro_calibration_status: CalibrationStatus::NotLoaded,
     left_track_speed: 0,
     right_track_speed: 0,
 });
@@ -159,6 +155,7 @@ pub static SYSTEM_STATE: Mutex<CriticalSectionRawMutex, SystemState> = Mutex::ne
 /// Changes to these values trigger corresponding system behaviors through
 /// the event system.
 #[derive(Format)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SystemState {
     /// Current operation mode (Manual/Autonomous)
     pub operation_mode: OperationMode,
@@ -190,31 +187,6 @@ pub struct SystemState {
     /// - true: Power saving mode active
     /// - false: Normal power mode
     pub standby: bool,
-    /// Motor calibration status
-    /// - `NotLoaded`: Haven't queried flash yet
-    /// - Loaded: Calibration data loaded from flash and applied
-    /// - `NotAvailable`: No calibration data in flash (needs calibration run)
-    pub motor_calibration_status: CalibrationStatus,
-    /// IMU calibration status (aggregate)
-    /// - `NotLoaded`: Haven't queried flash yet
-    /// - Loaded: Calibration data loaded from flash and applied
-    /// - `NotAvailable`: No calibration data in flash (needs calibration run)
-    pub imu_calibration_status: CalibrationStatus,
-    /// Magnetometer calibration status
-    /// - `NotLoaded`: Haven't queried flash yet
-    /// - Loaded: Calibration data loaded from flash and applied
-    /// - `NotAvailable`: No calibration data in flash (needs calibration run)
-    pub mag_calibration_status: CalibrationStatus,
-    /// Accelerometer calibration status
-    /// - `NotLoaded`: Haven't queried flash yet
-    /// - Loaded: Calibration data loaded from flash and applied
-    /// - `NotAvailable`: No calibration data in flash (needs calibration run)
-    pub accel_calibration_status: CalibrationStatus,
-    /// Gyroscope calibration status
-    /// - `NotLoaded`: Haven't queried flash yet
-    /// - Loaded: Calibration data loaded from flash and applied
-    /// - `NotAvailable`: No calibration data in flash (needs calibration run)
-    pub gyro_calibration_status: CalibrationStatus,
     /// Current left track speed (-100 to +100)
     /// - Negative values: reverse
     /// - 0: stopped
@@ -231,13 +203,6 @@ impl SystemState {
     /// Updates operation mode and ensures state consistency
     pub const fn set_operation_mode(&mut self, new_mode: OperationMode) {
         self.operation_mode.set(new_mode);
-    }
-
-    /// Checks if system initialization is complete
-    /// - Returns true when both calibrations have been queried (loaded or not available)
-    pub fn is_initialized(&self) -> bool {
-        self.motor_calibration_status != CalibrationStatus::NotLoaded
-            && self.imu_calibration_status != CalibrationStatus::NotLoaded
     }
 }
 

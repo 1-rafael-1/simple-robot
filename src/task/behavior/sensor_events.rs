@@ -22,6 +22,7 @@ use crate::{
 
 /// Throttle UI refresh while autonomous mode is running (ms).
 const AUTONOMOUS_UI_REFRESH_INTERVAL_MS: u32 = 500;
+/// Last timestamp (ms) when an autonomous UI refresh was emitted.
 static LAST_AUTONOMOUS_REFRESH_MS: AtomicU32 = AtomicU32::new(0);
 
 /// Handle encoder measurements.
@@ -63,7 +64,7 @@ pub async fn handle_ultrasonic_sweep_reading(reading: UltrasonicReading, angle: 
     }
 
     if matches!(ui_mode, UiMode::RunningAutonomous { .. }) {
-        let now_ms = Instant::now().as_millis() as u32;
+        let now_ms = u32::try_from(Instant::now().as_millis()).unwrap_or(u32::MAX);
         let last_ms = LAST_AUTONOMOUS_REFRESH_MS.load(Ordering::Relaxed);
         if now_ms.saturating_sub(last_ms) >= AUTONOMOUS_UI_REFRESH_INTERVAL_MS {
             LAST_AUTONOMOUS_REFRESH_MS.store(now_ms, Ordering::Relaxed);
