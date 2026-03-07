@@ -2,15 +2,11 @@
 //!
 //! Provides visual feedback about system state through an RGB LED:
 //!
-//! # Operation Modes
-//! - Manual Mode: Solid color indicating battery level
+//! # Battery Indication
+//! - Solid color indicating battery level
 //!   - Green: Full battery (100%)
 //!   - Red: Low battery (0%)
 //!   - Smooth transition between colors as battery drains
-//!
-//! - Autonomous Mode: Blinking color indicating battery level
-//!   - Same color scheme as manual mode
-//!   - 700ms blink interval for good visibility
 //!
 //! # State Change Indication
 //! - Quick alternating red/green blink sequence (5 blinks)
@@ -24,12 +20,11 @@
 
 use core::time::Duration as CoreDuration;
 
-use embassy_futures::select::{Either, select};
 use embassy_rp::{peripherals::PIO1, pio_programs::pwm::PioPwm};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 
-use crate::system::state::{OperationMode, motion, power};
+use crate::system::state::power;
 
 /// Indicator events used to trigger LED state updates
 pub enum IndicatorEvent {
@@ -60,10 +55,6 @@ pub fn update_obstacle_indicator(detected: bool) {
 async fn wait() -> IndicatorEvent {
     INDICATOR_CHANGED.wait().await
 }
-
-/// Interval for autonomous mode blinking (700ms provides good visibility
-/// while not being too distracting)
-const MODE_BLINK_INTERVAL: Duration = Duration::from_millis(700);
 
 /// Interval for state change confirmation blinks (30ms is quick but noticeable)
 const AFFIRM_BLINK_INTERVAL: Duration = Duration::from_millis(30);
@@ -103,7 +94,6 @@ fn set_rgb(
 /// - Green channel indicates high battery
 /// - Blue channel reserved for future status modes
 /// - Mixing creates intermediate colors
-/// - Blinking patterns indicate operation mode
 #[allow(clippy::cast_lossless, clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 #[embassy_executor::task]
 pub async fn rgb_led_indicate(
@@ -123,14 +113,8 @@ pub async fn rgb_led_indicate(
     let mut led_on = false;
     set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, 0, 0, 0);
 
-    let mut pending_event: Option<IndicatorEvent> = None;
-
-    'main: loop {
-        let event = if let Some(event) = pending_event.take() {
-            event
-        } else {
-            wait().await
-        };
+    loop {
+        let event = wait().await;
 
         let mut affirm = false;
 
@@ -183,8 +167,6 @@ pub async fn rgb_led_indicate(
             let power_state = power::POWER_STATE.lock().await;
             power_state.battery_level
         };
-        let operation_mode = motion::get_operation_mode().await;
-
         // Calculate PWM duty cycles based on battery level
         if battery_level.is_none() {
             // No battery level info: solid blue
@@ -208,29 +190,7 @@ pub async fn rgb_led_indicate(
             (green, red)
         };
 
-        match operation_mode {
-            OperationMode::Manual => {
-                // Solid color indicating battery level
-                set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, red_pwm, green_pwm, 0);
-            }
-            OperationMode::Autonomous => {
-                // Blink pattern indicating autonomous operation
-                'autonomous_blink: loop {
-                    if led_on {
-                        set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, red_pwm, green_pwm, 0);
-                    } else {
-                        set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, 0, 0, 0);
-                    }
-
-                    led_on = !led_on;
-
-                    // Break blink loop if new indicator update received
-                    if let Either::Second(event) = select(Timer::after(MODE_BLINK_INTERVAL), wait()).await {
-                        pending_event = Some(event);
-                        continue 'main;
-                    }
-                }
-            }
-        }
+        // Solid color indicating battery level
+        set_rgb(&mut pwm_red, &mut pwm_green, &mut pwm_blue, red_pwm, green_pwm, 0);
     }
 }

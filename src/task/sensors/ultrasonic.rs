@@ -264,14 +264,10 @@ pub async fn ultrasonic_sweep(
 ) {
     let mut sensor = setup_ultrasonic_sensor(trigger_pin, echo_pin);
     let mut servo = setup_servo(pwm_pio);
-
-    // Create median filter to smooth out distance measurements
-    let mut median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
-
     let mut angle: f32 = 0.0;
     let mut angle_increment: f32 = 1.0;
     let mut reading: UltrasonicReading;
-    let mut sweeping = true;
+    let mut sweeping: bool;
     let mut fixed_angle: f32 = ULTRASONIC_CENTER_ANGLE_DEG;
     let mut obstacle_detection_enabled = false;
     let mut last_obstacle_detected: Option<bool> = None;
@@ -405,18 +401,15 @@ pub async fn ultrasonic_sweep(
             }
 
             // Take multiple measurements based on ULTRASONIC_MEDIAN_WINDOW_SIZE
-            let mut saw_timeout = false;
             let mut saw_error = false;
             let mut had_success = false;
-            median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
+            let mut median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
             for _ in 0..ULTRASONIC_MEDIAN_WINDOW_SIZE {
                 Timer::after_millis(50).await;
                 let sensor_fut = sensor.measure(ULTRASONIC_TEMPERATURE);
                 match with_timeout(embassy_time::Duration::from_millis(20), sensor_fut).await {
                     Ok(Ok(distance_cm)) => {
-                        if distance_cm > ULTRASONIC_MAX_DISTANCE_CM {
-                            saw_timeout = true;
-                        } else {
+                        if distance_cm <= ULTRASONIC_MAX_DISTANCE_CM {
                             median_filter.add_value(distance_cm);
                             had_success = true;
                         }
@@ -424,12 +417,9 @@ pub async fn ultrasonic_sweep(
                     Ok(Err(e)) => {
                         saw_error = true;
                         error!("{}", e);
-                        Timer::after_millis(20).await;
                     }
                     Err(_) => {
-                        saw_timeout = true;
                         error!("Ultrasonic measurement timed out");
-                        Timer::after_millis(20).await;
                     }
                 }
             }

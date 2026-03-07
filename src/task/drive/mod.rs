@@ -111,8 +111,8 @@ pub mod types;
 // ── Re-exports ────────────────────────────────────────────────────────────────
 
 pub use api::{
-    CompletionHandle, CompletionPoolError, acquire_completion_handle, completion_sender, release_completion_handle,
-    send_drive_command, send_drive_command_with_completion, send_drive_interrupt, wait_for_completion,
+    acquire_completion_handle, completion_sender, release_completion_handle, send_drive_command,
+    send_drive_command_with_completion, send_drive_interrupt, wait_for_completion,
 };
 use intent::{
     ActiveIntentOutcome, apply_distance_result, apply_rotation_result, poll_active_intent, step_idle_with_drift,
@@ -125,8 +125,8 @@ pub use sensors::data::{
 };
 use state::DriveLoop;
 pub use types::{
-    CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveCompletion, DriveDirection,
-    DriveDistanceKind, ImuCalibrationKind, InterruptKind, TurnDirection,
+    CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind,
+    ImuCalibrationKind, InterruptKind, TurnDirection,
 };
 
 /// Drive control task - coordinates motion and sensor feedback.

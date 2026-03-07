@@ -27,12 +27,9 @@
 use defmt::Format;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
-use crate::{
-    system::state::OperationMode,
-    task::{
-        io::flash_storage,
-        sensors::{encoders::EncoderMeasurement, imu::ImuMeasurement},
-    },
+use crate::task::{
+    io::flash_storage,
+    sensors::{encoders::EncoderMeasurement, imu::ImuMeasurement},
 };
 
 /// Multi-producer, single-consumer event channel
@@ -88,11 +85,6 @@ pub enum Events {
     /// IMU calibration flags loaded from flash storage
     /// - Provides per-sensor calibration completion status
     ImuCalibrationFlagsLoaded(Option<flash_storage::ImuCalibrationFlags>),
-
-    /// Operation mode change requested
-    /// - Triggered by button holds or system conditions
-    /// - Carries target operation mode
-    OperationModeSet(OperationMode),
 
     /// Obstacle detection status changed
     /// - source: which sensor reported the change
@@ -153,11 +145,6 @@ pub enum Events {
     /// Testing sequence finished
     TestingCompleted,
 
-    /// System inactivity timeout
-    /// - No user input for extended period
-    /// - Triggers power saving measures
-    InactivityTimeout,
-
     /// Encoder measurement completed
     /// - Contains latest pulse counts and timing
     /// - Used for speed adjustments and calibration
@@ -182,10 +169,6 @@ pub enum Events {
     /// Start or stop motion data collection
     /// - Signals that the robot must start or stop motion data collection
     StartStopMotionDataCollection(bool),
-
-    /// Start or stop ultrasonic sweep
-    /// - Signals that the robot needs to start or stop ultrasonic sweep
-    StartStopUltrasonicSweep(bool),
 
     /// Calibration status update
     /// - Triggered during calibration procedures to update display

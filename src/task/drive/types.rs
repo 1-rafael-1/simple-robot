@@ -1,9 +1,6 @@
 //! Type definitions and constants for drive control
 
-use embassy_sync::{
-    blocking_mutex::raw::CriticalSectionRawMutex,
-    channel::{Receiver, Sender},
-};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Sender};
 
 /// Drift compensation sample interval in milliseconds
 pub const DRIFT_COMPENSATION_INTERVAL_MS: u64 = 200;
@@ -26,8 +23,6 @@ pub enum ImuCalibrationKind {
     Accel,
     /// Calibrate magnetometer (manual rotation).
     Mag,
-    /// Calibrate gyroscope, accelerometer, and magnetometer (full sequence).
-    Full,
 }
 
 /// Combined motor control and sensor feedback commands
@@ -52,6 +47,7 @@ pub enum DriveAction {
     /// - Zero: Coast (freewheel)
     ///
     /// This is intened to be used for direct teleoperation or simple commands without feedback control.
+    #[allow(dead_code)] // (Unused for now, but will be used for teleop and simple commands)
     Differential {
         /// Left track speed (-100 to +100)
         left: i8,
@@ -72,6 +68,7 @@ pub enum DriveAction {
     /// Passive stop (freewheeling)
     Coast,
     /// Enter low-power standby mode
+    #[allow(dead_code)] // (Unused for now, but may be used for power-saving states or idle behavior)
     Standby,
     /// Precise rotation with optional forward/backward motion
     RotateExact {
@@ -94,6 +91,7 @@ pub enum DriveDirection {
 }
 
 /// Turn direction for curved motion.
+#[allow(dead_code)] // is in use partially but will be required
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum TurnDirection {
     /// Left turn (counter-clockwise yaw).
@@ -122,6 +120,7 @@ pub enum DriveDistanceKind {
 }
 
 /// Interrupt commands that preempt active drive intents.
+#[allow(dead_code)] // for completeness and my own reference
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum InterruptKind {
     /// Immediately brake all motors.
@@ -191,12 +190,6 @@ pub struct DriveCompletion {
 /// Pass this to `send_drive_command_with_completion`.
 pub type CompletionSender = Sender<'static, CriticalSectionRawMutex, DriveCompletion, 1>;
 
-/// One-shot completion receiver type.
-///
-/// Managed by the completion handle pool; do not construct manually.
-/// Callers should await via `wait_for_completion`.
-pub type CompletionReceiver = Receiver<'static, CriticalSectionRawMutex, DriveCompletion, 1>;
-
 /// Rotation direction for precise turning
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RotationDirection {
@@ -207,6 +200,7 @@ pub enum RotationDirection {
 }
 
 /// Combined motion options during rotation
+#[allow(dead_code)] // for completeness and future use in combined motion commands
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RotationMotion {
     /// Rotate in place at the given rotation speed (0-100)

@@ -1,8 +1,7 @@
 //! UI state owned by the UI controller.
 
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
-
 use defmt::Format;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 
 use crate::system::state::{CalibrationSelection, DriveMode};
 

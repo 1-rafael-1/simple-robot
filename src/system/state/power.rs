@@ -14,7 +14,6 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 pub static POWER_STATE: Mutex<CriticalSectionRawMutex, PowerState> = Mutex::new(PowerState {
     battery_level: None,
     battery_voltage: None,
-    standby: false,
 });
 
 /// Power-related state shared across the system.
@@ -23,6 +22,4 @@ pub struct PowerState {
     pub battery_level: Option<u8>,
     /// Battery voltage in volts, if available.
     pub battery_voltage: Option<f32>,
-    /// Standby mode status.
-    pub standby: bool,
 }

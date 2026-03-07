@@ -8,7 +8,6 @@
 //! submodules (e.g. `power`, `motion`, `perception`, `calibration`).
 //!
 //! # State Components
-//! - Operation Mode: Defined here and used by the `motion` module
 //! - Domain state lives in dedicated submodules
 
 use defmt::Format;
@@ -78,25 +77,3 @@ pub enum CalibrationSelection {
 }
 
 // Motion state helpers moved to the `motion` module.
-
-/// Robot operation modes defining control behavior
-#[derive(Debug, Clone, Eq, PartialEq, Format, Copy)]
-pub enum OperationMode {
-    /// Manual mode: Robot responds to RC commands
-    /// - Direct control through button inputs
-    /// - Immediate response to commands
-    /// - No autonomous features active
-    Manual,
-    /// Autonomous mode: Robot operates independently
-    /// - Self-driving enabled
-    /// - Obstacle avoidance active
-    /// - RC input only used for mode switching
-    Autonomous,
-}
-
-impl OperationMode {
-    /// Updates operation mode while maintaining state consistency
-    const fn set(&mut self, new_mode: Self) {
-        *self = new_mode;
-    }
-}

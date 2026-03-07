@@ -59,10 +59,9 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
 
     info!("=== Starting IMU Calibration ===");
 
-    let run_gyro = matches!(kind, ImuCalibrationKind::Gyro | ImuCalibrationKind::Full);
-    let run_accel = matches!(kind, ImuCalibrationKind::Accel | ImuCalibrationKind::Full);
-    let run_mag = matches!(kind, ImuCalibrationKind::Mag | ImuCalibrationKind::Full);
-    let is_full = matches!(kind, ImuCalibrationKind::Full);
+    let run_gyro = matches!(kind, ImuCalibrationKind::Gyro);
+    let run_accel = matches!(kind, ImuCalibrationKind::Accel);
+    let run_mag = matches!(kind, ImuCalibrationKind::Mag);
 
     let cached_calibration = flash_storage::get_cached_imu_calibration().await.unwrap_or_default();
     let mut gyro_x_bias = cached_calibration.gyro_x_bias;
@@ -107,15 +106,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             "Accel calibration"
         };
         info!("Step 1: {=str}", step_label);
-        let (line1, line2, line3) = if is_full {
-            (
-                status_text("Step 1/10"),
-                status_text(step_label),
-                status_text("Keep still 10s"),
-            )
-        } else {
-            (status_text(step_label), status_text("Keep still 10s"), None)
-        };
+        let (line1, line2, line3) = (status_text(step_label), status_text("Keep still 10s"), None);
         event::raise_event(event::Events::CalibrationStatus {
             header: None,
             line1,
@@ -222,15 +213,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
 
         // Step 2: Magnetometer Calibration (moving through all axes)
         info!("Step 2: Magnetometer Calibration (CRITICAL - Manual Rotation Required)");
-        let (line1, line2, line3) = if is_full {
-            (
-                status_text("Step 2/10"),
-                status_text("MAG CALIBRATION"),
-                status_text("Prepare to move"),
-            )
-        } else {
-            (status_text("Mag calibration"), status_text("Prepare to move"), None)
-        };
+        let (line1, line2, line3) = (status_text("Mag calibration"), status_text("Prepare to move"), None);
         event::raise_event(event::Events::CalibrationStatus {
             header: None,
             line1,
@@ -240,19 +223,11 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
         .await;
         Timer::after(Duration::from_secs(3)).await;
 
-        let (line1, line2, line3) = if is_full {
-            (
-                status_text("Step 2/10"),
-                status_text("ROTATE SLOWLY"),
-                status_text("All axes 60s"),
-            )
-        } else {
-            (
-                status_text("Mag calibration"),
-                status_text("Rotate slowly"),
-                status_text("All axes 60s"),
-            )
-        };
+        let (line1, line2, line3) = (
+            status_text("Mag calibration"),
+            status_text("Rotate slowly"),
+            status_text("All axes 60s"),
+        );
         event::raise_event(event::Events::CalibrationStatus {
             header: None,
             line1,
@@ -386,11 +361,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             info!("Step 3: Measuring magnetic baseline (motors OFF)");
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
-                line1: if is_full {
-                    status_text("Step 3/10")
-                } else {
-                    status_text("Mag interference")
-                },
+                line1: status_text("Mag interference"),
                 line2: status_text("Baseline (OFF)"),
                 line3: status_text("5 seconds..."),
             })
@@ -408,11 +379,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             info!("Step 4: Motor interference at 50% (all motors)");
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
-                line1: if is_full {
-                    status_text("Step 4/10")
-                } else {
-                    status_text("Mag interference")
-                },
+                line1: status_text("Mag interference"),
                 line2: status_text("All motors 50%"),
                 line3: status_text("Measuring 6s..."),
             })
@@ -445,11 +412,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             info!("Step 5: Motor interference at 100% (all motors)");
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
-                line1: if is_full {
-                    status_text("Step 5/10")
-                } else {
-                    status_text("Mag interference")
-                },
+                line1: status_text("Mag interference"),
                 line2: status_text("All motors 100%"),
                 line3: status_text("Measuring 6s..."),
             })
@@ -482,11 +445,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             info!("Step 6: Motor interference at 50% (left track only)");
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
-                line1: if is_full {
-                    status_text("Step 6/10")
-                } else {
-                    status_text("Mag interference")
-                },
+                line1: status_text("Mag interference"),
                 line2: status_text("Left track 50%"),
                 line3: status_text("Measuring 6s..."),
             })
@@ -519,11 +478,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             info!("Step 7: Motor interference at 100% (left track only)");
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
-                line1: if is_full {
-                    status_text("Step 7/10")
-                } else {
-                    status_text("Mag interference")
-                },
+                line1: status_text("Mag interference"),
                 line2: status_text("Left track 100%"),
                 line3: status_text("Measuring 6s..."),
             })
@@ -556,11 +511,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             info!("Step 8: Motor interference at 50% (right track only)");
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
-                line1: if is_full {
-                    status_text("Step 8/10")
-                } else {
-                    status_text("Mag interference")
-                },
+                line1: status_text("Mag interference"),
                 line2: status_text("Right track 50%"),
                 line3: status_text("Measuring 6s..."),
             })
@@ -593,11 +544,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
             info!("Step 9: Motor interference at 100% (right track only)");
             event::raise_event(event::Events::CalibrationStatus {
                 header: None,
-                line1: if is_full {
-                    status_text("Step 9/10")
-                } else {
-                    status_text("Mag interference")
-                },
+                line1: status_text("Mag interference"),
                 line2: status_text("Right track 100%"),
                 line3: status_text("Measuring 6s..."),
             })
@@ -650,11 +597,7 @@ pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
 
     // Step 10: Build calibration struct
     info!("Step 10: Building complete calibration data structure");
-    let (line1, line2) = if is_full {
-        (status_text("Step 10/10"), status_text("Finalizing"))
-    } else {
-        (status_text("Finalizing"), None)
-    };
+    let (line1, line2) = (status_text("Finalizing"), None);
     event::raise_event(event::Events::CalibrationStatus {
         header: None,
         line1,

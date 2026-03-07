@@ -4,7 +4,7 @@
 
 #![no_std]
 #![no_main]
-#![allow(unused)]
+// #![allow(unused)]
 
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -113,6 +113,7 @@ struct RCButtonPins {
 }
 
 /// Grove Vision AI v2 module UART pins
+#[allow(dead_code)] // planned for future use
 struct GroveVisionUartPins {
     /// UART TX pin
     tx: Peri<'static, embassy_rp::peripherals::PIN_16>,
@@ -255,9 +256,6 @@ async fn main(spawner: Spawner) {
 
     // Initialize flash storage task
     init_flash_storage(spawner, p.FLASH, p.DMA_CH0);
-
-    // Initialize inactivity tracker task;
-    init_inactivity_tracker(spawner);
 
     // Initialize testing task for development
     task::testmode::init_testing(spawner);
@@ -498,9 +496,4 @@ fn init_flash_storage(
 ) {
     let flash = Flash::<_, Async, { 2048 * 1024 }>::new(flash_peripheral, dma_ch0);
     spawner.must_spawn(task::io::flash_storage::flash_storage(flash));
-}
-
-/// Initialize inactivity tracker task
-fn init_inactivity_tracker(spawner: Spawner) {
-    spawner.must_spawn(task::control::track_inactivity::track_inactivity());
 }

@@ -33,7 +33,6 @@ async fn handle_event(event: Events) {
         Events::Initialize => initialization::handle_initialize().await,
         Events::CalibrationDataLoaded(kind, data) => initialization::handle_calibration_data_loaded(kind, data).await,
         Events::ImuCalibrationFlagsLoaded(flags) => initialization::handle_imu_calibration_flags_loaded(flags).await,
-        Events::OperationModeSet(mode) => behavior::operation_mode::handle_operation_mode_set(mode).await,
         Events::ObstacleDetected { source, detected } => {
             behavior::obstacle::handle_obstacle_detected(source, detected).await;
         }
@@ -47,7 +46,6 @@ async fn handle_event(event: Events) {
         Events::RotaryButtonHoldStart => ui::handle_rotary_button_hold_start().await,
         Events::RotaryButtonHoldEnd => ui::handle_rotary_button_hold_end(),
         Events::TestingCompleted => ui::handle_testing_completed().await,
-        Events::InactivityTimeout => behavior::inactivity::handle_inactivity_timeout().await,
         Events::EncoderMeasurementTaken(measurement) => {
             behavior::sensor_events::handle_encoder_measurement(measurement);
         }
@@ -59,7 +57,6 @@ async fn handle_event(event: Events) {
         }
 
         Events::StartStopMotionDataCollection(start) => behavior::motion::handle_start_stop_motion_data(start),
-        Events::StartStopUltrasonicSweep(start) => behavior::motion::handle_start_stop_ultrasonic_sweep(start).await,
         Events::CalibrationCompleted => ui::handle_calibration_completed().await,
         Events::CalibrationStatus {
             header,

@@ -164,15 +164,6 @@ impl RotationState {
         }
     }
 
-    /// Returns the base forward/backward speed to resume after a `WhileMoving` rotation,
-    /// or `None` for stationary rotations.
-    pub const fn continuation_speed(&self) -> Option<i8> {
-        match self.motion {
-            types::RotationMotion::Stationary { speed: _ } => None,
-            types::RotationMotion::WhileMoving(_) => Some(self.base_speed),
-        }
-    }
-
     /// Clamp a float speed value to the valid `u8` range 0–100.
     #[allow(clippy::cast_possible_truncation)]
     fn clamp_speed_u8(value: f32) -> u8 {
@@ -184,12 +175,6 @@ impl RotationState {
             u8::try_from(truncated).unwrap_or(0)
         }
     }
-}
-
-/// Returns `true` if the track speeds represent an in-place rotation
-/// (equal magnitude, opposite sign, non-zero).
-pub const fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
-    left_speed == -right_speed && left_speed != 0
 }
 
 // ── Async control loop ────────────────────────────────────────────────────────

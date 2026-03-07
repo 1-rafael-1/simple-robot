@@ -1,13 +1,13 @@
 //! Button Action Handler
 //!
 //! Maps remote control button inputs to robot actions and manages button
-//! interaction patterns. Supports both immediate actions (press) and
-//! mode changes (hold).
+//! interaction patterns. Supports immediate actions (press) and
+//! extended actions (hold).
 //!
 //! # Button Mapping
 //! - Button A:
 //!   - Press: Drive forward
-//!   - Hold: Toggle between Manual/Autonomous modes
+//!   - Hold: No action
 //! - Button B:
 //!   - Press: Turn right (torque bias)
 //!   - Hold: Precise 90-degree clockwise rotation
@@ -19,9 +19,7 @@
 //!   - Hold: No action
 //!
 //! # Mode Switching
-//! Any button press in autonomous mode switches back to manual mode,
-//! providing a quick way to regain control. Mode toggling through
-//! button A hold works in any mode.
+//! - None (buttons no longer toggle operation mode)
 //!
 //! # Movement Commands
 //! - Manual movements use 20% power for:
@@ -32,11 +30,10 @@
 //!
 //! # Visual Feedback
 //! LED indicator updates confirm button actions:
-//! - Blink sequence for mode changes
 //! - Quick flash for movement commands
 
 use crate::{
-    system::{event, state},
+    system::event,
     task::{
         drive::{self, DriveAction, DriveCommand, MotorSide, RotationDirection, RotationMotion},
         indicators::rgb_led_indicate,
@@ -56,33 +53,11 @@ pub enum ButtonActionType {
 
 /// Processes button actions and triggers corresponding system responses
 ///
-/// Handles both immediate actions (movement) and mode changes based on
-/// button identity and action type. Provides visual feedback through
-/// LED indicators for all actions.
+/// Handles immediate actions (movement) based on button identity and
+/// action type. Provides visual feedback through LED indicators for all actions.
 pub async fn handle_button_action(button_id: event::ButtonId, action_type: ButtonActionType) {
-    if let ButtonActionType::Press = action_type {
-        // Any button press in autonomous mode switches to manual
-        let operation_mode = crate::system::state::motion::get_operation_mode().await;
-        if operation_mode == state::OperationMode::Autonomous {
-            event::send_event(event::Events::OperationModeSet(state::OperationMode::Manual)).await;
-            return;
-        }
-    }
-
     match (button_id, action_type) {
-        // Button A - Forward/Mode control
-        (event::ButtonId::A, ButtonActionType::HoldEnd) => {
-            // Toggle operation mode
-            let operation_mode = crate::system::state::motion::get_operation_mode().await;
-            event::send_event(event::Events::OperationModeSet(
-                if operation_mode == state::OperationMode::Manual {
-                    state::OperationMode::Autonomous
-                } else {
-                    state::OperationMode::Manual
-                },
-            ))
-            .await;
-        }
+        // Button A - Forward control
         (event::ButtonId::A, ButtonActionType::Press) => {
             // Drive forward at 20% power
             rgb_led_indicate::update_indicator(true);

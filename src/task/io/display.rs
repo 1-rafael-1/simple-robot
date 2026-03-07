@@ -71,8 +71,6 @@ pub enum DisplayAction {
 enum DisplayError {
     /// Error for invalid text line number
     InvalidLine,
-    /// Points buffer reached its fixed capacity
-    PointsBufferFull,
     /// Drawing operation failed (embedded-graphics draw error)
     DrawError,
 }

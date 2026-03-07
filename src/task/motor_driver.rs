@@ -314,12 +314,6 @@ pub async fn send_motor_command(command: MotorCommand) {
     MOTOR_COMMAND_CHANNEL.sender().send(command).await;
 }
 
-/// Try to send a motor command without blocking
-/// Returns true if the command was queued, false if the queue is full
-pub fn try_send_motor_command(command: MotorCommand) -> bool {
-    MOTOR_COMMAND_CHANNEL.sender().try_send(command).is_ok()
-}
-
 /// Receive a motor command (internal use by `motor_driver` task)
 async fn receive_motor_command() -> MotorCommand {
     MOTOR_COMMAND_CHANNEL.receiver().receive().await
@@ -343,6 +337,7 @@ async fn receive_motor_command() -> MotorCommand {
 /// - `UpdateCalibration` - ❌ No calibration (sets calibration values)
 ///
 /// For normal operation, use `SetTrack` or `SetTracks` commands.
+#[allow(dead_code)] // for completeness
 #[derive(Debug, Clone, Copy, Format)]
 pub enum MotorCommand {
     /// Load calibration data from provided calibration struct

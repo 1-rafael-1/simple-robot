@@ -156,7 +156,7 @@ async fn run_testing_sequence() {
         send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
         Timer::after(Duration::from_millis(500)).await;
 
-        let Ok(mut completion_handle) = acquire_completion_handle().await else {
+        let Ok(completion_handle) = acquire_completion_handle().await else {
             defmt::warn!("🧪 TEST: completion pool exhausted; skipping turn");
             continue;
         };
@@ -223,7 +223,7 @@ async fn run_testing_sequence() {
     show_line(2, "").await;
     show_line(3, "").await;
 
-    let Ok(mut completion_handle) = acquire_completion_handle().await else {
+    let Ok(completion_handle) = acquire_completion_handle().await else {
         defmt::warn!("🧪 TEST: completion pool exhausted; skipping forward distance");
         return;
     };
@@ -316,7 +316,7 @@ async fn run_testing_sequence() {
     defmt::info!("🧪 TEST: Curve circle 360° at radius 1m");
     let circle_arc_cm = 2.0 * core::f32::consts::PI * 100.0;
 
-    let Ok(mut completion_handle) = acquire_completion_handle().await else {
+    let Ok(completion_handle) = acquire_completion_handle().await else {
         defmt::warn!("🧪 TEST: completion pool exhausted; skipping circle test");
         return;
     };

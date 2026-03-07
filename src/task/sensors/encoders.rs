@@ -89,17 +89,6 @@ pub enum EncoderCommand {
     /// Useful for measuring deltas during maneuvers. After reset, the next
     /// measurement will show how many pulses occurred since the reset.
     Reset,
-
-    /// Enable/disable automatic reset when motors stop
-    ///
-    /// When enabled, encoders automatically reset to zero whenever all motors
-    /// are stopped (speed = 0). This is convenient for stop-and-go driving
-    /// where you want to measure each segment independently.
-    ///
-    /// # Parameters
-    /// - `true`: Enable auto-reset
-    /// - `false`: Disable auto-reset (default)
-    AutoResetOnMotorStop(bool),
 }
 
 /// Size of the command queue for encoder control
@@ -203,8 +192,6 @@ pub async fn encoder_read(
     // Task state
     let mut sampling = false;
     let mut interval_ms = 50u64; // Default 20Hz
-    let mut auto_reset_on_stop = false;
-    let mut last_measurement = encoders.read_all();
 
     loop {
         if sampling {
@@ -231,30 +218,12 @@ pub async fn encoder_read(
                         info!("Resetting encoder counters");
                         encoders.reset_all();
                     }
-                    EncoderCommand::AutoResetOnMotorStop(enabled) => {
-                        info!("Auto-reset on motor stop: {}", enabled);
-                        auto_reset_on_stop = enabled;
-                    }
                 }
             } else {
                 // No command, wait for sampling interval
                 timeout.await;
-
-                // Read encoders
                 let measurement = encoders.read_all();
-
-                // Check for auto-reset condition
-                if auto_reset_on_stop && motors_stopped(&measurement, &last_measurement) {
-                    info!("Motors stopped, auto-resetting encoders");
-                    encoders.reset_all();
-                    // Read again after reset
-                    last_measurement = encoders.read_all();
-                } else {
-                    last_measurement = measurement;
-
-                    // Send measurement event
-                    raise_event(Events::EncoderMeasurementTaken(measurement)).await;
-                }
+                raise_event(Events::EncoderMeasurementTaken(measurement)).await;
             }
         } else {
             // Not sampling, wait for start command
@@ -265,8 +234,6 @@ pub async fn encoder_read(
                     info!("Starting encoder sampling at {}ms interval", new_interval);
                     interval_ms = new_interval;
                     sampling = true;
-                    // Take initial reading
-                    last_measurement = encoders.read_all();
                 }
                 EncoderCommand::Stop => {
                     // Already stopped, ignore
@@ -275,25 +242,7 @@ pub async fn encoder_read(
                     info!("Resetting encoder counters (while stopped)");
                     encoders.reset_all();
                 }
-                EncoderCommand::AutoResetOnMotorStop(enabled) => {
-                    info!(
-                        "Auto-reset on motor stop: {} (will take effect when sampling starts)",
-                        enabled
-                    );
-                    auto_reset_on_stop = enabled;
-                }
             }
         }
     }
-}
-
-/// Check if motors have stopped by comparing consecutive measurements
-///
-/// Motors are considered stopped if all encoder counts are unchanged
-/// between two consecutive readings.
-const fn motors_stopped(current: &EncoderMeasurement, previous: &EncoderMeasurement) -> bool {
-    current.left_front == previous.left_front
-        && current.left_rear == previous.left_rear
-        && current.right_front == previous.right_front
-        && current.right_rear == previous.right_rear
 }
