@@ -5,7 +5,7 @@
 use crate::{
     system::{
         event::RotaryDirection,
-        state::{CalibrationSelection, DriveMode, SYSTEM_STATE, TestSelection, UiMode},
+        state::{CalibrationSelection, DriveMode, TestSelection, calibration, perception},
     },
     task::{autonomous_mode, drive, testmode},
 };
@@ -17,12 +17,11 @@ pub mod state;
 
 use menu::{calibration_selection_from_index, menu_selection_from_index, next_menu_index, test_selection_from_index};
 use render::render_current_ui;
-use state::UI_STATE;
+use state::{UI_STATE, UiMode};
 
 /// Returns true once calibration data has been queried.
 pub async fn ui_initialized() -> bool {
-    let state = SYSTEM_STATE.lock().await;
-    state.is_initialized()
+    calibration::is_initialized().await
 }
 
 /// Returns true if the UI is currently showing a calibration flow.
@@ -90,6 +89,7 @@ pub async fn handle_rotary_turned(direction: RotaryDirection) {
         }
         UiMode::RunningTest
         | UiMode::RunningImuTest
+        | UiMode::RunningBasicMotorTest
         | UiMode::RunningIrUltrasonicTest
         | UiMode::RunningUltrasonicSweepTest
         | UiMode::RunningAutonomous { .. }
@@ -120,15 +120,26 @@ pub async fn handle_rotary_button_pressed() {
             }
         }
         UiMode::RunningImuTest => handle_running_imu_test_press().await,
+        UiMode::RunningBasicMotorTest => handle_running_basic_motor_test_press().await,
         UiMode::RunningIrUltrasonicTest => handle_running_ir_ultrasonic_test_press().await,
         UiMode::RunningUltrasonicSweepTest => handle_running_ultrasonic_sweep_test_press().await,
-        UiMode::RunningTest | UiMode::RunningAutonomous { .. } => {}
+        UiMode::RunningAutonomous { .. } => handle_ui_back().await,
+        UiMode::RunningTest => {}
     }
 }
 
 /// Handle rotary encoder button hold start.
 pub async fn handle_rotary_button_hold_start() {
     if !ui_initialized().await {
+        return;
+    }
+
+    let mode = {
+        let ui = UI_STATE.lock().await;
+        ui.mode
+    };
+
+    if matches!(mode, UiMode::RunningAutonomous { .. }) {
         return;
     }
 
@@ -164,6 +175,10 @@ pub async fn handle_ui_back() {
         }
         UiMode::RunningImuTest => {
             testmode::stop_imu_test_mode();
+            show_test_menu().await;
+        }
+        UiMode::RunningBasicMotorTest => {
+            testmode::stop_basic_motor_test_mode();
             show_test_menu().await;
         }
         UiMode::RunningIrUltrasonicTest => {
@@ -257,6 +272,12 @@ async fn handle_calibrate_menu_press(index: usize) {
 /// Handle a button press while the drive mode menu is active.
 async fn handle_drive_mode_menu_press(index: usize) {
     if let Some(mode) = menu::drive_mode_from_index(index) {
+        crate::task::behavior::obstacle::reset_obstacle_state().await;
+        {
+            let mut state = perception::PERCEPTION_STATE.lock().await;
+            state.ultrasonic_reading = None;
+            state.ultrasonic_angle_deg = None;
+        }
         let mut ui = UI_STATE.lock().await;
         ui.mode = UiMode::RunningAutonomous { mode };
         let snapshot = *ui;
@@ -292,7 +313,21 @@ async fn handle_test_menu_press(index: usize) {
             render_current_ui(&snapshot).await;
             testmode::start_imu_test_mode().await;
         }
+        Some(TestSelection::BasicMotor) => {
+            let mut ui = UI_STATE.lock().await;
+            ui.mode = UiMode::RunningBasicMotorTest;
+            let snapshot = *ui;
+            drop(ui);
+            render_current_ui(&snapshot).await;
+            testmode::start_basic_motor_test_mode().await;
+        }
         Some(TestSelection::IrUltrasonic) => {
+            crate::task::behavior::obstacle::reset_obstacle_state().await;
+            {
+                let mut state = perception::PERCEPTION_STATE.lock().await;
+                state.ultrasonic_reading = None;
+                state.ultrasonic_angle_deg = None;
+            }
             let mut ui = UI_STATE.lock().await;
             ui.mode = UiMode::RunningIrUltrasonicTest;
             let snapshot = *ui;
@@ -317,6 +352,12 @@ async fn handle_test_menu_press(index: usize) {
 /// Handle a button press while the IMU test mode is active.
 async fn handle_running_imu_test_press() {
     testmode::stop_imu_test_mode();
+    show_test_menu().await;
+}
+
+/// Handle a button press while the basic motor test mode is active.
+async fn handle_running_basic_motor_test_press() {
+    testmode::stop_basic_motor_test_mode();
     show_test_menu().await;
 }
 

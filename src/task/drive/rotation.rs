@@ -23,7 +23,7 @@
 use embassy_time::{Duration, Instant, Timer};
 
 use crate::{
-    system::state::SYSTEM_STATE,
+    system::state::motion,
     task::{
         drive::{sensors::data::IMU_FEEDBACK_CHANNEL, types},
         motor_driver::{self, MotorCommand},
@@ -164,15 +164,6 @@ impl RotationState {
         }
     }
 
-    /// Returns the base forward/backward speed to resume after a `WhileMoving` rotation,
-    /// or `None` for stationary rotations.
-    pub const fn continuation_speed(&self) -> Option<i8> {
-        match self.motion {
-            types::RotationMotion::Stationary { speed: _ } => None,
-            types::RotationMotion::WhileMoving(_) => Some(self.base_speed),
-        }
-    }
-
     /// Clamp a float speed value to the valid `u8` range 0–100.
     #[allow(clippy::cast_possible_truncation)]
     fn clamp_speed_u8(value: f32) -> u8 {
@@ -184,12 +175,6 @@ impl RotationState {
             u8::try_from(truncated).unwrap_or(0)
         }
     }
-}
-
-/// Returns `true` if the track speeds represent an in-place rotation
-/// (equal magnitude, opposite sign, non-zero).
-pub const fn is_turning_in_place(left_speed: i8, right_speed: i8) -> bool {
-    left_speed == -right_speed && left_speed != 0
 }
 
 // ── Async control loop ────────────────────────────────────────────────────────
@@ -246,11 +231,7 @@ pub(super) async fn run_rotation_control_step(
             })
             .await;
 
-            {
-                let mut sys = SYSTEM_STATE.lock().await;
-                sys.left_track_speed = 0;
-                sys.right_track_speed = 0;
-            }
+            motion::set_track_speeds(0, 0).await;
 
             let accumulated = rotation_state.accumulated_angle.abs();
             let target = rotation_state.target_angle.abs();
@@ -292,11 +273,7 @@ pub(super) async fn run_rotation_control_step(
         })
         .await;
 
-        {
-            let mut sys = SYSTEM_STATE.lock().await;
-            sys.left_track_speed = 0;
-            sys.right_track_speed = 0;
-        }
+        motion::set_track_speeds(0, 0).await;
 
         let accumulated = rotation_state.accumulated_angle.abs();
         let target = rotation_state.target_angle.abs();
@@ -319,9 +296,7 @@ pub(super) async fn run_rotation_control_step(
     })
     .await;
 
-    let mut sys = SYSTEM_STATE.lock().await;
-    sys.left_track_speed = left_speed;
-    sys.right_track_speed = right_speed;
+    motion::set_track_speeds(left_speed, right_speed).await;
 
     RotationStepResult::InProgress
 }

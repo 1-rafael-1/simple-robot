@@ -96,7 +96,7 @@ use embassy_rp::pwm::{Pwm, SetDutyCycle};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
 use crate::{
-    system::state,
+    system::state::power,
     task::io::port_expander::{self},
 };
 
@@ -107,7 +107,7 @@ const TARGET_MOTOR_VOLTAGE: f32 = 6.0;
 /// Returns None if no voltage reading available yet OR if mutex is busy
 fn try_get_battery_voltage() -> Option<f32> {
     // Use try_lock to avoid blocking - if mutex is busy, just return None
-    state::SYSTEM_STATE.try_lock().ok()?.battery_voltage
+    power::POWER_STATE.try_lock().ok()?.battery_voltage
 }
 
 /// Wait for first battery voltage reading from system state
@@ -201,6 +201,17 @@ mod motor_port_mapping {
         }
     }
 
+    /// Wiring-specific forward inversion mapping (update for board/wiring revisions).
+    /// Left-front motor forward direction is inverted for the current wiring.
+    const INVERT_LEFT_FRONT: (Track, Motor) = (Track::Left, Motor::Front);
+    /// Right-rear motor forward direction is inverted for the current wiring.
+    const INVERT_RIGHT_REAR: (Track, Motor) = (Track::Right, Motor::Rear);
+
+    /// Returns true when a motor's forward direction is inverted.
+    pub const fn motor_forward_inverted(track: Track, motor: Motor) -> bool {
+        matches!((track, motor), INVERT_LEFT_FRONT | INVERT_RIGHT_REAR)
+    }
+
     /// Create port expander command to set a motor's direction
     pub const fn set_motor_direction_cmd(
         track: Track,
@@ -209,12 +220,16 @@ mod motor_port_mapping {
     ) -> PortExpanderOutputCommand {
         let (fwd_bit, bwd_bit) = get_motor_direction_bits(track, motor);
 
-        let (fwd_state, bwd_state) = match direction {
+        let (mut fwd_state, mut bwd_state) = match direction {
             MotorDirection::Forward => (true, false),
             MotorDirection::Backward => (false, true),
             MotorDirection::Coast => (false, false),
             MotorDirection::Brake => (true, true),
         };
+
+        if motor_forward_inverted(track, motor) {
+            core::mem::swap(&mut fwd_state, &mut bwd_state);
+        }
 
         // Create a mask for the two bits we're controlling
         let mask = (1 << fwd_bit) | (1 << bwd_bit);
@@ -239,12 +254,15 @@ mod motor_port_mapping {
         // Helper to set direction bits
         let set_direction = |value: &mut u8, track: Track, motor: Motor, motor_dir: MotorDirection| {
             let (fwd_bit, bwd_bit) = get_motor_direction_bits(track, motor);
-            let (fwd_state, bwd_state) = match motor_dir {
+            let (mut fwd_state, mut bwd_state) = match motor_dir {
                 MotorDirection::Forward => (true, false),
                 MotorDirection::Backward => (false, true),
                 MotorDirection::Coast => (false, false),
                 MotorDirection::Brake => (true, true),
             };
+            if motor_forward_inverted(track, motor) {
+                core::mem::swap(&mut fwd_state, &mut bwd_state);
+            }
             if fwd_state {
                 *value |= 1 << fwd_bit;
             }
@@ -299,12 +317,6 @@ pub async fn send_motor_command(command: MotorCommand) {
     MOTOR_COMMAND_CHANNEL.sender().send(command).await;
 }
 
-/// Try to send a motor command without blocking
-/// Returns true if the command was queued, false if the queue is full
-pub fn try_send_motor_command(command: MotorCommand) -> bool {
-    MOTOR_COMMAND_CHANNEL.sender().try_send(command).is_ok()
-}
-
 /// Receive a motor command (internal use by `motor_driver` task)
 async fn receive_motor_command() -> MotorCommand {
     MOTOR_COMMAND_CHANNEL.receiver().receive().await
@@ -328,6 +340,7 @@ async fn receive_motor_command() -> MotorCommand {
 /// - `UpdateCalibration` - ❌ No calibration (sets calibration values)
 ///
 /// For normal operation, use `SetTrack` or `SetTracks` commands.
+#[allow(dead_code)] // for completeness
 #[derive(Debug, Clone, Copy, Format)]
 pub enum MotorCommand {
     /// Load calibration data from provided calibration struct

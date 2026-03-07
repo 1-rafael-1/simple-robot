@@ -20,7 +20,7 @@ use hcsr04_async::{Config, DistanceUnit, Hcsr04, Now, TemperatureUnit};
 use moving_median::MovingMedian;
 use panic_probe as _;
 
-use crate::system::event::{Events, UltrasonicReading, raise_event};
+use crate::system::event::{Events, ObstacleSource, UltrasonicReading, raise_event};
 
 /// Commands for ultrasonic sweep control
 enum UltrasonicSweepCommand {
@@ -30,6 +30,8 @@ enum UltrasonicSweepCommand {
     StartFixed {
         /// Fixed angle in degrees.
         angle_deg: f32,
+        /// Enable obstacle detection events while fixed.
+        obstacle_detect: bool,
     },
     /// Stop ultrasonic measurements
     Stop,
@@ -45,7 +47,18 @@ pub fn start_ultrasonic_sweep() {
 
 /// Start fixed-angle ultrasonic readings (no servo sweep)
 pub fn start_ultrasonic_fixed(angle_deg: f32) {
-    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartFixed { angle_deg });
+    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartFixed {
+        angle_deg,
+        obstacle_detect: false,
+    });
+}
+
+/// Start centered ultrasonic obstacle detection mode.
+pub fn start_ultrasonic_centered_obstacle_detect() {
+    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartFixed {
+        angle_deg: ULTRASONIC_CENTER_ANGLE_DEG,
+        obstacle_detect: true,
+    });
 }
 
 /// Stop ultrasonic readings
@@ -78,6 +91,12 @@ const ULTRASONIC_TEMPERATURE: f64 = 21.5;
 
 /// Maximum supported ultrasonic distance in centimeters
 const ULTRASONIC_MAX_DISTANCE_CM: f64 = 200.0;
+
+/// Center angle for forward-looking ultrasonic mode.
+const ULTRASONIC_CENTER_ANGLE_DEG: f32 = 80.0;
+
+/// Obstacle detection threshold in centimeters.
+const ULTRASONIC_OBSTACLE_THRESHOLD_CM: f64 = 10.0;
 
 /// Builder for configuring and creating a servo instance
 ///
@@ -245,18 +264,16 @@ pub async fn ultrasonic_sweep(
 ) {
     let mut sensor = setup_ultrasonic_sensor(trigger_pin, echo_pin);
     let mut servo = setup_servo(pwm_pio);
-
-    // Create median filter to smooth out distance measurements
-    let mut median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
-
     let mut angle: f32 = 0.0;
     let mut angle_increment: f32 = 1.0;
     let mut reading: UltrasonicReading;
-    let mut sweeping = true;
-    let mut fixed_angle: f32 = 80.0;
+    let mut sweeping: bool;
+    let mut fixed_angle: f32 = ULTRASONIC_CENTER_ANGLE_DEG;
+    let mut obstacle_detection_enabled = false;
+    let mut last_obstacle_detected: Option<bool> = None;
 
     // 80 degrees is middle, 0 is right, 160 is left
-    servo.rotate_float(80.0);
+    servo.rotate_float(ULTRASONIC_CENTER_ANGLE_DEG);
     Timer::after_millis(500).await;
 
     'command: loop {
@@ -265,16 +282,55 @@ pub async fn ultrasonic_sweep(
         match US_SWEEP_CONTROL.wait().await {
             UltrasonicSweepCommand::StartSweep => {
                 info!("Starting ultrasonic sweep");
+                if obstacle_detection_enabled {
+                    if last_obstacle_detected == Some(true) {
+                        raise_event(Events::ObstacleDetected {
+                            source: ObstacleSource::Ultrasonic,
+                            detected: false,
+                        })
+                        .await;
+                    }
+                    last_obstacle_detected = None;
+                }
+                obstacle_detection_enabled = false;
                 sweeping = true;
             }
-            UltrasonicSweepCommand::StartFixed { angle_deg } => {
+            UltrasonicSweepCommand::StartFixed {
+                angle_deg,
+                obstacle_detect,
+            } => {
                 info!("Starting ultrasonic fixed-angle mode");
+                if obstacle_detection_enabled && !obstacle_detect {
+                    if last_obstacle_detected == Some(true) {
+                        raise_event(Events::ObstacleDetected {
+                            source: ObstacleSource::Ultrasonic,
+                            detected: false,
+                        })
+                        .await;
+                    }
+                    last_obstacle_detected = None;
+                }
+                obstacle_detection_enabled = obstacle_detect;
+                if obstacle_detection_enabled {
+                    last_obstacle_detected = None;
+                }
                 sweeping = false;
                 fixed_angle = angle_deg.clamp(0.0, servo.max_degree_rotation);
             }
             UltrasonicSweepCommand::Stop => {
                 info!("Stopping ultrasonic measurements");
-                servo.rotate_float(80.0);
+                if obstacle_detection_enabled {
+                    if last_obstacle_detected == Some(true) {
+                        raise_event(Events::ObstacleDetected {
+                            source: ObstacleSource::Ultrasonic,
+                            detected: false,
+                        })
+                        .await;
+                    }
+                    last_obstacle_detected = None;
+                }
+                obstacle_detection_enabled = false;
+                servo.rotate_float(ULTRASONIC_CENTER_ANGLE_DEG);
                 continue 'command;
             }
         }
@@ -290,15 +346,54 @@ pub async fn ultrasonic_sweep(
                 Either::Second(command) => match command {
                     UltrasonicSweepCommand::Stop => {
                         info!("Stopping ultrasonic measurements");
-                        servo.rotate_float(80.0);
+                        if obstacle_detection_enabled {
+                            if last_obstacle_detected == Some(true) {
+                                raise_event(Events::ObstacleDetected {
+                                    source: ObstacleSource::Ultrasonic,
+                                    detected: false,
+                                })
+                                .await;
+                            }
+                            last_obstacle_detected = None;
+                        }
+                        obstacle_detection_enabled = false;
+                        servo.rotate_float(ULTRASONIC_CENTER_ANGLE_DEG);
                         continue 'command;
                     }
                     UltrasonicSweepCommand::StartSweep => {
                         info!("Switching to ultrasonic sweep");
+                        if obstacle_detection_enabled {
+                            if last_obstacle_detected == Some(true) {
+                                raise_event(Events::ObstacleDetected {
+                                    source: ObstacleSource::Ultrasonic,
+                                    detected: false,
+                                })
+                                .await;
+                            }
+                            last_obstacle_detected = None;
+                        }
+                        obstacle_detection_enabled = false;
                         sweeping = true;
                     }
-                    UltrasonicSweepCommand::StartFixed { angle_deg } => {
+                    UltrasonicSweepCommand::StartFixed {
+                        angle_deg,
+                        obstacle_detect,
+                    } => {
                         info!("Switching to ultrasonic fixed-angle mode");
+                        if obstacle_detection_enabled && !obstacle_detect {
+                            if last_obstacle_detected == Some(true) {
+                                raise_event(Events::ObstacleDetected {
+                                    source: ObstacleSource::Ultrasonic,
+                                    detected: false,
+                                })
+                                .await;
+                            }
+                            last_obstacle_detected = None;
+                        }
+                        obstacle_detection_enabled = obstacle_detect;
+                        if obstacle_detection_enabled {
+                            last_obstacle_detected = None;
+                        }
                         sweeping = false;
                         fixed_angle = angle_deg.clamp(0.0, servo.max_degree_rotation);
                     }
@@ -306,18 +401,15 @@ pub async fn ultrasonic_sweep(
             }
 
             // Take multiple measurements based on ULTRASONIC_MEDIAN_WINDOW_SIZE
-            let mut saw_timeout = false;
             let mut saw_error = false;
             let mut had_success = false;
-            median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
+            let mut median_filter = MovingMedian::<f64, ULTRASONIC_MEDIAN_WINDOW_SIZE>::new();
             for _ in 0..ULTRASONIC_MEDIAN_WINDOW_SIZE {
                 Timer::after_millis(50).await;
                 let sensor_fut = sensor.measure(ULTRASONIC_TEMPERATURE);
                 match with_timeout(embassy_time::Duration::from_millis(20), sensor_fut).await {
                     Ok(Ok(distance_cm)) => {
-                        if distance_cm > ULTRASONIC_MAX_DISTANCE_CM {
-                            saw_timeout = true;
-                        } else {
+                        if distance_cm <= ULTRASONIC_MAX_DISTANCE_CM {
                             median_filter.add_value(distance_cm);
                             had_success = true;
                         }
@@ -325,12 +417,9 @@ pub async fn ultrasonic_sweep(
                     Ok(Err(e)) => {
                         saw_error = true;
                         error!("{}", e);
-                        Timer::after_millis(20).await;
                     }
                     Err(_) => {
-                        saw_timeout = true;
                         error!("Ultrasonic measurement timed out");
-                        Timer::after_millis(20).await;
                     }
                 }
             }
@@ -342,6 +431,22 @@ pub async fn ultrasonic_sweep(
             } else {
                 UltrasonicReading::Timeout
             };
+
+            if obstacle_detection_enabled {
+                let detected = matches!(
+                    reading,
+                    UltrasonicReading::Distance(distance)
+                        if distance < ULTRASONIC_OBSTACLE_THRESHOLD_CM
+                );
+                if last_obstacle_detected != Some(detected) {
+                    raise_event(Events::ObstacleDetected {
+                        source: ObstacleSource::Ultrasonic,
+                        detected,
+                    })
+                    .await;
+                    last_obstacle_detected = Some(detected);
+                }
+            }
 
             // Send reading event to orchestration task
             raise_event(Events::UltrasonicSweepReadingTaken(reading, current_angle)).await;

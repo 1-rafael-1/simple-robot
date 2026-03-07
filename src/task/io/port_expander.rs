@@ -253,6 +253,7 @@ impl PortExpanderState {
     }
 
     /// Set both ports at once
+    #[allow(dead_code)] // for completeness and my own reference, even if not currently used
     const fn set_both_ports(&mut self, port0: u8, port1: u8) {
         self.port0_output = port0;
         self.port1_output = port1;
@@ -347,6 +348,7 @@ pub async fn port_expander(i2c_bus: &'static I2cBusShared, mut interrupt: Input<
         Ok(value) => {
             state.last_input_state = InputState::from_port1(value);
             debug!("Initial input state: {:?}", state.last_input_state);
+            signal_ir_obstacle(state.last_input_state.ir_obstacle).await;
         }
         Err(()) => {
             error!("Failed to read initial input state");

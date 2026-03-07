@@ -40,13 +40,19 @@ use embassy_time::{Duration, Instant, Timer};
 use nanorand::{Rng, WyRand};
 
 use crate::{
-    system::event::{Events, raise_event},
-    task::drive::{
-        CompletionStatus, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, InterruptKind,
-        acquire_completion_handle, completion_sender, release_completion_handle, send_drive_command,
-        send_drive_command_with_completion, send_drive_interrupt,
-        types::{RotationDirection, RotationMotion},
-        wait_for_completion,
+    system::{
+        event::{Events, UltrasonicReading, raise_event},
+        state::perception,
+    },
+    task::{
+        drive::{
+            CompletionStatus, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, InterruptKind,
+            acquire_completion_handle, completion_sender, release_completion_handle, send_drive_command,
+            send_drive_command_with_completion, send_drive_interrupt,
+            types::{RotationDirection, RotationMotion},
+            wait_for_completion,
+        },
+        sensors::ultrasonic::{start_ultrasonic_centered_obstacle_detect, stop_ultrasonic_measurements},
     },
 };
 
@@ -87,6 +93,9 @@ const TURN_ANGLE_MIN: u8 = 45;
 /// Maximum random turn angle (degrees).
 const TURN_ANGLE_MAX: u8 = 180;
 
+/// Forward obstacle threshold (cm) used to gate repeated avoidance.
+const ULTRASONIC_OBSTACLE_THRESHOLD_CM: f64 = 15.0;
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /// Returns `true` while the coast-and-avoid loop is running.
@@ -99,6 +108,7 @@ pub fn is_active() -> bool {
 /// Sets the active flag and wakes the task that is waiting on [`START_SIGNAL`].
 pub fn start() {
     ACTIVE.store(true, Ordering::Relaxed);
+    start_ultrasonic_centered_obstacle_detect();
     START_SIGNAL.signal(());
 }
 
@@ -109,6 +119,7 @@ pub fn start() {
 /// [`DriveDistance`] or [`RotateExact`] command immediately.
 pub fn stop() {
     ACTIVE.store(false, Ordering::Relaxed);
+    stop_ultrasonic_measurements();
     send_drive_interrupt(InterruptKind::EmergencyBrake);
 }
 
@@ -131,6 +142,24 @@ pub async fn coast_obstacle_avoid_task() {
 
         // Main loop: drive forward until interrupted, then avoid, repeat.
         while ACTIVE.load(Ordering::Relaxed) {
+            let (obstacle_detected, ultrasonic_reading) = {
+                let state = perception::PERCEPTION_STATE.lock().await;
+                (state.obstacle_detected, state.ultrasonic_reading)
+            };
+
+            if obstacle_detected {
+                let obstacle_ahead = matches!(
+                    ultrasonic_reading,
+                    Some(UltrasonicReading::Distance(distance))
+                        if distance < ULTRASONIC_OBSTACLE_THRESHOLD_CM
+                );
+
+                if obstacle_ahead {
+                    avoid_obstacle().await;
+                    continue;
+                }
+            }
+
             let status = drive_forward().await;
 
             if !ACTIVE.load(Ordering::Relaxed) {
@@ -294,6 +323,11 @@ async fn avoid_obstacle() {
     }
 
     Timer::after(Duration::from_millis(100)).await;
+
+    {
+        let mut state = perception::PERCEPTION_STATE.lock().await;
+        state.ultrasonic_reading = None;
+    }
 
     // Notify the rest of the system that one avoidance cycle completed.
     raise_event(Events::ObstacleAvoidanceAttempted).await;

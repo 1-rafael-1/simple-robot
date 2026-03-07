@@ -7,11 +7,13 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
+pub mod basic_motor;
 pub mod imu;
 pub mod ir_ultrasonic;
 pub mod sequence;
 pub mod ultrasonic_sweep;
 
+pub use basic_motor::{start_basic_motor_test_mode, stop_basic_motor_test_mode};
 pub use imu::{start_imu_test_mode, stop_imu_test_mode};
 pub use ir_ultrasonic::{start_ir_ultrasonic_test_mode, stop_ir_ultrasonic_test_mode};
 pub use sequence::start_testing_sequence;
@@ -28,6 +30,8 @@ pub(super) enum TestCommand {
     IrUltrasonic,
     /// Spawn the ultrasonic sweep test.
     UltrasonicSweep,
+    /// Spawn the basic motor test.
+    BasicMotor,
 }
 
 /// Tracks whether any testmode is currently active.
@@ -69,6 +73,7 @@ async fn testmode_controller(spawner: Spawner) {
             TestCommand::Imu => imu::spawn(spawner),
             TestCommand::IrUltrasonic => ir_ultrasonic::spawn(spawner),
             TestCommand::UltrasonicSweep => ultrasonic_sweep::spawn(spawner),
+            TestCommand::BasicMotor => basic_motor::spawn(spawner),
         }
     }
 }

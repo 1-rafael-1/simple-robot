@@ -27,12 +27,9 @@
 use defmt::Format;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
-use crate::{
-    system::state::OperationMode,
-    task::{
-        io::flash_storage,
-        sensors::{encoders::EncoderMeasurement, imu::ImuMeasurement},
-    },
+use crate::task::{
+    io::flash_storage,
+    sensors::{encoders::EncoderMeasurement, imu::ImuMeasurement},
 };
 
 /// Multi-producer, single-consumer event channel
@@ -59,6 +56,15 @@ pub async fn wait() -> Events {
     EVENT_CHANNEL.receiver().receive().await
 }
 
+/// Source of obstacle detection events.
+#[derive(Debug, Clone, Copy, Format, PartialEq, Eq)]
+pub enum ObstacleSource {
+    /// Infrared obstacle sensors.
+    Ir,
+    /// Ultrasonic obstacle detection.
+    Ultrasonic,
+}
+
 /// System-wide events that can occur during robot operation
 #[derive(Debug, Clone)]
 pub enum Events {
@@ -80,15 +86,16 @@ pub enum Events {
     /// - Provides per-sensor calibration completion status
     ImuCalibrationFlagsLoaded(Option<flash_storage::ImuCalibrationFlags>),
 
-    /// Operation mode change requested
-    /// - Triggered by button holds or system conditions
-    /// - Carries target operation mode
-    OperationModeSet(OperationMode),
-
     /// Obstacle detection status changed
-    /// - true: Obstacle detected within threshold
-    /// - false: Path is clear
-    ObstacleDetected(bool),
+    /// - source: which sensor reported the change
+    /// - detected: true if obstacle within threshold, false if clear
+    ObstacleDetected {
+        /// Sensor source reporting the change
+        source: ObstacleSource,
+        /// true: Obstacle detected within threshold
+        /// false: Path is clear
+        detected: bool,
+    },
 
     /// Obstacle avoidance maneuver completed
     /// - Triggered after attempting to navigate around obstacle
@@ -138,11 +145,6 @@ pub enum Events {
     /// Testing sequence finished
     TestingCompleted,
 
-    /// System inactivity timeout
-    /// - No user input for extended period
-    /// - Triggers power saving measures
-    InactivityTimeout,
-
     /// Encoder measurement completed
     /// - Contains latest pulse counts and timing
     /// - Used for speed adjustments and calibration
@@ -167,10 +169,6 @@ pub enum Events {
     /// Start or stop motion data collection
     /// - Signals that the robot must start or stop motion data collection
     StartStopMotionDataCollection(bool),
-
-    /// Start or stop ultrasonic sweep
-    /// - Signals that the robot needs to start or stop ultrasonic sweep
-    StartStopUltrasonicSweep(bool),
 
     /// Calibration status update
     /// - Triggered during calibration procedures to update display

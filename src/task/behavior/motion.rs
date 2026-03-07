@@ -19,11 +19,3 @@ pub fn handle_start_stop_motion_data(start: bool) {
         imu::stop_imu_readings();
     }
 }
-
-/// Handle ultrasonic sweep control.
-#[allow(clippy::unused_async)]
-pub async fn handle_start_stop_ultrasonic_sweep(_start: bool) {
-    info!("Ultrasonic sweep control");
-    // TODO: Implement ultrasonic sweep control
-    // - Start/stop sweep task
-}

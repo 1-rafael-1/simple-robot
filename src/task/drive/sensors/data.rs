@@ -68,15 +68,6 @@ pub static LATEST_ACCEL_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<Vecto
 
 // ── Public write functions (called by orchestrator / IMU task) ────────────────
 
-/// Update the latest encoder measurement.
-///
-/// Called by the orchestrator to forward encoder events from the encoder task.
-/// Stores the measurement in a mutex so the drive task can read it on demand.
-pub async fn send_encoder_measurement(measurement: EncoderMeasurement) {
-    let mut latest = LATEST_ENCODER_MEASUREMENT.lock().await;
-    *latest = Some(measurement);
-}
-
 /// Try to update the latest encoder measurement without blocking.
 ///
 /// Returns `true` if the update succeeded, `false` if the mutex is currently
@@ -143,11 +134,6 @@ pub async fn get_latest_encoder_measurement() -> Option<EncoderMeasurement> {
 pub async fn clear_encoder_measurement() {
     let mut latest = LATEST_ENCODER_MEASUREMENT.lock().await;
     *latest = None;
-}
-
-/// Receive an IMU measurement from the feedback channel (blocks until available).
-pub async fn receive_imu_measurement() -> ImuMeasurement {
-    IMU_FEEDBACK_CHANNEL.receive().await
 }
 
 /// Get the latest raw magnetometer measurement.
@@ -224,17 +210,6 @@ pub async fn measure_mag_average(samples: u16) -> Vector3<f32> {
     } else {
         Vector3::new(0.0, 0.0, 0.0)
     }
-}
-
-/// Wait for an IMU measurement with a timeout.
-///
-/// Returns `Some(measurement)` if one arrives within `timeout_ms`, or `None`
-/// if the timeout expires first. Used during IMU calibration to collect
-/// gyroscope and accelerometer samples.
-pub async fn wait_for_imu_event_timeout(timeout_ms: u64) -> Option<ImuMeasurement> {
-    embassy_time::with_timeout(Duration::from_millis(timeout_ms), receive_imu_measurement())
-        .await
-        .ok()
 }
 
 /// Wait for a fresh magnetometer measurement with a timeout.

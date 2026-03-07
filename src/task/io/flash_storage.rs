@@ -44,12 +44,6 @@ static FLASH_COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, FlashCommand, COM
 static CALIBRATION_DATA: embassy_sync::mutex::Mutex<CriticalSectionRawMutex, Option<CalibrationData>> =
     embassy_sync::mutex::Mutex::new(None);
 
-/// Return the latest cached calibration data snapshot, if available.
-pub async fn get_cached_calibration_data() -> Option<CalibrationData> {
-    let data = CALIBRATION_DATA.lock().await;
-    *data
-}
-
 /// Return the latest cached IMU calibration values, if available.
 pub async fn get_cached_imu_calibration() -> Option<ImuCalibration> {
     let data = CALIBRATION_DATA.lock().await;

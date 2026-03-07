@@ -32,7 +32,7 @@ use defmt::info;
 
 use self::math as compensation;
 use crate::{
-    system::state::SYSTEM_STATE,
+    system::state::motion,
     task::{
         drive::{sensors::data as feedback, state::DriftCompensationState},
         motor_driver::{self, MotorCommand},
@@ -127,9 +127,7 @@ pub(super) async fn run_drift_compensation_step(
             })
             .await;
 
-            let mut state = SYSTEM_STATE.lock().await;
-            state.left_track_speed = drift.adjusted_left;
-            state.right_track_speed = drift.adjusted_right;
+            motion::set_track_speeds(drift.adjusted_left, drift.adjusted_right).await;
         }
     }
 }

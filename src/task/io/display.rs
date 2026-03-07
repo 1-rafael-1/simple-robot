@@ -60,6 +60,8 @@ pub enum DisplayAction {
     ShowText(String<20>, u8),
     /// Show a text message with an explicit style
     ShowTextStyled(String<20>, u8, TextStyle),
+    /// Show all 4 text lines in a single update (line 0 bold, lines 1-3 normal)
+    ShowLines([String<20>; 4]),
     /// Clear the entire display
     Clear,
 }
@@ -69,8 +71,6 @@ pub enum DisplayAction {
 enum DisplayError {
     /// Error for invalid text line number
     InvalidLine,
-    /// Points buffer reached its fixed capacity
-    PointsBufferFull,
     /// Drawing operation failed (embedded-graphics draw error)
     DrawError,
 }
@@ -94,6 +94,12 @@ pub static DISPLAY_CHANNEL: Channel<CriticalSectionRawMutex, DisplayAction, 16> 
 /// Requests a display update with the specified action
 pub async fn display_update(display_action: DisplayAction) {
     DISPLAY_CHANNEL.send(display_action).await;
+}
+
+/// Try to request a display update without blocking.
+/// Returns true if the update was queued.
+pub fn display_try_update(display_action: DisplayAction) -> bool {
+    DISPLAY_CHANNEL.sender().try_send(display_action).is_ok()
 }
 
 /// Blocks until next update request, returns the requested display action
@@ -301,6 +307,13 @@ fn handle_display_action(
                 TextStyle::Bold => text_style_bold,
             };
             handle_show_text(display, chosen_style, &text, line)
+        }
+        DisplayAction::ShowLines(lines) => {
+            display.clear();
+            handle_show_text(display, text_style_bold, &lines[0], 0)?;
+            handle_show_text(display, text_style_regular, &lines[1], 1)?;
+            handle_show_text(display, text_style_regular, &lines[2], 2)?;
+            handle_show_text(display, text_style_regular, &lines[3], 3)
         }
         DisplayAction::Clear => {
             display.clear();

@@ -4,9 +4,15 @@
 
 use heapless::String;
 
-use super::{screens, state::UiState};
+use super::{
+    screens,
+    state::{UiMode, UiState},
+};
 use crate::{
-    system::state::{CalibrationSelection, DriveMode, SYSTEM_STATE, UiMode},
+    system::{
+        event::UltrasonicReading,
+        state::{CalibrationSelection, DriveMode, calibration, perception, power},
+    },
     task::io::display::{self, DisplayAction},
 };
 
@@ -26,6 +32,9 @@ pub async fn render_current_ui(state: &UiState) {
         }
         UiMode::RunningImuTest => {
             render_imu_test_running().await;
+        }
+        UiMode::RunningBasicMotorTest => {
+            render_basic_motor_test_running().await;
         }
         UiMode::RunningIrUltrasonicTest => {
             render_ir_ultrasonic_test_running().await;
@@ -60,6 +69,15 @@ pub async fn render_imu_test_running() {
     show_line(3, "Press to exit").await;
 }
 
+/// Render the basic motor test placeholder screen.
+pub async fn render_basic_motor_test_running() {
+    display::display_update(DisplayAction::Clear).await;
+    show_line(0, "Basic Motor Test").await;
+    show_line(1, "Motor: ----").await;
+    show_line(2, "ENC: ------").await;
+    show_line(3, "Press to exit").await;
+}
+
 /// Render the IR + ultrasonic test placeholder screen.
 pub async fn render_ir_ultrasonic_test_running() {
     display::display_update(DisplayAction::Clear).await;
@@ -77,14 +95,46 @@ pub async fn render_ultrasonic_sweep_test_running() {
 
 /// Render the autonomous drive mode running screen.
 pub async fn render_autonomous_running(mode: DriveMode) {
-    display::display_update(DisplayAction::Clear).await;
-    show_line(0, "Drive Mode").await;
+    let (ir_detected, ultrasonic_reading, obstacle_detected) = {
+        let state = perception::PERCEPTION_STATE.lock().await;
+        (
+            state.ir_obstacle_detected,
+            state.ultrasonic_reading,
+            state.obstacle_detected,
+        )
+    };
+
     let mode_label = match mode {
         DriveMode::CoastAndAvoid => "Coast & Avoid",
     };
-    show_line(1, mode_label).await;
-    show_line(2, "Running...").await;
-    show_line(3, "Hold to stop").await;
+
+    let mut rows: [String<20>; 4] = core::array::from_fn(|_| String::new());
+    let _ = rows[0].push_str(mode_label);
+
+    let ir_label = if ir_detected { "IR: detect" } else { "IR: clear" };
+    let _ = rows[1].push_str(ir_label);
+
+    match ultrasonic_reading {
+        Some(UltrasonicReading::Distance(cm)) => {
+            let _ = core::fmt::write(&mut rows[2], format_args!("US:{cm:>5.1}cm"));
+        }
+        Some(UltrasonicReading::Timeout) => {
+            let _ = rows[2].push_str("US: timeout");
+        }
+        Some(UltrasonicReading::Error) => {
+            let _ = rows[2].push_str("US: error");
+        }
+        None => {
+            let _ = rows[2].push_str("US: ----");
+        }
+    }
+
+    let obs_label = if obstacle_detected { "OBS: YES" } else { "OBS: NO" };
+    let _ = rows[3].push_str(obs_label);
+
+    if !display::display_try_update(DisplayAction::ShowLines(rows.clone())) {
+        display::display_update(DisplayAction::ShowLines(rows)).await;
+    }
 }
 
 /// Render the calibration-in-progress screen for the selected kind.
@@ -109,13 +159,14 @@ pub async fn show_line(line: u8, msg: &str) {
 
 /// Build a snapshot of system info for the UI renderer.
 pub async fn build_system_info_data() -> screens::SystemInfoData {
-    let state = SYSTEM_STATE.lock().await;
+    let power_state = power::POWER_STATE.lock().await;
+    let calibration_state = calibration::CALIBRATION_STATE.lock().await;
     screens::SystemInfoData {
-        battery_level: state.battery_level,
-        battery_voltage: state.battery_voltage,
-        motor_calibration_status: state.motor_calibration_status,
-        mag_calibration_status: state.mag_calibration_status,
-        accel_calibration_status: state.accel_calibration_status,
-        gyro_calibration_status: state.gyro_calibration_status,
+        battery_level: power_state.battery_level,
+        battery_voltage: power_state.battery_voltage,
+        motor_calibration_status: calibration_state.motor_calibration_status,
+        mag_calibration_status: calibration_state.mag_calibration_status,
+        accel_calibration_status: calibration_state.accel_calibration_status,
+        gyro_calibration_status: calibration_state.gyro_calibration_status,
     }
 }

@@ -5,7 +5,3 @@
 //! and runs as a long-lived Embassy task that waits between activations.
 
 pub mod coast_obstacle_avoid;
-
-pub use coast_obstacle_avoid::{
-    coast_obstacle_avoid_task, is_active as is_coast_avoid_active, start as start_coast_avoid, stop as stop_coast_avoid,
-};
