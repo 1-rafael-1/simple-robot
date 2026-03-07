@@ -131,13 +131,14 @@ The global state is split into domain-specific modules under `system/state/*` to
 - `system/state/perception.rs`
 - `system/state/calibration.rs`
 
+UI mode state lives in `task/ui/state.rs` (via `UI_STATE`) and is kept separate from the system state lock order.
+
 When multiple state mutexes must be held at the same time, a uniform lock order is required to avoid deadlocks:
 
 1. `POWER_STATE`
-2. `SYSTEM_STATE`
-3. `CALIBRATION_STATE`
-4. `PERCEPTION_STATE`
-5. `MOTION_STATE`
+2. `CALIBRATION_STATE`
+3. `PERCEPTION_STATE`
+4. `MOTION_STATE`
 
 The `main.rs` file is the entry point of the program but does nothing besides initializing some resources and then spawning all the tasks.
 

@@ -5,7 +5,7 @@
 use crate::{
     system::{
         event::RotaryDirection,
-        state::{CalibrationSelection, DriveMode, TestSelection, UiMode, calibration, perception},
+        state::{CalibrationSelection, DriveMode, TestSelection, calibration, perception},
     },
     task::{autonomous_mode, drive, testmode},
 };
@@ -17,7 +17,7 @@ pub mod state;
 
 use menu::{calibration_selection_from_index, menu_selection_from_index, next_menu_index, test_selection_from_index};
 use render::render_current_ui;
-use state::UI_STATE;
+use state::{UI_STATE, UiMode};
 
 /// Returns true once calibration data has been queried.
 pub async fn ui_initialized() -> bool {

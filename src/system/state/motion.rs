@@ -5,10 +5,11 @@
 //!
 //! Lock order (when multiple state mutexes are needed):
 //! 1) `POWER_STATE`
-//! 2) `SYSTEM_STATE`
-//! 3) `CALIBRATION_STATE`
-//! 4) `PERCEPTION_STATE`
-//! 5) `MOTION_STATE`
+//! 2) `CALIBRATION_STATE`
+//! 3) `PERCEPTION_STATE`
+//! 4) `MOTION_STATE`
+//!
+//! UI state is separate and does not participate in this order.
 
 use core::sync::atomic::{AtomicI8, Ordering};
 

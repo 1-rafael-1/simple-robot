@@ -4,9 +4,9 @@
 //!
 //! Lock order (when multiple state mutexes are needed):
 //! 1) `POWER_STATE`
-//! 2) `SYSTEM_STATE`
-//! 3) `CALIBRATION_STATE`
-//! 4) `PERCEPTION_STATE`
+//! 2) `CALIBRATION_STATE`
+//! 3) `PERCEPTION_STATE`
+//! 4) `MOTION_STATE`
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 

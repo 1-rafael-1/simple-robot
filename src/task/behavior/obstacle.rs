@@ -5,15 +5,12 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::info;
 
 use crate::{
-    system::{
-        event::ObstacleSource,
-        state::{UiMode, perception},
-    },
+    system::{event::ObstacleSource, state::perception},
     task::{
         autonomous_mode::coast_obstacle_avoid,
         drive::{InterruptKind, send_drive_interrupt},
         indicators::rgb_led_indicate::update_obstacle_indicator,
-        ui,
+        ui::{self, state::UiMode},
     },
 };
 

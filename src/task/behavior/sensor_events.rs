@@ -8,15 +8,12 @@ use embassy_time::Instant;
 use heapless::String;
 
 use crate::{
-    system::{
-        event::UltrasonicReading,
-        state::{UiMode, perception},
-    },
+    system::{event::UltrasonicReading, state::perception},
     task::{
         drive,
         io::display,
         sensors::{encoders, imu},
-        ui,
+        ui::{self, state::UiMode},
     },
 };
 

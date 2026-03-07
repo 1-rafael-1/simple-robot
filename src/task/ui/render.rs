@@ -4,11 +4,14 @@
 
 use heapless::String;
 
-use super::{screens, state::UiState};
+use super::{
+    screens,
+    state::{UiMode, UiState},
+};
 use crate::{
     system::{
         event::UltrasonicReading,
-        state::{CalibrationSelection, DriveMode, UiMode, calibration, perception, power},
+        state::{CalibrationSelection, DriveMode, calibration, perception, power},
     },
     task::io::display::{self, DisplayAction},
 };
