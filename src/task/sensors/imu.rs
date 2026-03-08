@@ -482,9 +482,8 @@ fn init_madgwick() -> Madgwick<f32> {
 }
 
 /// Check if magnetometer reading is within reasonable bounds to be considered valid for fusion
-fn should_use_magnetometer(mag_data: &Vector3<f32>) -> bool {
-    let mag_magnitude = mag_data.norm();
-    mag_magnitude > MAG_MIN_UT && mag_magnitude < MAG_MAX_UT
+fn should_use_magnetometer(mag_norm: f32) -> bool {
+    mag_norm > MAG_MIN_UT && mag_norm < MAG_MAX_UT
 }
 
 /// Logs magnetometer diagnostics for debugging yaw drift issues.
@@ -622,16 +621,16 @@ async fn prepare_magnetometer(
     // Lower bound: 20.0 μT rejects clearly invalid readings (below Earth's minimum)
     // Upper bound: 200.0 μT allows for magnetic interference while rejecting sensor errors
     let mag_norm = mag_data.norm();
-    let use_magnetometer = should_use_magnetometer(&mag_data);
+    let use_magnetometer = should_use_magnetometer(mag_norm);
+
+    // Low-rate magnetometer diagnostics to debug yaw "sticking" / magnetic issues.
+    // This is especially useful when validating hard/soft-iron calibration and interference correction.
+    log_mag_diagnostics(&mag_data, use_magnetometer);
 
     if use_magnetometer {
         let denom = mag_norm.max(1e-3);
         mag_data /= denom;
     }
-
-    // Low-rate magnetometer diagnostics to debug yaw "sticking" / magnetic issues.
-    // This is especially useful when validating hard/soft-iron calibration and interference correction.
-    log_mag_diagnostics(&mag_data, use_magnetometer);
 
     Ok((mag_data, use_magnetometer))
 }

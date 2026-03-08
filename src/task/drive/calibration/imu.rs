@@ -244,8 +244,16 @@ struct MagCalibrationResult {
     interference: InterferenceData,
 }
 
+/// Gyro/accel calibration output with optional biases.
+struct GyroAccelCalibrationResult {
+    /// Gyro bias if enough samples were captured.
+    gyro_bias: Option<Vector3<f32>>,
+    /// Accel bias if enough samples were captured.
+    accel_bias: Option<Vector3<f32>>,
+}
+
 /// Collect stationary samples and compute gyro/accel bias vectors.
-async fn run_gyro_accel_calibration(run_gyro: bool, run_accel: bool) -> (Vector3<f32>, Vector3<f32>) {
+async fn run_gyro_accel_calibration(run_gyro: bool, run_accel: bool) -> GyroAccelCalibrationResult {
     use crate::system::event;
 
     let step_label = if run_gyro && run_accel {
@@ -268,23 +276,21 @@ async fn run_gyro_accel_calibration(run_gyro: bool, run_accel: bool) -> (Vector3
     info!("  Collecting calibration samples (stationary)...");
     let mut gyro_sum = Vector3::new(0.0f32, 0.0f32, 0.0f32);
     let mut accel_sum = Vector3::new(0.0f32, 0.0f32, 0.0f32);
+    let mut gyro_samples: u16 = 0;
+    let mut accel_samples: u16 = 0;
     let num_samples: u16 = 500; // 500 samples at 50Hz = 10 seconds
-    let num_samples_f32 = f32::from(num_samples);
+    let min_samples = (num_samples * 8) / 10;
 
-    if run_gyro {
-        clear_gyro_measurement().await;
-    }
-    if run_accel {
-        clear_accel_measurement().await;
-    }
     Timer::after(Duration::from_millis(100)).await;
 
     for i in 0..num_samples {
         if run_gyro {
+            clear_gyro_measurement().await;
             let start = embassy_time::Instant::now();
             while embassy_time::Instant::now().duration_since(start).as_millis() < 20 {
                 if let Some(gyro_data) = get_latest_gyro_measurement().await {
                     gyro_sum += gyro_data;
+                    gyro_samples += 1;
                     break;
                 }
                 Timer::after(Duration::from_millis(1)).await;
@@ -292,10 +298,12 @@ async fn run_gyro_accel_calibration(run_gyro: bool, run_accel: bool) -> (Vector3
         }
 
         if run_accel {
+            clear_accel_measurement().await;
             let start = embassy_time::Instant::now();
             while embassy_time::Instant::now().duration_since(start).as_millis() < 20 {
                 if let Some(accel_data) = get_latest_accel_measurement().await {
                     accel_sum += accel_data;
+                    accel_samples += 1;
                     break;
                 }
                 Timer::after(Duration::from_millis(1)).await;
@@ -316,34 +324,45 @@ async fn run_gyro_accel_calibration(run_gyro: bool, run_accel: bool) -> (Vector3
         }
     }
 
-    let computed_gyro_bias = if run_gyro {
-        gyro_sum / num_samples_f32
+    if (run_gyro && gyro_samples < min_samples) || (run_accel && accel_samples < min_samples) {
+        info!(
+            "Calibration sample shortfall (gyro={}/{} accel={}/{})",
+            gyro_samples, num_samples, accel_samples, num_samples
+        );
+    }
+
+    let gyro_bias = if run_gyro && gyro_samples >= min_samples && gyro_samples > 0 {
+        Some(gyro_sum / f32::from(gyro_samples))
     } else {
-        Vector3::new(0.0, 0.0, 0.0)
+        None
     };
-    let computed_accel_bias = if run_accel {
-        let mut bias = accel_sum / num_samples_f32;
+    let accel_bias = if run_accel && accel_samples >= min_samples && accel_samples > 0 {
+        let mut bias = accel_sum / f32::from(accel_samples);
         bias.z -= 1.0;
-        bias
+        Some(bias)
     } else {
-        Vector3::new(0.0, 0.0, 0.0)
+        None
     };
 
-    if run_gyro {
+    if let Some(bias) = gyro_bias {
         info!("  ✓ Gyro bias calculated:");
-        info!("    X: {} deg/s", computed_gyro_bias.x);
-        info!("    Y: {} deg/s", computed_gyro_bias.y);
-        info!("    Z: {} deg/s", computed_gyro_bias.z);
+        info!("    X: {} deg/s", bias.x);
+        info!("    Y: {} deg/s", bias.y);
+        info!("    Z: {} deg/s", bias.z);
+    } else if run_gyro {
+        info!("  ! Gyro calibration failed (insufficient samples)");
     }
 
-    if run_accel {
+    if let Some(bias) = accel_bias {
         info!("  ✓ Accel bias calculated:");
-        info!("    X: {} g", computed_accel_bias.x);
-        info!("    Y: {} g", computed_accel_bias.y);
-        info!("    Z: {} g (gravity removed)", computed_accel_bias.z);
+        info!("    X: {} g", bias.x);
+        info!("    Y: {} g", bias.y);
+        info!("    Z: {} g (gravity removed)", bias.z);
+    } else if run_accel {
+        info!("  ! Accel calibration failed (insufficient samples)");
     }
 
-    (computed_gyro_bias, computed_accel_bias)
+    GyroAccelCalibrationResult { gyro_bias, accel_bias }
 }
 
 /// Gather magnetometer samples until coverage and sample thresholds are met.
@@ -672,7 +691,23 @@ async fn run_gyro_calibration() {
     let mut imu_calibration = cached_calibration;
     let mut imu_flags = flash_storage::get_cached_imu_flags().await.unwrap_or_default();
 
-    let (gyro_bias, _) = run_gyro_accel_calibration(true, false).await;
+    let result = run_gyro_accel_calibration(true, false).await;
+    let Some(gyro_bias) = result.gyro_bias else {
+        info!("Gyro calibration failed; keeping previous values");
+        event::raise_event(event::Events::CalibrationStatus {
+            header: None,
+            line1: status_text("GYRO FAILED"),
+            line2: status_text("Not saved"),
+            line3: None,
+        })
+        .await;
+        event::raise_event(event::Events::CalibrationCompleted).await;
+        Timer::after(Duration::from_secs(2)).await;
+
+        info!("=== IMU Gyro Calibration Complete ===");
+        return;
+    };
+
     imu_calibration.gyro_x_bias = gyro_bias.x;
     imu_calibration.gyro_y_bias = gyro_bias.y;
     imu_calibration.gyro_z_bias = gyro_bias.z;
@@ -749,7 +784,23 @@ async fn run_accel_calibration() {
     let mut imu_calibration = cached_calibration;
     let mut imu_flags = flash_storage::get_cached_imu_flags().await.unwrap_or_default();
 
-    let (_, accel_bias) = run_gyro_accel_calibration(false, true).await;
+    let result = run_gyro_accel_calibration(false, true).await;
+    let Some(accel_bias) = result.accel_bias else {
+        info!("Accel calibration failed; keeping previous values");
+        event::raise_event(event::Events::CalibrationStatus {
+            header: None,
+            line1: status_text("ACCEL FAILED"),
+            line2: status_text("Not saved"),
+            line3: None,
+        })
+        .await;
+        event::raise_event(event::Events::CalibrationCompleted).await;
+        Timer::after(Duration::from_secs(2)).await;
+
+        info!("=== IMU Accel Calibration Complete ===");
+        return;
+    };
+
     imu_calibration.accel_x_bias = accel_bias.x;
     imu_calibration.accel_y_bias = accel_bias.y;
     imu_calibration.accel_z_bias = accel_bias.z;
