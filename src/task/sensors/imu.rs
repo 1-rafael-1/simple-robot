@@ -621,7 +621,13 @@ async fn prepare_magnetometer(
     // Typical Earth's magnetic field: 25-65 μT
     // Lower bound: 20.0 μT rejects clearly invalid readings (below Earth's minimum)
     // Upper bound: 200.0 μT allows for magnetic interference while rejecting sensor errors
+    let mag_norm = mag_data.norm();
     let use_magnetometer = should_use_magnetometer(&mag_data);
+
+    if use_magnetometer {
+        let denom = mag_norm.max(1e-3);
+        mag_data /= denom;
+    }
 
     // Low-rate magnetometer diagnostics to debug yaw "sticking" / magnetic issues.
     // This is especially useful when validating hard/soft-iron calibration and interference correction.
@@ -637,6 +643,7 @@ async fn sample_once(
     madgwick: &mut Madgwick<f32>,
     fusion_mode: AhrsFusionMode,
     current_calibration: Option<&flash_storage::ImuCalibration>,
+    last_good_accel_dir: &mut Option<Vector3<f32>>,
     accel_consecutive_failures: &mut u32,
     gyro_consecutive_failures: &mut u32,
     mag_consecutive_failures: &mut u32,
@@ -675,6 +682,18 @@ async fn sample_once(
         accel_corrected.z -= cal.accel_z_bias;
     }
 
+    // Normalize accel and gate it when linear acceleration is likely.
+    let accel_norm = accel_corrected.norm();
+    let accel_dir = if (0.85..=1.15).contains(&accel_norm) && accel_norm > 0.0 {
+        let unit = accel_corrected / accel_norm;
+        *last_good_accel_dir = Some(unit);
+        unit
+    } else if let Some(last) = last_good_accel_dir.as_ref() {
+        last.clone()
+    } else {
+        accel_corrected / accel_norm.max(1e-3)
+    };
+
     // Convert gyroscope from degrees/s to radians/s for AHRS
     let gyro_rad = Vector3::new(gyro_x.to_radians(), gyro_y.to_radians(), gyro_z.to_radians());
 
@@ -683,7 +702,7 @@ async fn sample_once(
     let result = match fusion_mode {
         AhrsFusionMode::Axis6 => {
             // 6-axis fusion: gyro + accel (yaw will drift over time)
-            madgwick.update_imu(&gyro_rad, &accel_corrected)
+            madgwick.update_imu(&gyro_rad, &accel_dir)
         }
         AhrsFusionMode::Axis9 => {
             let (mag_data, use_magnetometer) =
@@ -694,10 +713,10 @@ async fn sample_once(
 
             if use_magnetometer {
                 // 9-axis fusion: gyro + accel + mag (absolute heading, no yaw drift)
-                madgwick.update(&gyro_rad, &accel_corrected, &mag_data)
+                madgwick.update(&gyro_rad, &accel_dir, &mag_data)
             } else {
                 // 6-axis fallback when mag is not trustworthy
-                madgwick.update_imu(&gyro_rad, &accel_corrected)
+                madgwick.update_imu(&gyro_rad, &accel_dir)
             }
         }
     };
@@ -729,6 +748,7 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor, madgwick: &mut Madgwick<f3
     // Calibration will be loaded by orchestrator during initialization
     // and sent via LoadCalibration command
     let mut current_calibration: Option<flash_storage::ImuCalibration> = None;
+    let mut last_good_accel_dir: Option<Vector3<f32>> = None;
 
     // Selectable AHRS fusion mode (default to 9-axis for normal operation).
     // Testing can switch this to Axis6 to avoid magnetometer issues while validating control flow.
@@ -778,6 +798,7 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor, madgwick: &mut Madgwick<f3
                                 madgwick,
                                 fusion_mode,
                                 current_calibration.as_ref(),
+                                &mut last_good_accel_dir,
                                 &mut accel_consecutive_failures,
                                 &mut gyro_consecutive_failures,
                                 &mut mag_consecutive_failures,
