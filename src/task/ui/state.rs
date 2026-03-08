@@ -30,6 +30,8 @@ pub enum UiMode {
     RunningTest,
     /// IMU test mode (live display)
     RunningImuTest,
+    /// IMU test mode (6-axis live display)
+    RunningImu6Test,
     /// Basic motor test mode
     RunningBasicMotorTest,
     /// IR + ultrasonic live test mode

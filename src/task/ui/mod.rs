@@ -89,6 +89,7 @@ pub async fn handle_rotary_turned(direction: RotaryDirection) {
         }
         UiMode::RunningTest
         | UiMode::RunningImuTest
+        | UiMode::RunningImu6Test
         | UiMode::RunningBasicMotorTest
         | UiMode::RunningIrUltrasonicTest
         | UiMode::RunningUltrasonicSweepTest
@@ -120,6 +121,7 @@ pub async fn handle_rotary_button_pressed() {
             }
         }
         UiMode::RunningImuTest => handle_running_imu_test_press().await,
+        UiMode::RunningImu6Test => handle_running_imu6_test_press().await,
         UiMode::RunningBasicMotorTest => handle_running_basic_motor_test_press().await,
         UiMode::RunningIrUltrasonicTest => handle_running_ir_ultrasonic_test_press().await,
         UiMode::RunningUltrasonicSweepTest => handle_running_ultrasonic_sweep_test_press().await,
@@ -175,6 +177,10 @@ pub async fn handle_ui_back() {
         }
         UiMode::RunningImuTest => {
             testmode::stop_imu_test_mode();
+            show_test_menu().await;
+        }
+        UiMode::RunningImu6Test => {
+            testmode::stop_imu6_test_mode();
             show_test_menu().await;
         }
         UiMode::RunningBasicMotorTest => {
@@ -313,6 +319,14 @@ async fn handle_test_menu_press(index: usize) {
             render_current_ui(&snapshot).await;
             testmode::start_imu_test_mode().await;
         }
+        Some(TestSelection::Imu6) => {
+            let mut ui = UI_STATE.lock().await;
+            ui.mode = UiMode::RunningImu6Test;
+            let snapshot = *ui;
+            drop(ui);
+            render_current_ui(&snapshot).await;
+            testmode::start_imu6_test_mode().await;
+        }
         Some(TestSelection::BasicMotor) => {
             let mut ui = UI_STATE.lock().await;
             ui.mode = UiMode::RunningBasicMotorTest;
@@ -352,6 +366,12 @@ async fn handle_test_menu_press(index: usize) {
 /// Handle a button press while the IMU test mode is active.
 async fn handle_running_imu_test_press() {
     testmode::stop_imu_test_mode();
+    show_test_menu().await;
+}
+
+/// Handle a button press while the IMU 6-axis test mode is active.
+async fn handle_running_imu6_test_press() {
+    testmode::stop_imu6_test_mode();
     show_test_menu().await;
 }
 

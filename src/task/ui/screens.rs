@@ -25,9 +25,10 @@ pub const MAIN_MENU_ITEMS: [&str; 4] = ["System Info", "Calibrate", "Drive Mode"
 pub const DRIVE_MODE_MENU_ITEMS: [&str; 2] = ["Coast & Avoid", "Back"];
 
 /// Test mode submenu entries.
-pub const TEST_MENU_ITEMS: [&str; 6] = [
+pub const TEST_MENU_ITEMS: [&str; 7] = [
     "Combined Test",
-    "IMU Test",
+    "IMU Test (9-axis)",
+    "IMU Test (6-axis)",
     "Basic Motor Test",
     "IR+US Test",
     "US Sweep",
