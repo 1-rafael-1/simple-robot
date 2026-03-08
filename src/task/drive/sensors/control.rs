@@ -25,7 +25,7 @@ use crate::{
         drive::types,
         sensors::{
             encoders::{self as encoder_read},
-            imu::{self, AhrsFusionMode},
+            imu::{self, DEFAULT_FUSION_MODE},
         },
     },
 };
@@ -46,7 +46,7 @@ pub async fn stop_rotation_imu() {
 /// to correct heading drift during curved motion.
 pub async fn start_curve_imu(kind: &types::DriveDistanceKind) {
     if matches!(kind, types::DriveDistanceKind::CurveArc { .. }) {
-        imu::set_ahrs_fusion_mode(AhrsFusionMode::Axis9);
+        imu::set_ahrs_fusion_mode(DEFAULT_FUSION_MODE);
         raise_event(Events::StartStopMotionDataCollection(true)).await;
     }
 }

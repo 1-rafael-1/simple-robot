@@ -163,6 +163,10 @@ pub enum AhrsFusionMode {
     Axis9,
 }
 
+/// System default for AHRS fusion mode.
+/// Change this to switch the system between 6-axis and 9-axis fusion.
+pub const DEFAULT_FUSION_MODE: AhrsFusionMode = AhrsFusionMode::Axis6;
+
 /// Control commands sent to the IMU task.
 enum ImuCommand {
     /// Start IMU readings
@@ -530,7 +534,7 @@ fn init_madgwick() -> Madgwick<f32> {
     info!("Madgwick AHRS filter initialized:");
     info!("  Sample rate: {} Hz", SAMPLE_RATE_HZ);
     info!("  Beta: {} (balanced for tracked robot)", BETA);
-    info!("  Mode: 9-axis fusion (gyro + accel + mag) when magnetometer is available");
+    info!("  Default fusion mode: {:?}", DEFAULT_FUSION_MODE);
 
     madgwick
 }
@@ -843,12 +847,12 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor, madgwick: &mut Madgwick<f3
     let mut current_calibration: Option<flash_storage::ImuCalibration> = None;
     let mut last_good_accel_dir: Option<Vector3<f32>> = None;
 
-    // Selectable AHRS fusion mode (default to 9-axis for normal operation).
-    // Testing can switch this to Axis6 to avoid magnetometer issues while validating control flow.
-    let mut fusion_mode = if MAG_AVAILABLE.load(Ordering::Relaxed) {
-        AhrsFusionMode::Axis9
-    } else {
+    // Selectable AHRS fusion mode (default to DEFAULT_FUSION_MODE).
+    // Testing can still switch modes explicitly while validating control flow.
+    let mut fusion_mode = if DEFAULT_FUSION_MODE == AhrsFusionMode::Axis9 && !MAG_AVAILABLE.load(Ordering::Relaxed) {
         AhrsFusionMode::Axis6
+    } else {
+        DEFAULT_FUSION_MODE
     };
 
     'command: loop {
