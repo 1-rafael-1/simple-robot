@@ -136,7 +136,7 @@ pub use types::{
 /// This is a high-level control task that:
 /// - Receives drive commands via queue.
 /// - Receives encoder feedback via channel (from orchestrator).
-/// - Receives IMU feedback via channel (from orchestrator).
+/// - Receives IMU feedback via channel (from orchestrator); orientation is calibrated when the IMU task has loaded calibration data.
 /// - Receives interrupts via signal.
 /// - Sends motor commands to the `motor_driver` task.
 /// - Coordinates calibration procedures.

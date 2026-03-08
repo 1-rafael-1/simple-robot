@@ -338,6 +338,13 @@ fn apply_motor_interference_correction(
     mag_data.z -= interference.2;
 }
 
+/// Apply magnetometer bias and soft-iron scaling
+fn apply_mag_calibration(mag_data: &mut Vector3<f32>, calibration: &flash_storage::ImuCalibration) {
+    mag_data.x = (mag_data.x - calibration.mag_x_bias) * calibration.mag_x_scale;
+    mag_data.y = (mag_data.y - calibration.mag_y_bias) * calibration.mag_y_scale;
+    mag_data.z = (mag_data.z - calibration.mag_z_bias) * calibration.mag_z_scale;
+}
+
 /// Initialize the IMU sensor with retries
 async fn init_imu_sensor(i2c_bus: &'static I2cBusShared) -> ImuSensor {
     // On battery power-up, the IMU can still be in POR / internal regulator startup when
@@ -607,6 +614,7 @@ async fn prepare_magnetometer(
     if let Some(cal) = current_calibration {
         let (left_speed, right_speed) = motion::get_track_speeds_atomic();
         apply_motor_interference_correction(&mut mag_data, cal, left_speed, right_speed);
+        apply_mag_calibration(&mut mag_data, cal);
     }
 
     // Check if magnetometer reading is reasonable
@@ -616,7 +624,7 @@ async fn prepare_magnetometer(
     let use_magnetometer = should_use_magnetometer(&mag_data);
 
     // Low-rate magnetometer diagnostics to debug yaw "sticking" / magnetic issues.
-    // This is especially useful before hard/soft-iron calibration is implemented.
+    // This is especially useful when validating hard/soft-iron calibration and interference correction.
     log_mag_diagnostics(&mag_data, use_magnetometer);
 
     Ok((mag_data, use_magnetometer))
@@ -629,9 +637,6 @@ async fn sample_once(
     madgwick: &mut Madgwick<f32>,
     fusion_mode: AhrsFusionMode,
     current_calibration: Option<&flash_storage::ImuCalibration>,
-    gyro_bias_x: f32,
-    gyro_bias_y: f32,
-    gyro_bias_z: f32,
     accel_consecutive_failures: &mut u32,
     gyro_consecutive_failures: &mut u32,
     mag_consecutive_failures: &mut u32,
@@ -648,16 +653,27 @@ async fn sample_once(
         Err(outcome) => return outcome,
     };
 
-    let gyro_x = gyro_data.x - gyro_bias_x;
-    let gyro_y = gyro_data.y - gyro_bias_y;
-    let gyro_z = gyro_data.z - gyro_bias_z;
-
     // Send raw gyroscope reading to drive task for calibration purposes
     // (before bias correction is applied)
     drive::send_gyro_measurement(Vector3::new(gyro_data.x, gyro_data.y, gyro_data.z)).await;
 
     // Send raw accelerometer reading to drive task for calibration purposes
     drive::send_accel_measurement(accel_data).await;
+
+    let (gyro_bias_x, gyro_bias_y, gyro_bias_z) = current_calibration.map_or((0.0, 0.0, 0.0), |cal| {
+        (cal.gyro_x_bias, cal.gyro_y_bias, cal.gyro_z_bias)
+    });
+
+    let gyro_x = gyro_data.x - gyro_bias_x;
+    let gyro_y = gyro_data.y - gyro_bias_y;
+    let gyro_z = gyro_data.z - gyro_bias_z;
+
+    let mut accel_corrected = accel_data;
+    if let Some(cal) = current_calibration {
+        accel_corrected.x -= cal.accel_x_bias;
+        accel_corrected.y -= cal.accel_y_bias;
+        accel_corrected.z -= cal.accel_z_bias;
+    }
 
     // Convert gyroscope from degrees/s to radians/s for AHRS
     let gyro_rad = Vector3::new(gyro_x.to_radians(), gyro_y.to_radians(), gyro_z.to_radians());
@@ -667,7 +683,7 @@ async fn sample_once(
     let result = match fusion_mode {
         AhrsFusionMode::Axis6 => {
             // 6-axis fusion: gyro + accel (yaw will drift over time)
-            madgwick.update_imu(&gyro_rad, &accel_data)
+            madgwick.update_imu(&gyro_rad, &accel_corrected)
         }
         AhrsFusionMode::Axis9 => {
             let (mag_data, use_magnetometer) =
@@ -678,10 +694,10 @@ async fn sample_once(
 
             if use_magnetometer {
                 // 9-axis fusion: gyro + accel + mag (absolute heading, no yaw drift)
-                madgwick.update(&gyro_rad, &accel_data, &mag_data)
+                madgwick.update(&gyro_rad, &accel_corrected, &mag_data)
             } else {
                 // 6-axis fallback when mag is not trustworthy
-                madgwick.update_imu(&gyro_rad, &accel_data)
+                madgwick.update_imu(&gyro_rad, &accel_corrected)
             }
         }
     };
@@ -708,13 +724,7 @@ async fn sample_once(
 }
 
 /// Main command loop for handling IMU reading state and processing commands
-async fn run_imu_command_loop(
-    sensor: &mut ImuSensor,
-    madgwick: &mut Madgwick<f32>,
-    gyro_bias_x: f32,
-    gyro_bias_y: f32,
-    gyro_bias_z: f32,
-) {
+async fn run_imu_command_loop(sensor: &mut ImuSensor, madgwick: &mut Madgwick<f32>) {
     // Store current calibration data
     // Calibration will be loaded by orchestrator during initialization
     // and sent via LoadCalibration command
@@ -768,9 +778,6 @@ async fn run_imu_command_loop(
                                 madgwick,
                                 fusion_mode,
                                 current_calibration.as_ref(),
-                                gyro_bias_x,
-                                gyro_bias_y,
-                                gyro_bias_z,
                                 &mut accel_consecutive_failures,
                                 &mut gyro_consecutive_failures,
                                 &mut mag_consecutive_failures,
@@ -837,13 +844,7 @@ pub async fn inertial_measurement_read(i2c_bus: &'static I2cBusShared) {
 
     let mut madgwick = init_madgwick();
 
-    // TODO: Load gyroscope bias calibration values from flash memory
-    // For now, assume zero bias (will be implemented as dedicated calibration feature)
-    let gyro_bias_x = 0.0f32;
-    let gyro_bias_y = 0.0f32;
-    let gyro_bias_z = 0.0f32;
-
     info!("Starting AHRS processing at {} Hz", SAMPLE_RATE_HZ);
 
-    run_imu_command_loop(&mut sensor, &mut madgwick, gyro_bias_x, gyro_bias_y, gyro_bias_z).await;
+    run_imu_command_loop(&mut sensor, &mut madgwick).await;
 }

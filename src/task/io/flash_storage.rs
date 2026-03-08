@@ -103,26 +103,33 @@ pub enum FlashCommand {
 /// IMU calibration data structure
 #[derive(Debug, Clone, Copy, Format)]
 pub struct ImuCalibration {
-    /// Gyroscope X-axis bias (rad/s)
+    /// Gyroscope X-axis bias (deg/s)
     pub gyro_x_bias: f32,
-    /// Gyroscope Y-axis bias (rad/s)
+    /// Gyroscope Y-axis bias (deg/s)
     pub gyro_y_bias: f32,
-    /// Gyroscope Z-axis bias (rad/s)
+    /// Gyroscope Z-axis bias (deg/s)
     pub gyro_z_bias: f32,
 
-    /// Accelerometer X-axis bias (m/s²)
+    /// Accelerometer X-axis bias (g)
     pub accel_x_bias: f32,
-    /// Accelerometer Y-axis bias (m/s²)
+    /// Accelerometer Y-axis bias (g)
     pub accel_y_bias: f32,
-    /// Accelerometer Z-axis bias (m/s²)
+    /// Accelerometer Z-axis bias (g)
     pub accel_z_bias: f32,
 
-    /// Magnetometer X-axis bias
+    /// Magnetometer X-axis bias (μT)
     pub mag_x_bias: f32,
-    /// Magnetometer Y-axis bias
+    /// Magnetometer Y-axis bias (μT)
     pub mag_y_bias: f32,
-    /// Magnetometer Z-axis bias
+    /// Magnetometer Z-axis bias (μT)
     pub mag_z_bias: f32,
+
+    /// Magnetometer soft-iron scale (unitless)
+    pub mag_x_scale: f32,
+    /// Magnetometer soft-iron scale (unitless)
+    pub mag_y_scale: f32,
+    /// Magnetometer soft-iron scale (unitless)
+    pub mag_z_scale: f32,
 
     /// x-Axis Motor interference correction factor at 50% power
     pub mag_x_interference_50: [f32; 3],
@@ -162,6 +169,9 @@ impl Default for ImuCalibration {
             mag_x_bias: 0.0,
             mag_y_bias: 0.0,
             mag_z_bias: 0.0,
+            mag_x_scale: 1.0,
+            mag_y_scale: 1.0,
+            mag_z_scale: 1.0,
             mag_x_interference_50: [0.0; 3],
             mag_y_interference_50: [0.0; 3],
             mag_z_interference_50: [0.0; 3],
@@ -252,7 +262,7 @@ impl Value<'_> for MotorCalibration {
 /// Serialize IMU calibration to bytes
 impl Value<'_> for ImuCalibration {
     fn serialize_into(&self, buffer: &mut [u8]) -> Result<usize, SerializationError> {
-        const REQUIRED_SIZE: usize = 108; // 27 floats * 4 bytes
+        const REQUIRED_SIZE: usize = 120; // 30 floats * 4 bytes
         if buffer.len() < REQUIRED_SIZE {
             return Err(SerializationError::BufferTooSmall);
         }
@@ -307,7 +317,15 @@ impl Value<'_> for ImuCalibration {
             offset += 4;
         }
 
-        Ok(108)
+        // Soft-iron scale (3 floats)
+        buffer[offset..offset + 4].copy_from_slice(&self.mag_x_scale.to_le_bytes());
+        offset += 4;
+        buffer[offset..offset + 4].copy_from_slice(&self.mag_y_scale.to_le_bytes());
+        offset += 4;
+        buffer[offset..offset + 4].copy_from_slice(&self.mag_z_scale.to_le_bytes());
+        offset += 4;
+
+        Ok(offset)
     }
 
     /// Deserialize IMU calibration from bytes
@@ -316,8 +334,9 @@ impl Value<'_> for ImuCalibration {
     where
         Self: Sized,
     {
-        const REQUIRED_SIZE: usize = 108; // 27 floats * 4 bytes
-        if buffer.len() < REQUIRED_SIZE {
+        const MIN_SIZE: usize = 108; // 27 floats * 4 bytes (legacy)
+        const SCALE_SIZE: usize = 12; // 3 floats * 4 bytes (soft-iron scale)
+        if buffer.len() < MIN_SIZE {
             return Err(SerializationError::BufferTooSmall);
         }
 
@@ -452,6 +471,35 @@ impl Value<'_> for ImuCalibration {
             offset += 4;
         }
 
+        let (mag_x_scale, mag_y_scale, mag_z_scale) = if buffer.len() >= MIN_SIZE + SCALE_SIZE {
+            let mag_x_scale = f32::from_le_bytes([
+                buffer[offset],
+                buffer[offset + 1],
+                buffer[offset + 2],
+                buffer[offset + 3],
+            ]);
+            offset += 4;
+            let mag_y_scale = f32::from_le_bytes([
+                buffer[offset],
+                buffer[offset + 1],
+                buffer[offset + 2],
+                buffer[offset + 3],
+            ]);
+            offset += 4;
+            let mag_z_scale = f32::from_le_bytes([
+                buffer[offset],
+                buffer[offset + 1],
+                buffer[offset + 2],
+                buffer[offset + 3],
+            ]);
+            offset += 4;
+            (mag_x_scale, mag_y_scale, mag_z_scale)
+        } else {
+            (1.0, 1.0, 1.0)
+        };
+
+        let consumed = offset;
+
         Ok((
             Self {
                 gyro_x_bias,
@@ -463,6 +511,9 @@ impl Value<'_> for ImuCalibration {
                 mag_x_bias,
                 mag_y_bias,
                 mag_z_bias,
+                mag_x_scale,
+                mag_y_scale,
+                mag_z_scale,
                 mag_x_interference_50,
                 mag_y_interference_50,
                 mag_z_interference_50,
@@ -470,7 +521,7 @@ impl Value<'_> for ImuCalibration {
                 mag_y_interference_100,
                 mag_z_interference_100,
             },
-            REQUIRED_SIZE,
+            consumed,
         ))
     }
 }
@@ -526,7 +577,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
     let mut storage = MapStorage::<StorageKey, _, _>::new(flash, MapConfig::new(flash_range.clone()), NoCache::new());
 
     // Create scratch buffer for serialization/deserialization
-    // Motor calibration needs 16 bytes, IMU calibration needs 108 bytes
+    // Motor calibration needs 16 bytes, IMU calibration needs 120 bytes
     // Using 128 bytes to be safe and align with common practice
     let mut data_buffer: [u8; 128] = [0; 128];
 
