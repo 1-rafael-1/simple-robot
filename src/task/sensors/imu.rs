@@ -689,7 +689,7 @@ async fn sample_once(
         *last_good_accel_dir = Some(unit);
         unit
     } else if let Some(last) = last_good_accel_dir.as_ref() {
-        last.clone()
+        *last
     } else {
         accel_corrected / accel_norm.max(1e-3)
     };
