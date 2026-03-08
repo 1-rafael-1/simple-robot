@@ -65,6 +65,43 @@ const MAG_CALIBRATION_CONFIG: MagCalibrationConfig = MagCalibrationConfig {
 /// Must be comfortably above the IMU sampling period (~20.4 ms at 48.9 Hz).
 const GYRO_ACCEL_SAMPLE_TIMEOUT: Duration = Duration::from_millis(30);
 
+/// Ensures IMU readings are stopped (and fusion mode restored) after calibration completes.
+struct ImuReadingsGuard {
+    /// Fusion mode to restore after calibration (if any).
+    restore_fusion_mode: Option<crate::task::sensors::imu::AhrsFusionMode>,
+}
+
+impl ImuReadingsGuard {
+    /// Start IMU readings without changing fusion mode.
+    fn start() -> Self {
+        crate::task::sensors::imu::start_imu_readings();
+        Self {
+            restore_fusion_mode: None,
+        }
+    }
+
+    /// Start IMU readings and set a temporary fusion mode.
+    fn start_with_fusion_mode(
+        target_mode: crate::task::sensors::imu::AhrsFusionMode,
+        restore_mode: crate::task::sensors::imu::AhrsFusionMode,
+    ) -> Self {
+        crate::task::sensors::imu::start_imu_readings();
+        crate::task::sensors::imu::set_ahrs_fusion_mode(target_mode);
+        Self {
+            restore_fusion_mode: Some(restore_mode),
+        }
+    }
+}
+
+impl Drop for ImuReadingsGuard {
+    fn drop(&mut self) {
+        if let Some(mode) = self.restore_fusion_mode {
+            crate::task::sensors::imu::set_ahrs_fusion_mode(mode);
+        }
+        crate::task::sensors::imu::stop_imu_readings();
+    }
+}
+
 #[derive(Copy, Clone)]
 /// Motor command step used to measure or verify mag interference.
 struct InterferenceStep {
@@ -1017,7 +1054,7 @@ async fn run_gyro_calibration() {
     })
     .await;
 
-    imu_read::start_imu_readings();
+    let _imu_guard = ImuReadingsGuard::start();
     Timer::after(Duration::from_millis(500)).await;
 
     let cached_calibration = flash_storage::get_cached_imu_calibration().await.unwrap_or_default();
@@ -1110,7 +1147,7 @@ async fn run_accel_calibration() {
     })
     .await;
 
-    imu_read::start_imu_readings();
+    let _imu_guard = ImuReadingsGuard::start();
     Timer::after(Duration::from_millis(500)).await;
 
     let cached_calibration = flash_storage::get_cached_imu_calibration().await.unwrap_or_default();
@@ -1203,7 +1240,8 @@ async fn run_mag_calibration() {
     })
     .await;
 
-    imu_read::start_imu_readings();
+    let _imu_guard =
+        ImuReadingsGuard::start_with_fusion_mode(imu_read::AhrsFusionMode::Axis9, imu_read::DEFAULT_FUSION_MODE);
     Timer::after(Duration::from_millis(500)).await;
 
     let cached_calibration = flash_storage::get_cached_imu_calibration().await.unwrap_or_default();
