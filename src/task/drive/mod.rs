@@ -119,8 +119,7 @@ use intent::{
     step_idle_without_drift,
 };
 pub use sensors::data::{
-    clear_encoder_measurement, get_latest_accel_measurement, get_latest_encoder_measurement,
-    get_latest_gyro_measurement, get_latest_mag_measurement, send_accel_measurement, send_gyro_measurement,
+    clear_encoder_measurement, get_latest_encoder_measurement, send_accel_measurement, send_gyro_measurement,
     send_mag_measurement, try_send_encoder_measurement, try_send_imu_measurement,
 };
 use state::DriveLoop;
@@ -136,7 +135,7 @@ pub use types::{
 /// This is a high-level control task that:
 /// - Receives drive commands via queue.
 /// - Receives encoder feedback via channel (from orchestrator).
-/// - Receives IMU feedback via channel (from orchestrator).
+/// - Receives IMU feedback via channel (from orchestrator); orientation is calibrated when the IMU task has loaded calibration data.
 /// - Receives interrupts via signal.
 /// - Sends motor commands to the `motor_driver` task.
 /// - Coordinates calibration procedures.

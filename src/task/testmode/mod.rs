@@ -8,13 +8,15 @@ use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
 pub mod basic_motor;
-pub mod imu;
+pub mod imu_6axis;
+pub mod imu_9axis;
 pub mod ir_ultrasonic;
 pub mod sequence;
 pub mod ultrasonic_sweep;
 
 pub use basic_motor::{start_basic_motor_test_mode, stop_basic_motor_test_mode};
-pub use imu::{start_imu_test_mode, stop_imu_test_mode};
+pub use imu_6axis::{start_imu6_test_mode, stop_imu6_test_mode};
+pub use imu_9axis::{start_imu_test_mode, stop_imu_test_mode};
 pub use ir_ultrasonic::{start_ir_ultrasonic_test_mode, stop_ir_ultrasonic_test_mode};
 pub use sequence::start_testing_sequence;
 pub use ultrasonic_sweep::{start_ultrasonic_sweep_test_mode, stop_ultrasonic_sweep_test_mode};
@@ -26,6 +28,8 @@ pub(super) enum TestCommand {
     Sequence,
     /// Spawn the IMU telemetry test.
     Imu,
+    /// Spawn the IMU 6-axis telemetry test.
+    Imu6,
     /// Spawn the IR + ultrasonic test.
     IrUltrasonic,
     /// Spawn the ultrasonic sweep test.
@@ -70,7 +74,8 @@ async fn testmode_controller(spawner: Spawner) {
     loop {
         match TESTMODE_COMMAND.receive().await {
             TestCommand::Sequence => sequence::spawn(spawner),
-            TestCommand::Imu => imu::spawn(spawner),
+            TestCommand::Imu => imu_9axis::spawn(spawner),
+            TestCommand::Imu6 => imu_6axis::spawn(spawner),
             TestCommand::IrUltrasonic => ir_ultrasonic::spawn(spawner),
             TestCommand::UltrasonicSweep => ultrasonic_sweep::spawn(spawner),
             TestCommand::BasicMotor => basic_motor::spawn(spawner),

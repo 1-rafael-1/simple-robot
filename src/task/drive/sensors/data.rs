@@ -10,10 +10,11 @@
 //! - **Encoder measurements** are stored in a mutex-guarded `Option` so the
 //!   drive task always reads the latest value rather than draining a queue.
 //! - **IMU measurements** are queued (capacity 16) to buffer bursts during
-//!   calibration sequences at 100 Hz sampling.
+//!   calibration sequences at 50 Hz sampling. These measurements carry
+//!   calibrated orientation when the IMU task has loaded calibration data.
 //! - **Raw IMU axes** (magnetometer, gyroscope, accelerometer) are stored as
-//!   mutex-guarded `Option`s, written by the IMU task and read by calibration
-//!   routines on demand.
+//!   mutex-guarded `Option`s, written by the IMU task before correction and
+//!   read by calibration routines on demand.
 //!
 //! # Visibility
 //!
@@ -40,11 +41,12 @@ pub static LATEST_ENCODER_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<Enc
 
 /// Channel for receiving IMU measurements from the orchestrator.
 ///
-/// Capacity of 16 buffers bursts during calibration sequences at 100 Hz
+/// Capacity of 16 buffers bursts during calibration sequences at 50 Hz
 /// sampling. The rotation control loop drains this channel each tick.
 const IMU_FEEDBACK_QUEUE_SIZE: usize = 16;
 
 /// IMU feedback channel shared between the orchestrator and drive control loops.
+/// Measurements carry orientation already corrected by any loaded IMU calibration.
 pub static IMU_FEEDBACK_CHANNEL: Channel<CriticalSectionRawMutex, ImuMeasurement, IMU_FEEDBACK_QUEUE_SIZE> =
     Channel::new();
 
@@ -83,8 +85,9 @@ pub fn try_send_encoder_measurement(measurement: EncoderMeasurement) -> bool {
 /// Try to send an IMU measurement to the drive task without blocking.
 ///
 /// Returns `true` if sent, `false` if the channel is full. Used by the
-/// orchestrator to avoid blocking; IMU measurements arrive at 100 Hz so
-/// dropping occasional readings during heavy load is acceptable.
+/// orchestrator to avoid blocking; IMU measurements arrive at 50 Hz so
+/// dropping occasional readings during heavy load is acceptable. The
+/// orientation data is calibrated when the IMU task has loaded calibration.
 pub fn try_send_imu_measurement(measurement: ImuMeasurement) -> bool {
     IMU_FEEDBACK_CHANNEL.sender().try_send(measurement).is_ok()
 }
@@ -198,11 +201,11 @@ pub async fn measure_mag_average(samples: u16) -> Vector3<f32> {
     let mut count = 0u16;
 
     for _ in 0..samples {
-        if let Some(mag) = get_latest_mag_measurement().await {
+        clear_mag_measurement().await;
+        if let Some(mag) = wait_for_mag_event_timeout(50).await {
             sum += mag.cast::<f64>();
             count += 1;
         }
-        Timer::after(Duration::from_millis(20)).await; // ~50 Hz
     }
 
     if count > 0 {

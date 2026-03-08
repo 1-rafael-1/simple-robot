@@ -55,6 +55,8 @@ pub enum TestSelection {
     Combined,
     /// IMU live display test
     Imu,
+    /// IMU live display test (6-axis)
+    Imu6,
     /// Basic motor test
     BasicMotor,
     /// IR + ultrasonic live display test

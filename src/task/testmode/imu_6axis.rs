@@ -12,72 +12,73 @@ use heapless::String;
 
 use super::{TestCommand, release_testmode, request_start};
 use crate::task::{
-    drive::{get_latest_accel_measurement, get_latest_gyro_measurement, get_latest_mag_measurement},
     io::display::{DisplayAction, display_update},
     sensors::imu::{
-        AhrsFusionMode, Orientation, get_latest_orientation, set_ahrs_fusion_mode, start_imu_readings,
-        stop_imu_readings,
+        AhrsFusionMode, Orientation, get_latest_calibrated_accel, get_latest_calibrated_gyro, get_latest_orientation,
+        get_latest_raw_accel, get_latest_raw_gyro, set_ahrs_fusion_mode, start_imu_readings, stop_imu_readings,
     },
 };
 
-/// Signal used to stop the IMU test mode.
-static IMU_TEST_STOP_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+/// Signal used to stop the IMU 6-axis test mode.
+static IMU6_TEST_STOP_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
-/// Tracks whether the IMU test mode is active.
-static IMU_TEST_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Tracks whether the IMU 6-axis test mode is active.
+static IMU6_TEST_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-/// Request the IMU test mode to start (spawns the task on demand).
-pub async fn start_imu_test_mode() {
-    if IMU_TEST_ACTIVE.swap(true, Ordering::Relaxed) {
+/// Request the IMU 6-axis test mode to start (spawns the task on demand).
+pub async fn start_imu6_test_mode() {
+    if IMU6_TEST_ACTIVE.swap(true, Ordering::Relaxed) {
         return;
     }
 
-    if !request_start(TestCommand::Imu).await {
-        IMU_TEST_ACTIVE.store(false, Ordering::Relaxed);
+    if !request_start(TestCommand::Imu6).await {
+        IMU6_TEST_ACTIVE.store(false, Ordering::Relaxed);
     }
 }
 
-/// Request the IMU test mode to stop.
-pub fn stop_imu_test_mode() {
-    IMU_TEST_ACTIVE.store(false, Ordering::Relaxed);
-    IMU_TEST_STOP_SIGNAL.signal(());
+/// Request the IMU 6-axis test mode to stop.
+pub fn stop_imu6_test_mode() {
+    IMU6_TEST_ACTIVE.store(false, Ordering::Relaxed);
+    IMU6_TEST_STOP_SIGNAL.signal(());
 }
 
-/// Spawn the IMU test task via the controller.
+/// Spawn the IMU 6-axis test task via the controller.
 pub(super) fn spawn(spawner: Spawner) {
-    spawner.must_spawn(imu_test_task());
+    spawner.must_spawn(imu6_test_task());
 }
 
 /// IMU test mode runner (updates display at 50Hz while active).
 
 #[embassy_executor::task]
-async fn imu_test_task() {
-    set_ahrs_fusion_mode(AhrsFusionMode::Axis9);
+async fn imu6_test_task() {
     start_imu_readings();
+    Timer::after(Duration::from_millis(30)).await;
+    set_ahrs_fusion_mode(AhrsFusionMode::Axis6);
     display_update(DisplayAction::Clear).await;
 
     let mut tick: u32 = 0;
     let mut missing: u32 = 0;
 
     // Clear any pending stop signal so the next test doesn't end immediately.
-    while IMU_TEST_STOP_SIGNAL.signaled() {
-        IMU_TEST_STOP_SIGNAL.wait().await;
+    while IMU6_TEST_STOP_SIGNAL.signaled() {
+        IMU6_TEST_STOP_SIGNAL.wait().await;
     }
 
     loop {
-        match select(IMU_TEST_STOP_SIGNAL.wait(), Timer::after(Duration::from_millis(20))).await {
+        match select(IMU6_TEST_STOP_SIGNAL.wait(), Timer::after(Duration::from_millis(20))).await {
             Either::First(()) => break,
             Either::Second(()) => {
-                if !IMU_TEST_ACTIVE.load(Ordering::Relaxed) {
+                if !IMU6_TEST_ACTIVE.load(Ordering::Relaxed) {
                     break;
                 }
 
                 let orientation = get_latest_orientation().await;
-                let accel = get_latest_accel_measurement().await;
-                let gyro = get_latest_gyro_measurement().await;
-                let mag = get_latest_mag_measurement().await;
+                let accel = get_latest_calibrated_accel().await;
+                let gyro = get_latest_calibrated_gyro().await;
+                let raw_accel = get_latest_raw_accel().await;
+                let raw_gyro = get_latest_raw_gyro().await;
 
-                if orientation.is_none() && accel.is_none() && gyro.is_none() && mag.is_none() {
+                if orientation.is_none() && accel.is_none() && gyro.is_none() {
                     missing = missing.saturating_add(1);
                 } else {
                     missing = 0;
@@ -95,19 +96,33 @@ async fn imu_test_task() {
                     let line2 = format_axis_line("G", gyro);
                     display_update(DisplayAction::ShowText(line2, 2)).await;
 
-                    let line3 = format_axis_line("M", mag);
+                    let mut line3: String<20> = String::new();
+                    let _ = line3.push_str("6-axis");
                     display_update(DisplayAction::ShowText(line3, 3)).await;
                 }
 
                 if tick.is_multiple_of(50) {
                     defmt::debug!(
-                        "IMU test data: ori={} accel={} gyro={} mag={} missing={}",
+                        "IMU6 test data: ori={} accel={} gyro={} missing={}",
                         orientation.is_some(),
                         accel.is_some(),
                         gyro.is_some(),
-                        mag.is_some(),
                         missing
                     );
+
+                    if let (Some(a), Some(g)) = (raw_accel, raw_gyro) {
+                        defmt::debug!(
+                            "IMU6 raw: a=({=f32},{=f32},{=f32}) g=({=f32},{=f32},{=f32})",
+                            a.x,
+                            a.y,
+                            a.z,
+                            g.x,
+                            g.y,
+                            g.z
+                        );
+                    } else {
+                        defmt::debug!("IMU6 raw: accel={} gyro={}", raw_accel.is_some(), raw_gyro.is_some());
+                    }
                 }
             }
         }
@@ -115,7 +130,7 @@ async fn imu_test_task() {
 
     stop_imu_readings();
     release_testmode();
-    IMU_TEST_ACTIVE.store(false, Ordering::Relaxed);
+    IMU6_TEST_ACTIVE.store(false, Ordering::Relaxed);
 }
 
 /// Format an IMU orientation line (Euler angles).
@@ -125,7 +140,7 @@ fn format_orientation_line(orientation: Option<Orientation>) -> String<20> {
         Some(ori) => {
             let _ = core::fmt::write(
                 &mut s,
-                format_args!("E {:.1}/{:.1}/{:.1}", ori.yaw, ori.pitch, ori.roll),
+                format_args!("E y{:.1}/p{:.1}/r{:.1}", ori.yaw, ori.pitch, ori.roll),
             );
         }
         None => {
@@ -140,7 +155,7 @@ fn format_axis_line(prefix: &str, data: Option<nalgebra::Vector3<f32>>) -> Strin
     let mut s: String<20> = String::new();
     match data {
         Some(v) => {
-            let _ = core::fmt::write(&mut s, format_args!("{prefix} {:.1}/{:.1}/{:.1}", v.x, v.y, v.z));
+            let _ = core::fmt::write(&mut s, format_args!("{prefix} x{:.1}/y{:.1}/z{:.1}", v.x, v.y, v.z));
         }
         None => {
             let _ = core::fmt::write(&mut s, format_args!("{prefix} --.-/--.-/--.-"));

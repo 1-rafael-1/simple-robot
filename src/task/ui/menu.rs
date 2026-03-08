@@ -42,9 +42,10 @@ pub const fn test_selection_from_index(index: usize) -> Option<TestSelection> {
     match index {
         0 => Some(TestSelection::Combined),
         1 => Some(TestSelection::Imu),
-        2 => Some(TestSelection::BasicMotor),
-        3 => Some(TestSelection::IrUltrasonic),
-        4 => Some(TestSelection::UltrasonicSweep),
+        2 => Some(TestSelection::Imu6),
+        3 => Some(TestSelection::BasicMotor),
+        4 => Some(TestSelection::IrUltrasonic),
+        5 => Some(TestSelection::UltrasonicSweep),
         _ => None,
     }
 }
