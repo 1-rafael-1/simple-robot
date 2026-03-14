@@ -233,7 +233,7 @@ async fn run_testing_sequence() {
         DriveCommand::Drive(DriveAction::DriveDistance {
             kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
             direction: DriveDirection::Forward,
-            speed: 60,
+            speed: 70,
         }),
         sender,
     )
@@ -259,6 +259,9 @@ async fn run_testing_sequence() {
             achieved_left_revs,
             achieved_right_revs
         );
+        if let CompletionStatus::Failed(reason) = completion.status {
+            defmt::warn!("🧪 TEST: Forward distance failed: {=str}", reason);
+        }
     }
 
     send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
@@ -276,7 +279,7 @@ async fn run_testing_sequence() {
         DriveCommand::Drive(DriveAction::DriveDistance {
             kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
             direction: DriveDirection::Backward,
-            speed: 60,
+            speed: 70,
         }),
         sender,
     )
@@ -302,6 +305,9 @@ async fn run_testing_sequence() {
             achieved_left_revs,
             achieved_right_revs
         );
+        if let CompletionStatus::Failed(reason) = completion.status {
+            defmt::warn!("🧪 TEST: Reverse distance failed: {=str}", reason);
+        }
     }
 
     send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
@@ -330,7 +336,7 @@ async fn run_testing_sequence() {
                 direction: TurnDirection::Left,
             },
             direction: DriveDirection::Forward,
-            speed: 50,
+            speed: 60,
         }),
         sender,
     )

@@ -92,6 +92,13 @@ pub fn try_send_imu_measurement(measurement: ImuMeasurement) -> bool {
     IMU_FEEDBACK_CHANNEL.sender().try_send(measurement).is_ok()
 }
 
+/// Clear any queued IMU measurements.
+///
+/// Called before starting a new rotation to avoid stale samples.
+pub fn clear_imu_measurements() {
+    while IMU_FEEDBACK_CHANNEL.receiver().try_receive().is_ok() {}
+}
+
 /// Update the latest raw magnetometer measurement.
 ///
 /// Called by the IMU task to provide uncorrected magnetometer readings for

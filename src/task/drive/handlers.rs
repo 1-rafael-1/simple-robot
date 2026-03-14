@@ -31,6 +31,7 @@ use crate::{
     task::{
         drive::{
             api::{self, DriveCommandEnvelope},
+            clear_imu_measurements,
             distance::DistanceDriveState,
             rotation::RotationState,
             sensors::control::{self as lifecycle, start_encoder_sampling},
@@ -222,18 +223,17 @@ impl DriveLoop {
         completion: Option<types::CompletionSender>,
     ) {
         lifecycle::start_rotation_imu().await;
+        clear_imu_measurements();
+
+        motor_driver::send_motor_command(MotorCommand::SetTracks {
+            left_speed: 0,
+            right_speed: 0,
+        })
+        .await;
+        motion::set_track_speeds(0, 0).await;
 
         let rotation_state = RotationState::new(degrees, direction, motion);
         let started_at_ms = Instant::now().as_millis();
-
-        let (left_speed, right_speed) = rotation_state.calculate_motor_speeds();
-        motor_driver::send_motor_command(MotorCommand::SetTracks {
-            left_speed,
-            right_speed,
-        })
-        .await;
-
-        motion::set_track_speeds(left_speed, right_speed).await;
 
         self.active_intent = Some(ActiveIntent::RotateExact {
             state: rotation_state,

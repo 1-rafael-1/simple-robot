@@ -67,7 +67,7 @@ use crate::task::{
 };
 
 /// Stall timeout during distance driving (milliseconds).
-const DISTANCE_STALL_TIMEOUT_MS: u64 = 750;
+const DISTANCE_STALL_TIMEOUT_MS: u64 = 1500;
 
 /// Result of a distance control step.
 pub(super) enum DistanceStepResult {
@@ -235,6 +235,11 @@ pub(super) async fn run_distance_control_step(state: &mut DistanceDriveState) ->
     }
     state.last_encoder_timestamp_ms = measurement.timestamp_ms;
     state.last_encoder_seen_ms = now_ms;
+
+    if state.last_encoder_measurement.is_none() {
+        state.last_encoder_measurement = Some(measurement);
+        return DistanceStepResult::InProgress;
+    }
 
     let delta_measurement = state
         .last_encoder_measurement

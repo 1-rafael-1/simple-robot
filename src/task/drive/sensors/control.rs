@@ -68,8 +68,8 @@ pub async fn start_encoder_sampling(interval_ms: u64, clear_feedback: bool) {
     if clear_feedback {
         super::data::clear_encoder_measurement().await;
     }
-    encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms }).await;
     encoder_read::send_command(encoder_read::EncoderCommand::Reset).await;
+    encoder_read::send_command(encoder_read::EncoderCommand::Start { interval_ms }).await;
 }
 
 /// Stop encoder sampling.

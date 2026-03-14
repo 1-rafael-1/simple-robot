@@ -235,7 +235,7 @@ pub const SPROCKET_CIRCUMFERENCE_CM: f32 = 19.01;
 /// Distance drive ramp-down begins when remaining revolutions drop below this value.
 pub const DISTANCE_RAMP_DOWN_START_REVS: f32 = 0.25;
 /// Minimum speed during ramp-down (0-100).
-pub const DISTANCE_MIN_SPEED: u8 = 20;
+pub const DISTANCE_MIN_SPEED: u8 = 40;
 /// Maximum speed clamp for distance driving (0-100).
 pub const DISTANCE_MAX_SPEED: u8 = 100;
 /// Completion tolerance for distance driving (revolutions).
@@ -259,11 +259,27 @@ pub const DISTANCE_CURVE_YAW_MAX_CORRECTION: f32 = 0.25;
 /// Maximum rotation speed (0-100%)
 pub const ROTATION_SPEED_MAX: u8 = 50;
 /// Minimum rotation speed to overcome friction
-pub const ROTATION_SPEED_MIN: u8 = 20;
+pub const ROTATION_SPEED_MIN: u8 = 40;
 /// Acceptable angle error in degrees
 ///
-/// Target: ~0.5° for higher-precision turns-in-place.
-pub const ROTATION_TOLERANCE_DEG: f32 = 0.5;
+/// Target: ~1° for higher-precision turns-in-place.
+pub const ROTATION_TOLERANCE_DEG: f32 = 1.0;
+/// Overshoot deadband before applying corrective reverse (degrees).
+pub const ROTATION_CORRECTION_DEADBAND_DEG: f32 = 0.5;
+/// Maximum time allowed for overshoot correction before bailing (milliseconds).
+pub const ROTATION_CORRECTION_TIMEOUT_MS: u64 = 4_000;
+/// Rotation ramp-down begins when remaining degrees drop below this value.
+pub const ROTATION_RAMP_DOWN_START_DEG: f32 = 45.0;
+/// Maximum number of corrective direction flips allowed during rotation.
+pub const ROTATION_CORRECTION_MAX_FLIPS: u8 = 12;
+/// Safety timeout for `RotateExact` (milliseconds).
+pub const ROTATION_TIMEOUT_MS: u64 = 8_000;
+/// Maximum time to wait for a fresh IMU sample per tick (milliseconds).
+pub const ROTATION_IMU_WAIT_TIMEOUT_MS: u64 = 20;
+/// Time to wait after stopping to capture post-stop yaw settling (milliseconds).
+pub const ROTATION_POST_STOP_SETTLE_MS: u64 = 200;
+/// Duration of a single corrective pulse after settle if error persists (milliseconds).
+pub const ROTATION_POST_STOP_CORRECTION_PULSE_MS: u64 = 120;
 /// Maximum speed differential during combined motion
 pub const SPEED_DIFF_MAX: i8 = 30;
 
