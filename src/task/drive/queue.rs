@@ -29,13 +29,70 @@ pub const DRIVE_QUEUE_CAPACITY: usize = 10;
 pub(super) struct DriveQueueRequest {
     /// Commands to execute in order.
     steps: Vec<DriveCommand, DRIVE_QUEUE_CAPACITY>,
+    /// Reply channel for queue completion.
+    reply_channel: &'static Channel<CriticalSectionRawMutex, DriveQueueCompletion, 1>,
 }
 
 /// Queue submission channel (single active queue rule).
 static DRIVE_QUEUE_REQUESTS: Channel<CriticalSectionRawMutex, DriveQueueRequest, 1> = Channel::new();
 
-/// Queue completion channel (single producer).
-static DRIVE_QUEUE_COMPLETIONS: Channel<CriticalSectionRawMutex, DriveQueueCompletion, 1> = Channel::new();
+/// Reply slot for per-request completions.
+/// Reply slot backing per-request completions.
+struct DriveQueueReplySlot {
+    /// Completion channel for the active request.
+    channel: Channel<CriticalSectionRawMutex, DriveQueueCompletion, 1>,
+    /// Tracks whether the slot is currently in use.
+    in_use: AtomicBool,
+}
+
+impl DriveQueueReplySlot {
+    /// Create an empty reply slot.
+    const fn new() -> Self {
+        Self {
+            channel: Channel::new(),
+            in_use: AtomicBool::new(false),
+        }
+    }
+}
+
+/// Reply slot used for per-request completions.
+static DRIVE_QUEUE_REPLY: DriveQueueReplySlot = DriveQueueReplySlot::new();
+
+/// Guard that releases the reply slot when dropped.
+struct DriveQueueReplyGuard {
+    /// Reply slot reference.
+    slot: &'static DriveQueueReplySlot,
+}
+
+impl DriveQueueReplyGuard {
+    /// Access the reply channel for this request.
+    const fn channel(&self) -> &'static Channel<CriticalSectionRawMutex, DriveQueueCompletion, 1> {
+        &self.slot.channel
+    }
+}
+
+impl Drop for DriveQueueReplyGuard {
+    fn drop(&mut self) {
+        self.slot.in_use.store(false, Ordering::Release);
+    }
+}
+
+/// Acquire the reply slot, draining any stale completion first.
+fn acquire_reply_slot() -> Option<DriveQueueReplyGuard> {
+    if DRIVE_QUEUE_REPLY
+        .in_use
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return None;
+    }
+
+    while DRIVE_QUEUE_REPLY.channel.receiver().try_receive().is_ok() {}
+
+    Some(DriveQueueReplyGuard {
+        slot: &DRIVE_QUEUE_REPLY,
+    })
+}
 
 /// Busy flag guarding single-queue execution.
 static QUEUE_BUSY: AtomicBool = AtomicBool::new(false);
@@ -93,12 +150,23 @@ impl DriveQueueBuilder {
             return Err(DriveQueueSubmitError::QueueBusy);
         }
 
+        let Some(reply_guard) = acquire_reply_slot() else {
+            QUEUE_BUSY.store(false, Ordering::Release);
+            return Err(DriveQueueSubmitError::QueueBusy);
+        };
+
+        let reply_channel = reply_guard.channel();
+
         DRIVE_QUEUE_REQUESTS
             .sender()
-            .send(DriveQueueRequest { steps: self.steps })
+            .send(DriveQueueRequest {
+                steps: self.steps,
+                reply_channel,
+            })
             .await;
 
-        let completion = DRIVE_QUEUE_COMPLETIONS.receiver().receive().await;
+        let completion = reply_channel.receiver().receive().await;
+        drop(reply_guard);
         Ok(completion)
     }
 }
@@ -133,7 +201,8 @@ pub async fn drive_queue_executor() {
             }
         }
 
-        DRIVE_QUEUE_COMPLETIONS
+        request
+            .reply_channel
             .sender()
             .send(DriveQueueCompletion {
                 status,
