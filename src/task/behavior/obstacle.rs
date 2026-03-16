@@ -79,8 +79,8 @@ pub async fn handle_obstacle_detected(source: ObstacleSource, detected: bool) {
         changed
     };
 
-    if combined && coast_obstacle_avoid::is_active() {
-        info!("coast-avoid active — issuing EmergencyBrake");
+    if combined && coast_obstacle_avoid::is_active() && coast_obstacle_avoid::is_forward_phase() {
+        info!("coast-avoid forward phase — issuing EmergencyBrake");
         send_drive_interrupt(InterruptKind::EmergencyBrake);
     }
 

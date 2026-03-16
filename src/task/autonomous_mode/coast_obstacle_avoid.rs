@@ -62,6 +62,9 @@ use crate::{
 /// interrupts, and by the loop itself to detect stop requests.
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
+/// Set while the forward-drive phase is active (used to gate obstacle interrupts).
+static FORWARD_PHASE: AtomicBool = AtomicBool::new(false);
+
 /// Signals the task to begin its loop (sent by [`start`]).
 static START_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
@@ -98,11 +101,17 @@ pub fn is_active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }
 
+/// Returns `true` while the forward-drive phase is active.
+pub fn is_forward_phase() -> bool {
+    FORWARD_PHASE.load(Ordering::Relaxed)
+}
+
 /// Activate the coast-and-avoid autonomous mode.
 ///
 /// Sets the active flag and wakes the task that is waiting on [`START_SIGNAL`].
 pub fn start() {
     ACTIVE.store(true, Ordering::Relaxed);
+    FORWARD_PHASE.store(false, Ordering::Relaxed);
     start_ultrasonic_centered_obstacle_detect();
     START_SIGNAL.signal(());
 }
@@ -114,6 +123,7 @@ pub fn start() {
 /// [`DriveDistance`] or [`RotateExact`] command immediately.
 pub fn stop() {
     ACTIVE.store(false, Ordering::Relaxed);
+    FORWARD_PHASE.store(false, Ordering::Relaxed);
     stop_ultrasonic_measurements();
     send_drive_interrupt(InterruptKind::EmergencyBrake);
 }
@@ -157,11 +167,27 @@ pub async fn coast_obstacle_avoid_task() {
     }
 }
 
-// ── Private helpers ───────────────────────────────────────────────────────────
+/// Helper guard to mark the forward-drive phase for obstacle gating.
+struct ForwardPhaseGuard;
+
+impl ForwardPhaseGuard {
+    /// Enter the forward-drive phase.
+    fn new() -> Self {
+        FORWARD_PHASE.store(true, Ordering::Relaxed);
+        Self
+    }
+}
+
+impl Drop for ForwardPhaseGuard {
+    fn drop(&mut self) {
+        FORWARD_PHASE.store(false, Ordering::Relaxed);
+    }
+}
 
 /// Issue a near-infinite `DriveDistance` forward and wait for it to complete
 /// (either cancelled by an interrupt or, extremely unlikely, finished).
 async fn drive_forward() -> CompletionStatus {
+    let _forward_phase = ForwardPhaseGuard::new();
     info!("coast-avoid: driving forward");
 
     let mut queue = DriveQueueBuilder::new();
@@ -209,14 +235,9 @@ async fn avoid_obstacle() {
     // Brief pause to let the emergency-brake settle.
     Timer::after(Duration::from_millis(200)).await;
 
-    // ── Back up ───────────────────────────────────────────────────────────────
-    info!("coast-avoid: backing up {=f32} cm", BACKUP_DISTANCE_CM);
-
-    // ── Random turn ───────────────────────────────────────────────────────────
-    // Seed the RNG from the current uptime so successive calls differ.
+    // Randomly choose a turn angle and direction
     let seed = Instant::now().as_micros();
     let mut rng = WyRand::new_seed(seed);
-
     let turn_degrees = rng.generate_range(TURN_ANGLE_MIN..=TURN_ANGLE_MAX);
     let direction = if rng.generate_range(0u8..=1u8) == 0 {
         RotationDirection::CounterClockwise
