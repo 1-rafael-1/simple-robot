@@ -385,13 +385,19 @@ impl DriveLoop {
         let deadline = Instant::now() + Duration::from_millis(types::BRAKE_COAST_SETTLE_TIMEOUT_MS);
         let mut consecutive: u8 = 0;
         let mut last_measurement: Option<crate::task::sensors::encoders::EncoderMeasurement> = None;
+        let mut last_timestamp_ms: u64 = 0;
 
         loop {
             if Instant::now() >= deadline {
                 return Err("encoder settle timeout");
             }
 
-            if let Some(measurement) = get_latest_encoder_measurement().await {
+            if let Some(measurement) = get_latest_encoder_measurement()
+                .await
+                .filter(|measurement| measurement.timestamp_ms != 0 && measurement.timestamp_ms != last_timestamp_ms)
+            {
+                last_timestamp_ms = measurement.timestamp_ms;
+
                 if let Some(previous) = last_measurement {
                     let delta_left = u32::from(measurement.left_front.wrapping_sub(previous.left_front))
                         + u32::from(measurement.left_rear.wrapping_sub(previous.left_rear));
