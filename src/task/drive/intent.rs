@@ -24,10 +24,11 @@ use embassy_time::{Duration, Timer};
 
 use crate::task::drive::{
     api::{DRIVE_INTERRUPT, DRIVE_QUEUE, send_completion},
+    brake_coast::{BrakeCoastStepResult, run_brake_coast_step},
     distance::{DistanceStepResult, distance_stop_motors, run_distance_control_step},
     drift::run_drift_compensation_step,
     rotation::{RotationStepResult, run_rotation_control_step},
-    sensors::control::{stop_curve_imu, stop_rotation_imu},
+    sensors::control::{stop_curve_imu, stop_encoder_sampling, stop_rotation_imu},
     state::{ActiveIntent, DriveLoop},
     types::{self, CompletionStatus, DriveCompletion},
 };
@@ -40,6 +41,8 @@ pub(super) enum ActiveIntentOutcome {
     RotationStep(RotationStepResult),
     /// A control step completed for the active distance intent.
     DistanceStep(DistanceStepResult),
+    /// A control step completed for the active brake/coast intent.
+    BrakeCoastStep(BrakeCoastStepResult),
 }
 
 /// Poll the active intent (if any) and return the next action to perform.
@@ -64,6 +67,16 @@ pub(super) async fn poll_active_intent(loop_state: &mut DriveLoop) -> Option<Act
                 Either::Second(()) => {
                     let result = run_distance_control_step(state).await;
                     Some(ActiveIntentOutcome::DistanceStep(result))
+                }
+            }
+        }
+        Some(ActiveIntent::BrakeCoast { state, .. }) => {
+            let interrupt_or_tick = select(DRIVE_INTERRUPT.wait(), brake_coast_tick_ms()).await;
+            match interrupt_or_tick {
+                Either::First(kind) => Some(ActiveIntentOutcome::Interrupt(kind)),
+                Either::Second(()) => {
+                    let result = run_brake_coast_step(state).await;
+                    Some(ActiveIntentOutcome::BrakeCoastStep(result))
                 }
             }
         }
@@ -118,6 +131,34 @@ pub(super) async fn apply_distance_result(loop_state: &mut DriveLoop, result: Di
     loop_state.active_intent = None;
 }
 
+/// Apply brake/coast step results to the active intent (completions + intent clearing).
+pub(super) async fn apply_brake_coast_result(loop_state: &mut DriveLoop, result: BrakeCoastStepResult) {
+    let status = match result {
+        BrakeCoastStepResult::InProgress => return,
+        BrakeCoastStepResult::Completed => CompletionStatus::Success,
+        BrakeCoastStepResult::Failed(reason) => CompletionStatus::Failed(reason),
+    };
+
+    let completion_requested = match loop_state.active_intent.as_ref() {
+        Some(ActiveIntent::BrakeCoast {
+            completion_requested, ..
+        }) => *completion_requested,
+        _ => false,
+    };
+
+    stop_encoder_sampling().await;
+    send_completion(
+        completion_requested,
+        DriveCompletion {
+            status,
+            telemetry: types::CompletionTelemetry::None,
+        },
+    )
+    .await;
+
+    loop_state.active_intent = None;
+}
+
 /// Idle loop step when drift compensation is enabled.
 pub(super) async fn step_idle_with_drift(loop_state: &mut DriveLoop) {
     let event_or_tick = select(
@@ -157,6 +198,11 @@ async fn drift_tick_ms() {
 async fn rotation_tick_ms() {
     // 50Hz rotation control loop tick to align with 50Hz IMU sampling.
     Timer::after(Duration::from_millis(20)).await;
+}
+
+/// Brake/coast settle tick interval.
+async fn brake_coast_tick_ms() {
+    Timer::after(Duration::from_millis(types::BRAKE_COAST_SETTLE_INTERVAL_MS)).await;
 }
 
 /// Distance control tick interval.

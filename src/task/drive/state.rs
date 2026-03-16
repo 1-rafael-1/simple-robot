@@ -13,7 +13,7 @@
 //! - [`DriveLoop`]: the top-level state struct owned by the drive task. Holds
 //!   standby status, the active intent (if any), and drift compensation state.
 
-use super::rotation::RotationState;
+use super::{brake_coast::BrakeCoastState, rotation::RotationState};
 use crate::task::{drive::distance::DistanceDriveState, sensors::encoders::EncoderMeasurement};
 
 /// Encoder-based drift compensation state for straight-line driving.
@@ -76,6 +76,13 @@ pub(super) enum ActiveIntent {
     DriveDistance {
         /// Distance controller state (encoder progress, curve correction).
         state: DistanceDriveState,
+        /// Whether this intent should emit a completion event when finished.
+        completion_requested: bool,
+    },
+    /// Active brake/coast settle intent with encoder settle tracking.
+    BrakeCoast {
+        /// Brake/coast settle state.
+        state: BrakeCoastState,
         /// Whether this intent should emit a completion event when finished.
         completion_requested: bool,
     },

@@ -31,12 +31,10 @@ use crate::{
     task::{
         drive::{
             api::{self, DriveCommandEnvelope},
+            brake_coast::BrakeCoastState,
             distance::DistanceDriveState,
             rotation::RotationState,
-            sensors::{
-                control::{self as lifecycle, start_encoder_sampling},
-                data::get_latest_encoder_measurement,
-            },
+            sensors::control::{self as lifecycle, start_encoder_sampling},
             state::{ActiveIntent, DriveLoop},
             types::{self, CompletionStatus, DriveAction, DriveCommand, DriveCompletion},
         },
@@ -142,26 +140,10 @@ impl DriveLoop {
                     .await;
             }
             DriveAction::Coast => {
-                let status = self.handle_coast().await;
-                api::send_completion(
-                    completion_requested,
-                    DriveCompletion {
-                        status,
-                        telemetry: types::CompletionTelemetry::None,
-                    },
-                )
-                .await;
+                self.handle_coast(completion_requested).await;
             }
             DriveAction::Brake => {
-                let status = self.handle_brake().await;
-                api::send_completion(
-                    completion_requested,
-                    DriveCompletion {
-                        status,
-                        telemetry: types::CompletionTelemetry::None,
-                    },
-                )
-                .await;
+                self.handle_brake(completion_requested).await;
             }
             DriveAction::Standby => {
                 self.handle_standby().await;
@@ -341,7 +323,7 @@ impl DriveLoop {
     /// Disables drift compensation, starts encoder sampling for settle detection,
     /// and sends a coast (freewheel) command to all motor drivers. Completion is
     /// reported only after encoders settle or the timeout expires.
-    async fn handle_coast(&mut self) -> CompletionStatus {
+    async fn handle_coast(&mut self, completion_requested: bool) {
         info!("coast");
         self.drift.enabled = false;
         start_encoder_sampling(types::BRAKE_COAST_SETTLE_INTERVAL_MS, true).await;
@@ -349,13 +331,10 @@ impl DriveLoop {
 
         motion::set_track_speeds(0, 0).await;
 
-        let settle_result = self.wait_for_encoder_settle().await;
-        lifecycle::stop_encoder_sampling().await;
-
-        match settle_result {
-            Ok(()) => CompletionStatus::Success,
-            Err(reason) => CompletionStatus::Failed(reason),
-        }
+        self.active_intent = Some(ActiveIntent::BrakeCoast {
+            state: BrakeCoastState::new(),
+            completion_requested,
+        });
     }
 
     /// Handle a `Brake` command.
@@ -363,7 +342,7 @@ impl DriveLoop {
     /// Disables drift compensation, starts encoder sampling for settle detection,
     /// and applies active electrical braking to all motor drivers. Completion is
     /// reported only after encoders settle or the timeout expires.
-    async fn handle_brake(&mut self) -> CompletionStatus {
+    async fn handle_brake(&mut self, completion_requested: bool) {
         info!("brake");
         self.drift.enabled = false;
         start_encoder_sampling(types::BRAKE_COAST_SETTLE_INTERVAL_MS, true).await;
@@ -371,53 +350,10 @@ impl DriveLoop {
 
         motion::set_track_speeds(0, 0).await;
 
-        let settle_result = self.wait_for_encoder_settle().await;
-        lifecycle::stop_encoder_sampling().await;
-
-        match settle_result {
-            Ok(()) => CompletionStatus::Success,
-            Err(reason) => CompletionStatus::Failed(reason),
-        }
-    }
-
-    /// Wait for encoder deltas to reach zero across consecutive samples.
-    async fn wait_for_encoder_settle(&self) -> Result<(), &'static str> {
-        let deadline = Instant::now() + Duration::from_millis(types::BRAKE_COAST_SETTLE_TIMEOUT_MS);
-        let mut consecutive: u8 = 0;
-        let mut last_measurement: Option<crate::task::sensors::encoders::EncoderMeasurement> = None;
-        let mut last_timestamp_ms: u64 = 0;
-
-        loop {
-            if Instant::now() >= deadline {
-                return Err("encoder settle timeout");
-            }
-
-            if let Some(measurement) = get_latest_encoder_measurement()
-                .await
-                .filter(|measurement| measurement.timestamp_ms != 0 && measurement.timestamp_ms != last_timestamp_ms)
-            {
-                last_timestamp_ms = measurement.timestamp_ms;
-
-                if let Some(previous) = last_measurement {
-                    let delta_left = u32::from(measurement.left_front.wrapping_sub(previous.left_front))
-                        + u32::from(measurement.left_rear.wrapping_sub(previous.left_rear));
-                    let delta_right = u32::from(measurement.right_front.wrapping_sub(previous.right_front))
-                        + u32::from(measurement.right_rear.wrapping_sub(previous.right_rear));
-
-                    if delta_left == 0 && delta_right == 0 {
-                        consecutive = consecutive.saturating_add(1);
-                        if consecutive >= types::BRAKE_COAST_SETTLE_CONSECUTIVE_SAMPLES {
-                            return Ok(());
-                        }
-                    } else {
-                        consecutive = 0;
-                    }
-                }
-                last_measurement = Some(measurement);
-            }
-
-            Timer::after(Duration::from_millis(types::BRAKE_COAST_SETTLE_INTERVAL_MS)).await;
-        }
+        self.active_intent = Some(ActiveIntent::BrakeCoast {
+            state: BrakeCoastState::new(),
+            completion_requested,
+        });
     }
 
     /// Handle a `Standby` command.
@@ -451,6 +387,7 @@ impl DriveLoop {
     /// emitted, additional queued completion requests are dropped with a warning.
     /// This assumes a single governing producer that does not enqueue new commands
     /// during interrupt handling.
+    #[allow(clippy::too_many_lines)]
     pub(super) async fn handle_interrupt(&mut self, kind: types::InterruptKind) {
         match kind {
             types::InterruptKind::EmergencyBrake => {
@@ -515,6 +452,22 @@ impl DriveLoop {
                                 target_right_revs: state.target_right_revs,
                                 duration_ms,
                             },
+                        },
+                    )
+                    .await;
+
+                    if completion_requested {
+                        completion_sent = true;
+                    }
+                }
+                ActiveIntent::BrakeCoast {
+                    completion_requested, ..
+                } => {
+                    api::send_completion(
+                        completion_requested,
+                        DriveCompletion {
+                            status: CompletionStatus::Cancelled,
+                            telemetry: types::CompletionTelemetry::None,
                         },
                     )
                     .await;
