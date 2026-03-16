@@ -2,7 +2,7 @@
 
 A no-longer-too-simple robot with different sensors and autonomous as well as remote-controlled movement written in Rust. This is a WIP and I use it to learn stuff as I go.
 
-![Robot Side View](misc/media/bot-side.jpg)
+![Robot Side View](misc/media/bot_side.jpg)
 *Side view showing the robot's profile - picture of the v2 iteration, still WIP.*
 
 ## What should this one day be?
