@@ -5,8 +5,11 @@
 //!
 //! # Interrupt vs completion behaviour
 //!
-//! - Interrupts preempt any active intent and cause its completion (if present)
+//! - Interrupts preempt any active intent and cause its completion (if requested)
 //!   to resolve as `Cancelled`.
+//! - The interrupt handler drains the queue. Any queued command that requested
+//!   completion is resolved as `Cancelled`. Additional queued completion requests
+//!   are dropped with a warning under the single-producer contract.
 //! - The interrupt handler also increments an epoch counter. Any queued commands
 //!   stamped before the interrupt are cancelled when dequeued.
 //!
@@ -14,7 +17,7 @@
 //!
 //! Epoch invalidation provides a simple, lock-free way to discard stale queued
 //! commands after a preemption. Active intents are cancelled immediately, while
-//! queued intents are cancelled lazily when dequeued by comparing epochs.
+//! queued intents are cancelled when dequeued by comparing epochs.
 
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Timer};
@@ -76,13 +79,15 @@ pub(super) async fn apply_rotation_result(loop_state: &mut DriveLoop, result: Ro
         RotationStepResult::Failed { reason, telemetry } => (CompletionStatus::Failed(reason), telemetry),
     };
 
-    let completion = match loop_state.active_intent.as_mut() {
-        Some(ActiveIntent::RotateExact { completion, .. }) => completion.take(),
-        _ => None,
+    let completion_requested = match loop_state.active_intent.as_ref() {
+        Some(ActiveIntent::RotateExact {
+            completion_requested, ..
+        }) => *completion_requested,
+        _ => false,
     };
 
     stop_rotation_imu().await;
-    send_completion(completion, DriveCompletion { status, telemetry }).await;
+    send_completion(completion_requested, DriveCompletion { status, telemetry }).await;
 
     loop_state.active_intent = None;
 }
@@ -95,9 +100,11 @@ pub(super) async fn apply_distance_result(loop_state: &mut DriveLoop, result: Di
         DistanceStepResult::Failed { reason, telemetry } => (CompletionStatus::Failed(reason), telemetry),
     };
 
-    let completion = match loop_state.active_intent.as_mut() {
-        Some(ActiveIntent::DriveDistance { completion, .. }) => completion.take(),
-        _ => None,
+    let completion_requested = match loop_state.active_intent.as_ref() {
+        Some(ActiveIntent::DriveDistance {
+            completion_requested, ..
+        }) => *completion_requested,
+        _ => false,
     };
 
     distance_stop_motors().await;
@@ -106,7 +113,7 @@ pub(super) async fn apply_distance_result(loop_state: &mut DriveLoop, result: Di
     {
         stop_curve_imu(&state.kind).await;
     }
-    send_completion(completion, DriveCompletion { status, telemetry }).await;
+    send_completion(completion_requested, DriveCompletion { status, telemetry }).await;
 
     loop_state.active_intent = None;
 }

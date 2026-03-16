@@ -9,15 +9,12 @@
 //! - [`DriftCompensationState`]: tracks the encoder-based drift compensation
 //!   parameters for straight-line `Differential` commands.
 //! - [`ActiveIntent`]: the currently executing drive intent (rotation or
-//!   distance), together with its completion sender and any runtime state.
+//!   distance), together with its completion-request flag and any runtime state.
 //! - [`DriveLoop`]: the top-level state struct owned by the drive task. Holds
 //!   standby status, the active intent (if any), and drift compensation state.
 
 use super::rotation::RotationState;
-use crate::task::{
-    drive::{distance::DistanceDriveState, types},
-    sensors::encoders::EncoderMeasurement,
-};
+use crate::task::{drive::distance::DistanceDriveState, sensors::encoders::EncoderMeasurement};
 
 /// Encoder-based drift compensation state for straight-line driving.
 ///
@@ -70,8 +67,8 @@ pub(super) enum ActiveIntent {
     RotateExact {
         /// Rotation controller state (angle tracking, speed calculation).
         state: RotationState,
-        /// Optional completion sender resolved when the rotation finishes.
-        completion: Option<types::CompletionSender>,
+        /// Whether this intent should emit a completion event when finished.
+        completion_requested: bool,
         /// Wall-clock start time used for duration telemetry (milliseconds).
         started_at_ms: u64,
     },
@@ -79,8 +76,8 @@ pub(super) enum ActiveIntent {
     DriveDistance {
         /// Distance controller state (encoder progress, curve correction).
         state: DistanceDriveState,
-        /// Optional completion sender resolved when the drive finishes.
-        completion: Option<types::CompletionSender>,
+        /// Whether this intent should emit a completion event when finished.
+        completion_requested: bool,
     },
 }
 

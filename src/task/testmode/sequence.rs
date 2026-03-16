@@ -21,7 +21,10 @@
 //! IMPORTANT: We do NOT overwrite the OLED at the end of the sequence.
 //! The last turn's telemetry remains visible to support testing without a debugger attached.
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::{
+    fmt::write,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
@@ -33,8 +36,8 @@ use crate::{
     task::{
         drive::{
             CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind,
-            TurnDirection, acquire_completion_handle, completion_sender, release_completion_handle, send_drive_command,
-            send_drive_command_with_completion, wait_for_completion,
+            TurnDirection, complete_drive_command, send_drive_command,
+            types::{RotationDirection, RotationMotion},
         },
         io::display::{DisplayAction, display_update},
         sensors::imu::{AhrsFusionMode, set_ahrs_fusion_mode},
@@ -86,21 +89,21 @@ async fn run_testing_sequence() {
         {
             let mut s: String<20> = String::new();
             // Example: "TGT:45.0 ACT:12.3"
-            let _ = core::fmt::write(&mut s, format_args!("TGT:{target_deg:>4.1} ACT:{current_deg:>4.1}"));
+            let _ = write(&mut s, format_args!("TGT:{target_deg:>4.1} ACT:{current_deg:>4.1}"));
             display_update(DisplayAction::ShowText(s, 1)).await;
         }
 
         {
             let mut s: String<20> = String::new();
             // Example: "YAW:-123.4"
-            let _ = core::fmt::write(&mut s, format_args!("YAW:{yaw_deg:>6.1}"));
+            let _ = write(&mut s, format_args!("YAW:{yaw_deg:>6.1}"));
             display_update(DisplayAction::ShowText(s, 2)).await;
         }
 
         {
             let mut s: String<20> = String::new();
             // Example: "DEV:  -1.6"
-            let _ = core::fmt::write(&mut s, format_args!("DEV:{deviation_deg:>6.1}"));
+            let _ = write(&mut s, format_args!("DEV:{deviation_deg:>6.1}"));
             display_update(DisplayAction::ShowText(s, 3)).await;
         }
     }
@@ -146,7 +149,7 @@ async fn run_testing_sequence() {
         show_line(0, "TURN TEST").await;
         {
             let mut s: String<20> = String::new();
-            let _ = core::fmt::write(&mut s, format_args!("SPD:{speed:>3} TGT:{target_deg:>4.1}"));
+            let _ = write(&mut s, format_args!("SPD:{speed:>3} TGT:{target_deg:>4.1}"));
             display_update(DisplayAction::ShowText(s, 1)).await;
         }
         show_line(2, "Turning...").await;
@@ -156,26 +159,15 @@ async fn run_testing_sequence() {
         send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
         Timer::after(Duration::from_millis(500)).await;
 
-        let Ok(completion_handle) = acquire_completion_handle().await else {
-            defmt::warn!("🧪 TEST: completion pool exhausted; skipping turn");
-            continue;
-        };
-        let sender = completion_sender(completion_handle);
-
         // Start the turn
-        send_drive_command_with_completion(
-            DriveCommand::Drive(DriveAction::RotateExact {
-                degrees: target_deg,
-                direction: crate::task::drive::types::RotationDirection::Clockwise,
-                motion: crate::task::drive::types::RotationMotion::Stationary { speed },
-            }),
-            sender,
-        )
+        let completion = complete_drive_command(DriveCommand::Drive(DriveAction::RotateExact {
+            degrees: target_deg,
+            direction: RotationDirection::Clockwise,
+            motion: RotationMotion::Stationary { speed },
+        }))
         .await;
 
         // Await completion (no global event consumption)
-        let completion = wait_for_completion(&completion_handle).await;
-        release_completion_handle(completion_handle).await;
 
         let (final_yaw_deg, angle_error_deg, status) = if let CompletionTelemetry::RotateExact {
             final_yaw_deg,
@@ -223,24 +215,12 @@ async fn run_testing_sequence() {
     show_line(2, "").await;
     show_line(3, "").await;
 
-    let Ok(completion_handle) = acquire_completion_handle().await else {
-        defmt::warn!("🧪 TEST: completion pool exhausted; skipping forward distance");
-        return;
-    };
-    let sender = completion_sender(completion_handle);
-
-    send_drive_command_with_completion(
-        DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
-            direction: DriveDirection::Forward,
-            speed: 60,
-        }),
-        sender,
-    )
+    let completion = complete_drive_command(DriveCommand::Drive(DriveAction::DriveDistance {
+        kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
+        direction: DriveDirection::Forward,
+        speed: 60,
+    }))
     .await;
-
-    let completion = wait_for_completion(&completion_handle).await;
-    release_completion_handle(completion_handle).await;
 
     if let CompletionTelemetry::DriveDistance {
         achieved_left_revs,
@@ -266,24 +246,12 @@ async fn run_testing_sequence() {
 
     show_line(1, "REV 50 CM").await;
 
-    let Ok(completion_handle) = acquire_completion_handle().await else {
-        defmt::warn!("🧪 TEST: completion pool exhausted; skipping reverse distance");
-        return;
-    };
-    let sender = completion_sender(completion_handle);
-
-    send_drive_command_with_completion(
-        DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
-            direction: DriveDirection::Backward,
-            speed: 60,
-        }),
-        sender,
-    )
+    let completion = complete_drive_command(DriveCommand::Drive(DriveAction::DriveDistance {
+        kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
+        direction: DriveDirection::Backward,
+        speed: 60,
+    }))
     .await;
-
-    let completion = wait_for_completion(&completion_handle).await;
-    release_completion_handle(completion_handle).await;
 
     if let CompletionTelemetry::DriveDistance {
         achieved_left_revs,
@@ -316,28 +284,16 @@ async fn run_testing_sequence() {
     defmt::info!("🧪 TEST: Curve circle 360° at radius 1m");
     let circle_arc_cm = 2.0 * core::f32::consts::PI * 100.0;
 
-    let Ok(completion_handle) = acquire_completion_handle().await else {
-        defmt::warn!("🧪 TEST: completion pool exhausted; skipping circle test");
-        return;
-    };
-    let sender = completion_sender(completion_handle);
-
-    send_drive_command_with_completion(
-        DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::CurveArc {
-                radius_cm: 100.0,
-                arc_length_cm: circle_arc_cm,
-                direction: TurnDirection::Left,
-            },
-            direction: DriveDirection::Forward,
-            speed: 50,
-        }),
-        sender,
-    )
+    let completion = complete_drive_command(DriveCommand::Drive(DriveAction::DriveDistance {
+        kind: DriveDistanceKind::CurveArc {
+            radius_cm: 100.0,
+            arc_length_cm: circle_arc_cm,
+            direction: TurnDirection::Left,
+        },
+        direction: DriveDirection::Forward,
+        speed: 50,
+    }))
     .await;
-
-    let completion = wait_for_completion(&completion_handle).await;
-    release_completion_handle(completion_handle).await;
 
     if let CompletionTelemetry::DriveDistance {
         achieved_left_revs,

@@ -47,10 +47,8 @@ use crate::{
     task::{
         drive::{
             CompletionStatus, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, InterruptKind,
-            acquire_completion_handle, completion_sender, release_completion_handle, send_drive_command,
-            send_drive_command_with_completion, send_drive_interrupt,
+            complete_drive_command, send_drive_command, send_drive_interrupt,
             types::{RotationDirection, RotationMotion},
-            wait_for_completion,
         },
         sensors::ultrasonic::{start_ultrasonic_centered_obstacle_detect, stop_ultrasonic_measurements},
     },
@@ -166,28 +164,14 @@ pub async fn coast_obstacle_avoid_task() {
 async fn drive_forward() -> CompletionStatus {
     info!("coast-avoid: driving forward");
 
-    let Ok(handle) = acquire_completion_handle().await else {
-        // Pool exhausted — log and wait briefly so the loop doesn't spin hot.
-        defmt::warn!("coast-avoid: completion pool exhausted, skipping forward step");
-        Timer::after(Duration::from_millis(500)).await;
-        return CompletionStatus::Failed("completion pool exhausted");
-    };
-
-    let sender = completion_sender(handle);
-    send_drive_command_with_completion(
-        DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::Straight {
-                distance_cm: MAX_FORWARD_DISTANCE_CM,
-            },
-            direction: DriveDirection::Forward,
-            speed: FORWARD_SPEED,
-        }),
-        sender,
-    )
+    let completion = complete_drive_command(DriveCommand::Drive(DriveAction::DriveDistance {
+        kind: DriveDistanceKind::Straight {
+            distance_cm: MAX_FORWARD_DISTANCE_CM,
+        },
+        direction: DriveDirection::Forward,
+        speed: FORWARD_SPEED,
+    }))
     .await;
-
-    let completion = wait_for_completion(&handle).await;
-    release_completion_handle(handle).await;
 
     match completion.status {
         CompletionStatus::Cancelled => {
@@ -214,27 +198,14 @@ async fn avoid_obstacle() {
     // ── Back up ───────────────────────────────────────────────────────────────
     info!("coast-avoid: backing up {=f32} cm", BACKUP_DISTANCE_CM);
 
-    let Ok(handle) = acquire_completion_handle().await else {
-        defmt::warn!("coast-avoid: completion pool exhausted during backup");
-        Timer::after(Duration::from_millis(200)).await;
-        return;
-    };
-
-    let sender = completion_sender(handle);
-    send_drive_command_with_completion(
-        DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::Straight {
-                distance_cm: BACKUP_DISTANCE_CM,
-            },
-            direction: DriveDirection::Backward,
-            speed: REVERSE_SPEED,
-        }),
-        sender,
-    )
+    let completion = complete_drive_command(DriveCommand::Drive(DriveAction::DriveDistance {
+        kind: DriveDistanceKind::Straight {
+            distance_cm: BACKUP_DISTANCE_CM,
+        },
+        direction: DriveDirection::Backward,
+        speed: REVERSE_SPEED,
+    }))
     .await;
-
-    let completion = wait_for_completion(&handle).await;
-    release_completion_handle(handle).await;
 
     match completion.status {
         CompletionStatus::Cancelled => {
@@ -267,24 +238,12 @@ async fn avoid_obstacle() {
 
     info!("coast-avoid: turning {} degrees", turn_degrees);
 
-    let Ok(handle) = acquire_completion_handle().await else {
-        defmt::warn!("coast-avoid: completion pool exhausted during turn");
-        return;
-    };
-
-    let sender = completion_sender(handle);
-    send_drive_command_with_completion(
-        DriveCommand::Drive(DriveAction::RotateExact {
-            degrees: f32::from(turn_degrees),
-            direction,
-            motion: RotationMotion::Stationary { speed: TURN_SPEED },
-        }),
-        sender,
-    )
+    let completion = complete_drive_command(DriveCommand::Drive(DriveAction::RotateExact {
+        degrees: f32::from(turn_degrees),
+        direction,
+        motion: RotationMotion::Stationary { speed: TURN_SPEED },
+    }))
     .await;
-
-    let completion = wait_for_completion(&handle).await;
-    release_completion_handle(handle).await;
 
     match completion.status {
         CompletionStatus::Cancelled => {

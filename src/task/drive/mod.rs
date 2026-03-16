@@ -29,19 +29,15 @@
 //!
 //! # Completion Flow (per-command)
 //!
-//! Completion handles are a fixed-size pool of one-shot completion channels.
-//! A `CompletionHandle` is just an index into that pool (not a channel itself);
-//! the handle stays with the caller while the `CompletionSender` is attached to
-//! a command so the drive loop can resolve it.
+//! Completion is delivered through a single global channel intended for a
+//! single governing producer that sends one command at a time.
+//! Do not issue concurrent completion-requested commands from multiple tasks.
 //!
-//! - **Acquire** a `CompletionHandle` from the pool (fixed-size; returns `Exhausted` immediately).
-//! - **Create** a `CompletionSender` from the handle and attach it to the command.
-//! - **Await** completion on the handle; the drive loop resolves it on success,
-//!   failure, or cancellation (interrupts and epoch invalidation yield `Cancelled`).
-//! - **Release** the handle back to the pool after you receive the result to avoid leaks.
+//! - **Send and wait** for a command using the hardened API.
+//! - The drive loop resolves completion on success, failure, or cancellation
+//!   (interrupts and epoch invalidation yield `Cancelled`).
 //!
-//! **Typical usage:** `acquire_completion_handle` → `completion_sender` →
-//! `send_drive_command_with_completion` → `wait_for_completion` → `release_completion_handle`.
+//! **Typical usage:** `complete_drive_command`.
 //!
 //! # Data Flow
 //!
@@ -63,7 +59,7 @@
 //! # Module Index
 //!
 //! ## Public surface
-//! - [`api`]: Command queueing and completion pool.
+//! - [`api`]: Command queueing and completion signaling.
 //! - [`types`]: Command, telemetry, and completion types.
 //!
 //! ## Loop orchestration
@@ -110,10 +106,7 @@ pub mod types;
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
 
-pub use api::{
-    acquire_completion_handle, completion_sender, release_completion_handle, send_drive_command,
-    send_drive_command_with_completion, send_drive_interrupt, wait_for_completion,
-};
+pub use api::{complete_drive_command, send_drive_command, send_drive_interrupt};
 use intent::{
     ActiveIntentOutcome, apply_distance_result, apply_rotation_result, poll_active_intent, step_idle_with_drift,
     step_idle_without_drift,
@@ -148,9 +141,8 @@ pub use types::{
 /// channels rather than having this task consume system events directly.
 #[embassy_executor::task]
 pub async fn drive() {
-    // Initialise per-task state and the completion channel pool once.
+    // Initialise per-task state.
     let mut loop_state = DriveLoop::new();
-    api::init_completion_pool_once();
 
     loop {
         // Step 1: If an intent is active, poll it with higher priority than new commands.

@@ -1,7 +1,5 @@
 //! Type definitions and constants for drive control
 
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Sender};
-
 /// Drift compensation sample interval in milliseconds
 pub const DRIFT_COMPENSATION_INTERVAL_MS: u64 = 200;
 
@@ -133,7 +131,7 @@ pub enum InterruptKind {
 
 /// Completion status for long-running commands.
 ///
-/// Used by per-command completion handles to report final outcomes.
+/// Used by per-command completions to report final outcomes.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum CompletionStatus {
     /// Command finished successfully.
@@ -146,7 +144,7 @@ pub enum CompletionStatus {
 
 /// Completion telemetry for long-running commands.
 ///
-/// Used by per-command completion handles to return command-specific details.
+/// Used by per-command completions to return command-specific details.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CompletionTelemetry {
     /// No telemetry payload.
@@ -183,12 +181,6 @@ pub struct DriveCompletion {
     /// Command-specific telemetry.
     pub telemetry: CompletionTelemetry,
 }
-
-/// One-shot completion sender type.
-///
-/// Obtain via a completion handle from the pool; do not construct channels manually.
-/// Pass this to `send_drive_command_with_completion`.
-pub type CompletionSender = Sender<'static, CriticalSectionRawMutex, DriveCompletion, 1>;
 
 /// Rotation direction for precise turning
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
