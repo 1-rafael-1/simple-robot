@@ -22,7 +22,7 @@
 
 use core::sync::atomic::Ordering;
 
-use defmt::info;
+use defmt::{info, warn};
 use embassy_time::{Duration, Instant, Timer};
 use micromath::F32Ext;
 
@@ -31,6 +31,7 @@ use crate::{
     task::{
         drive::{
             api::{self, DriveCommandEnvelope},
+            brake_coast::BrakeCoastState,
             distance::DistanceDriveState,
             rotation::RotationState,
             sensors::control::{self as lifecycle, start_encoder_sampling},
@@ -51,7 +52,7 @@ impl DriveLoop {
         let current_epoch = api::CURRENT_EPOCH.load(Ordering::Relaxed);
         if envelope.epoch != current_epoch {
             api::send_completion(
-                envelope.completion,
+                envelope.completion_requested,
                 DriveCompletion {
                     status: CompletionStatus::Cancelled,
                     telemetry: types::CompletionTelemetry::None,
@@ -61,17 +62,17 @@ impl DriveLoop {
             return;
         }
 
-        let completion = envelope.completion;
+        let completion_requested = envelope.completion_requested;
         match envelope.command {
             DriveCommand::Drive(action) => {
-                self.handle_drive_action(action, completion).await;
+                self.handle_drive_action(action, completion_requested).await;
             }
             DriveCommand::RunMotorCalibration => {
                 info!("Starting motor calibration procedure");
                 crate::task::drive::calibration::run_motor_calibration().await;
                 info!("Motor calibration procedure completed");
                 api::send_completion(
-                    completion,
+                    completion_requested,
                     DriveCompletion {
                         status: CompletionStatus::Success,
                         telemetry: types::CompletionTelemetry::None,
@@ -84,7 +85,7 @@ impl DriveLoop {
                 crate::task::drive::calibration::run_imu_calibration(kind).await;
                 info!("IMU calibration procedure completed");
                 api::send_completion(
-                    completion,
+                    completion_requested,
                     DriveCompletion {
                         status: CompletionStatus::Success,
                         telemetry: types::CompletionTelemetry::None,
@@ -99,11 +100,7 @@ impl DriveLoop {
     ///
     /// Wakes the motor drivers from standby if a movement action is requested
     /// while the system is in standby mode.
-    pub(super) async fn handle_drive_action(
-        &mut self,
-        action: DriveAction,
-        completion: Option<types::CompletionSender>,
-    ) {
+    pub(super) async fn handle_drive_action(&mut self, action: DriveAction, completion_requested: bool) {
         // Wake from standby if a movement command arrives.
         if self.standby_enabled {
             match &action {
@@ -122,7 +119,7 @@ impl DriveLoop {
             DriveAction::Differential { left, right } => {
                 self.handle_set_speed(left, right).await;
                 api::send_completion(
-                    completion,
+                    completion_requested,
                     DriveCompletion {
                         status: CompletionStatus::Success,
                         telemetry: types::CompletionTelemetry::None,
@@ -135,37 +132,23 @@ impl DriveLoop {
                 direction,
                 motion,
             } => {
-                self.handle_rotate_exact(degrees, direction, motion, completion).await;
+                self.handle_rotate_exact(degrees, direction, motion, completion_requested)
+                    .await;
             }
             DriveAction::DriveDistance { kind, direction, speed } => {
-                self.handle_drive_distance(kind, direction, speed, completion).await;
+                self.handle_drive_distance(kind, direction, speed, completion_requested)
+                    .await;
             }
             DriveAction::Coast => {
-                self.handle_coast().await;
-                api::send_completion(
-                    completion,
-                    DriveCompletion {
-                        status: CompletionStatus::Success,
-                        telemetry: types::CompletionTelemetry::None,
-                    },
-                )
-                .await;
+                self.handle_coast(completion_requested).await;
             }
             DriveAction::Brake => {
-                self.handle_brake().await;
-                api::send_completion(
-                    completion,
-                    DriveCompletion {
-                        status: CompletionStatus::Success,
-                        telemetry: types::CompletionTelemetry::None,
-                    },
-                )
-                .await;
+                self.handle_brake(completion_requested).await;
             }
             DriveAction::Standby => {
                 self.handle_standby().await;
                 api::send_completion(
-                    completion,
+                    completion_requested,
                     DriveCompletion {
                         status: CompletionStatus::Success,
                         telemetry: types::CompletionTelemetry::None,
@@ -219,7 +202,7 @@ impl DriveLoop {
         degrees: f32,
         direction: types::RotationDirection,
         motion: types::RotationMotion,
-        completion: Option<types::CompletionSender>,
+        completion_requested: bool,
     ) {
         lifecycle::start_rotation_imu().await;
 
@@ -237,7 +220,7 @@ impl DriveLoop {
 
         self.active_intent = Some(ActiveIntent::RotateExact {
             state: rotation_state,
-            completion,
+            completion_requested,
             started_at_ms,
         });
     }
@@ -253,7 +236,7 @@ impl DriveLoop {
         kind: types::DriveDistanceKind,
         direction: types::DriveDirection,
         speed: u8,
-        completion: Option<types::CompletionSender>,
+        completion_requested: bool,
     ) {
         // Distance control manages its own per-track compensation.
         self.drift.enabled = false;
@@ -288,7 +271,7 @@ impl DriveLoop {
         // Resolve trivially-short distances immediately without starting sensors.
         if target_inner_revs <= types::DISTANCE_TOLERANCE_REVS {
             api::send_completion(
-                completion,
+                completion_requested,
                 DriveCompletion {
                     status: CompletionStatus::Success,
                     telemetry: types::CompletionTelemetry::DriveDistance {
@@ -329,33 +312,48 @@ impl DriveLoop {
 
         motion::set_track_speeds(left_speed, right_speed).await;
 
-        self.active_intent = Some(ActiveIntent::DriveDistance { state, completion });
+        self.active_intent = Some(ActiveIntent::DriveDistance {
+            state,
+            completion_requested,
+        });
     }
 
     /// Handle a `Coast` command.
     ///
-    /// Disables drift compensation, stops encoder sampling, and sends a coast
-    /// (freewheel) command to all motor drivers.
-    async fn handle_coast(&mut self) {
+    /// Disables drift compensation, starts encoder sampling for settle detection,
+    /// and sends a coast (freewheel) command to all motor drivers. Completion is
+    /// reported only after encoders settle or the timeout expires.
+    async fn handle_coast(&mut self, completion_requested: bool) {
         info!("coast");
         self.drift.enabled = false;
-        lifecycle::stop_encoder_sampling().await;
+        start_encoder_sampling(types::BRAKE_COAST_SETTLE_INTERVAL_MS, true).await;
         motor_driver::send_motor_command(MotorCommand::CoastAll).await;
 
         motion::set_track_speeds(0, 0).await;
+
+        self.active_intent = Some(ActiveIntent::BrakeCoast {
+            state: BrakeCoastState::new(),
+            completion_requested,
+        });
     }
 
     /// Handle a `Brake` command.
     ///
-    /// Disables drift compensation, stops encoder sampling, and applies active
-    /// electrical braking to all motor drivers.
-    async fn handle_brake(&mut self) {
+    /// Disables drift compensation, starts encoder sampling for settle detection,
+    /// and applies active electrical braking to all motor drivers. Completion is
+    /// reported only after encoders settle or the timeout expires.
+    async fn handle_brake(&mut self, completion_requested: bool) {
         info!("brake");
         self.drift.enabled = false;
-        lifecycle::stop_encoder_sampling().await;
+        start_encoder_sampling(types::BRAKE_COAST_SETTLE_INTERVAL_MS, true).await;
         motor_driver::send_motor_command(MotorCommand::BrakeAll).await;
 
         motion::set_track_speeds(0, 0).await;
+
+        self.active_intent = Some(ActiveIntent::BrakeCoast {
+            state: BrakeCoastState::new(),
+            completion_requested,
+        });
     }
 
     /// Handle a `Standby` command.
@@ -384,8 +382,12 @@ impl DriveLoop {
     /// the epoch counter to invalidate any queued commands stamped before the
     /// interrupt.
     ///
-    /// Queued commands are not drained here; they are cancelled lazily when
-    /// dequeued by comparing their stored epoch to the new current epoch.
+    /// Queued commands are drained here. Any queued command that requested
+    /// completion is resolved as `Cancelled`. If an active completion was already
+    /// emitted, additional queued completion requests are dropped with a warning.
+    /// This assumes a single governing producer that does not enqueue new commands
+    /// during interrupt handling.
+    #[allow(clippy::too_many_lines)]
     pub(super) async fn handle_interrupt(&mut self, kind: types::InterruptKind) {
         match kind {
             types::InterruptKind::EmergencyBrake => {
@@ -399,12 +401,14 @@ impl DriveLoop {
         self.drift.enabled = false;
         lifecycle::stop_encoder_sampling().await;
 
+        let mut completion_sent = false;
+
         // Cancel and resolve the active intent.
         if let Some(intent) = self.active_intent.take() {
             match intent {
                 ActiveIntent::RotateExact {
                     state,
-                    completion,
+                    completion_requested,
                     started_at_ms,
                 } => {
                     let accumulated = state.accumulated_angle.abs();
@@ -414,7 +418,7 @@ impl DriveLoop {
 
                     lifecycle::stop_rotation_imu().await;
                     api::send_completion(
-                        completion,
+                        completion_requested,
                         DriveCompletion {
                             status: CompletionStatus::Cancelled,
                             telemetry: types::CompletionTelemetry::RotateExact {
@@ -425,13 +429,20 @@ impl DriveLoop {
                         },
                     )
                     .await;
+
+                    if completion_requested {
+                        completion_sent = true;
+                    }
                 }
-                ActiveIntent::DriveDistance { state, completion } => {
+                ActiveIntent::DriveDistance {
+                    state,
+                    completion_requested,
+                } => {
                     let duration_ms = Instant::now().as_millis() - state.started_at_ms;
 
                     lifecycle::stop_curve_imu(&state.kind).await;
                     api::send_completion(
-                        completion,
+                        completion_requested,
                         DriveCompletion {
                             status: CompletionStatus::Cancelled,
                             telemetry: types::CompletionTelemetry::DriveDistance {
@@ -444,12 +455,51 @@ impl DriveLoop {
                         },
                     )
                     .await;
+
+                    if completion_requested {
+                        completion_sent = true;
+                    }
+                }
+                ActiveIntent::BrakeCoast {
+                    completion_requested, ..
+                } => {
+                    api::send_completion(
+                        completion_requested,
+                        DriveCompletion {
+                            status: CompletionStatus::Cancelled,
+                            telemetry: types::CompletionTelemetry::None,
+                        },
+                    )
+                    .await;
+
+                    if completion_requested {
+                        completion_sent = true;
+                    }
                 }
             }
         }
 
         // Bump epoch to invalidate queued commands.
         api::CURRENT_EPOCH.fetch_add(1, Ordering::Relaxed);
+
+        // Drain queued commands on interrupt (queue is explicitly cleared).
+        while let Ok(envelope) = api::DRIVE_QUEUE.receiver().try_receive() {
+            if envelope.completion_requested {
+                if completion_sent {
+                    warn!("interrupt: additional completion-requested command dropped");
+                } else {
+                    api::send_completion(
+                        true,
+                        DriveCompletion {
+                            status: CompletionStatus::Cancelled,
+                            telemetry: types::CompletionTelemetry::None,
+                        },
+                    )
+                    .await;
+                    completion_sent = true;
+                }
+            }
+        }
 
         motion::set_track_speeds(0, 0).await;
     }

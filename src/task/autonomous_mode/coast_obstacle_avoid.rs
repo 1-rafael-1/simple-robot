@@ -41,16 +41,14 @@ use nanorand::{Rng, WyRand};
 
 use crate::{
     system::{
-        event::{Events, UltrasonicReading, raise_event},
+        event::{Events, raise_event},
         state::perception,
     },
     task::{
         drive::{
-            CompletionStatus, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, InterruptKind,
-            acquire_completion_handle, completion_sender, release_completion_handle, send_drive_command,
-            send_drive_command_with_completion, send_drive_interrupt,
+            CompletionStatus, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, DriveQueueBuilder,
+            DriveQueueSubmitError, InterruptKind, send_drive_command, send_drive_interrupt,
             types::{RotationDirection, RotationMotion},
-            wait_for_completion,
         },
         sensors::ultrasonic::{start_ultrasonic_centered_obstacle_detect, stop_ultrasonic_measurements},
     },
@@ -63,6 +61,9 @@ use crate::{
 /// Checked by the obstacle behavior handler to decide whether to issue drive
 /// interrupts, and by the loop itself to detect stop requests.
 static ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Set while the forward-drive phase is active (used to gate obstacle interrupts).
+static FORWARD_PHASE: AtomicBool = AtomicBool::new(false);
 
 /// Signals the task to begin its loop (sent by [`start`]).
 static START_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
@@ -93,9 +94,6 @@ const TURN_ANGLE_MIN: u8 = 45;
 /// Maximum random turn angle (degrees).
 const TURN_ANGLE_MAX: u8 = 180;
 
-/// Forward obstacle threshold (cm) used to gate repeated avoidance.
-const ULTRASONIC_OBSTACLE_THRESHOLD_CM: f64 = 15.0;
-
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /// Returns `true` while the coast-and-avoid loop is running.
@@ -103,11 +101,17 @@ pub fn is_active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }
 
+/// Returns `true` while the forward-drive phase is active.
+pub fn is_forward_phase() -> bool {
+    FORWARD_PHASE.load(Ordering::Relaxed)
+}
+
 /// Activate the coast-and-avoid autonomous mode.
 ///
 /// Sets the active flag and wakes the task that is waiting on [`START_SIGNAL`].
 pub fn start() {
     ACTIVE.store(true, Ordering::Relaxed);
+    FORWARD_PHASE.store(false, Ordering::Relaxed);
     start_ultrasonic_centered_obstacle_detect();
     START_SIGNAL.signal(());
 }
@@ -119,6 +123,7 @@ pub fn start() {
 /// [`DriveDistance`] or [`RotateExact`] command immediately.
 pub fn stop() {
     ACTIVE.store(false, Ordering::Relaxed);
+    FORWARD_PHASE.store(false, Ordering::Relaxed);
     stop_ultrasonic_measurements();
     send_drive_interrupt(InterruptKind::EmergencyBrake);
 }
@@ -142,24 +147,6 @@ pub async fn coast_obstacle_avoid_task() {
 
         // Main loop: drive forward until interrupted, then avoid, repeat.
         while ACTIVE.load(Ordering::Relaxed) {
-            let (obstacle_detected, ultrasonic_reading) = {
-                let state = perception::PERCEPTION_STATE.lock().await;
-                (state.obstacle_detected, state.ultrasonic_reading)
-            };
-
-            if obstacle_detected {
-                let obstacle_ahead = matches!(
-                    ultrasonic_reading,
-                    Some(UltrasonicReading::Distance(distance))
-                        if distance < ULTRASONIC_OBSTACLE_THRESHOLD_CM
-                );
-
-                if obstacle_ahead {
-                    avoid_obstacle().await;
-                    continue;
-                }
-            }
-
             let status = drive_forward().await;
 
             if !ACTIVE.load(Ordering::Relaxed) {
@@ -180,35 +167,51 @@ pub async fn coast_obstacle_avoid_task() {
     }
 }
 
-// ── Private helpers ───────────────────────────────────────────────────────────
+/// Helper guard to mark the forward-drive phase for obstacle gating.
+struct ForwardPhaseGuard;
+
+impl ForwardPhaseGuard {
+    /// Enter the forward-drive phase.
+    fn new() -> Self {
+        FORWARD_PHASE.store(true, Ordering::Relaxed);
+        Self
+    }
+}
+
+impl Drop for ForwardPhaseGuard {
+    fn drop(&mut self) {
+        FORWARD_PHASE.store(false, Ordering::Relaxed);
+    }
+}
 
 /// Issue a near-infinite `DriveDistance` forward and wait for it to complete
 /// (either cancelled by an interrupt or, extremely unlikely, finished).
 async fn drive_forward() -> CompletionStatus {
+    let _forward_phase = ForwardPhaseGuard::new();
     info!("coast-avoid: driving forward");
 
-    let Ok(handle) = acquire_completion_handle().await else {
-        // Pool exhausted — log and wait briefly so the loop doesn't spin hot.
-        defmt::warn!("coast-avoid: completion pool exhausted, skipping forward step");
-        Timer::after(Duration::from_millis(500)).await;
-        return CompletionStatus::Failed("completion pool exhausted");
-    };
-
-    let sender = completion_sender(handle);
-    send_drive_command_with_completion(
-        DriveCommand::Drive(DriveAction::DriveDistance {
+    let mut queue = DriveQueueBuilder::new();
+    if queue
+        .push(DriveCommand::Drive(DriveAction::DriveDistance {
             kind: DriveDistanceKind::Straight {
                 distance_cm: MAX_FORWARD_DISTANCE_CM,
             },
             direction: DriveDirection::Forward,
             speed: FORWARD_SPEED,
-        }),
-        sender,
-    )
-    .await;
+        }))
+        .is_err()
+    {
+        info!("coast-avoid: forward queue full");
+        return CompletionStatus::Failed("queue full");
+    }
 
-    let completion = wait_for_completion(&handle).await;
-    release_completion_handle(handle).await;
+    let completion = match queue.submit().await {
+        Ok(completion) => completion,
+        Err(DriveQueueSubmitError::QueueBusy) => {
+            info!("coast-avoid: forward queue busy");
+            return CompletionStatus::Cancelled;
+        }
+    };
 
     match completion.status {
         CompletionStatus::Cancelled => {
@@ -232,53 +235,9 @@ async fn avoid_obstacle() {
     // Brief pause to let the emergency-brake settle.
     Timer::after(Duration::from_millis(200)).await;
 
-    // ── Back up ───────────────────────────────────────────────────────────────
-    info!("coast-avoid: backing up {=f32} cm", BACKUP_DISTANCE_CM);
-
-    let Ok(handle) = acquire_completion_handle().await else {
-        defmt::warn!("coast-avoid: completion pool exhausted during backup");
-        Timer::after(Duration::from_millis(200)).await;
-        return;
-    };
-
-    let sender = completion_sender(handle);
-    send_drive_command_with_completion(
-        DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::Straight {
-                distance_cm: BACKUP_DISTANCE_CM,
-            },
-            direction: DriveDirection::Backward,
-            speed: REVERSE_SPEED,
-        }),
-        sender,
-    )
-    .await;
-
-    let completion = wait_for_completion(&handle).await;
-    release_completion_handle(handle).await;
-
-    match completion.status {
-        CompletionStatus::Cancelled => {
-            info!("coast-avoid: backup cancelled");
-            return;
-        }
-        CompletionStatus::Failed(reason) => {
-            info!("coast-avoid: backup failed: {=str}", reason);
-        }
-        CompletionStatus::Success => {}
-    }
-
-    if !ACTIVE.load(Ordering::Relaxed) {
-        return;
-    }
-
-    Timer::after(Duration::from_millis(100)).await;
-
-    // ── Random turn ───────────────────────────────────────────────────────────
-    // Seed the RNG from the current uptime so successive calls differ.
+    // Randomly choose a turn angle and direction
     let seed = Instant::now().as_micros();
     let mut rng = WyRand::new_seed(seed);
-
     let turn_degrees = rng.generate_range(TURN_ANGLE_MIN..=TURN_ANGLE_MAX);
     let direction = if rng.generate_range(0u8..=1u8) == 0 {
         RotationDirection::CounterClockwise
@@ -288,32 +247,54 @@ async fn avoid_obstacle() {
 
     info!("coast-avoid: turning {} degrees", turn_degrees);
 
-    let Ok(handle) = acquire_completion_handle().await else {
-        defmt::warn!("coast-avoid: completion pool exhausted during turn");
+    let mut queue = DriveQueueBuilder::new();
+    if queue
+        .push(DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::Straight {
+                distance_cm: BACKUP_DISTANCE_CM,
+            },
+            direction: DriveDirection::Backward,
+            speed: REVERSE_SPEED,
+        }))
+        .is_err()
+    {
+        info!("coast-avoid: avoidance queue full (backup)");
         return;
-    };
+    }
 
-    let sender = completion_sender(handle);
-    send_drive_command_with_completion(
-        DriveCommand::Drive(DriveAction::RotateExact {
+    if queue
+        .push(DriveCommand::Drive(DriveAction::RotateExact {
             degrees: f32::from(turn_degrees),
             direction,
             motion: RotationMotion::Stationary { speed: TURN_SPEED },
-        }),
-        sender,
-    )
-    .await;
+        }))
+        .is_err()
+    {
+        info!("coast-avoid: avoidance queue full (turn)");
+        return;
+    }
 
-    let completion = wait_for_completion(&handle).await;
-    release_completion_handle(handle).await;
+    let completion = match queue.submit().await {
+        Ok(completion) => completion,
+        Err(DriveQueueSubmitError::QueueBusy) => {
+            info!("coast-avoid: avoidance queue busy");
+            return;
+        }
+    };
 
     match completion.status {
         CompletionStatus::Cancelled => {
-            info!("coast-avoid: turn cancelled");
+            let failed_step = completion.failed_step_index.unwrap_or(0);
+            info!("coast-avoid: avoidance cancelled (step {=usize})", failed_step);
             return;
         }
         CompletionStatus::Failed(reason) => {
-            info!("coast-avoid: turn failed: {=str}", reason);
+            let failed_step = completion.failed_step_index.unwrap_or(0);
+            info!(
+                "coast-avoid: avoidance failed: {=str} (step {=usize})",
+                reason, failed_step
+            );
+            return;
         }
         CompletionStatus::Success => {}
     }

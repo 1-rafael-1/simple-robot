@@ -1,7 +1,5 @@
 //! Type definitions and constants for drive control
 
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Sender};
-
 /// Drift compensation sample interval in milliseconds
 pub const DRIFT_COMPENSATION_INTERVAL_MS: u64 = 200;
 
@@ -63,9 +61,14 @@ pub enum DriveAction {
         /// Target speed magnitude (0-100).
         speed: u8,
     },
-    /// Active electrical braking
+    /// Active electrical braking.
+    ///
+    /// Completion is reported only after encoder counts settle.
     Brake,
-    /// Passive stop (freewheeling)
+    /// Passive stop (freewheeling).
+    ///
+    /// Completion is reported only after encoder counts settle.
+    #[allow(dead_code)]
     Coast,
     /// Enter low-power standby mode
     #[allow(dead_code)] // (Unused for now, but may be used for power-saving states or idle behavior)
@@ -133,7 +136,7 @@ pub enum InterruptKind {
 
 /// Completion status for long-running commands.
 ///
-/// Used by per-command completion handles to report final outcomes.
+/// Used by per-command completions to report final outcomes.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum CompletionStatus {
     /// Command finished successfully.
@@ -146,7 +149,7 @@ pub enum CompletionStatus {
 
 /// Completion telemetry for long-running commands.
 ///
-/// Used by per-command completion handles to return command-specific details.
+/// Used by per-command completions to return command-specific details.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CompletionTelemetry {
     /// No telemetry payload.
@@ -184,11 +187,32 @@ pub struct DriveCompletion {
     pub telemetry: CompletionTelemetry,
 }
 
-/// One-shot completion sender type.
-///
-/// Obtain via a completion handle from the pool; do not construct channels manually.
-/// Pass this to `send_drive_command_with_completion`.
-pub type CompletionSender = Sender<'static, CriticalSectionRawMutex, DriveCompletion, 1>;
+/// Queue completion payload for multi-step drive queues.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DriveQueueCompletion {
+    /// Overall queue status.
+    pub status: CompletionStatus,
+    /// Index of the step that failed or was cancelled (0-based).
+    pub failed_step_index: Option<usize>,
+    /// Number of steps completed successfully before termination.
+    pub completed_steps: usize,
+    /// The last step's completion payload, if any steps were executed.
+    pub last_step_completion: Option<DriveCompletion>,
+}
+
+/// Error returned when a queue builder exceeds capacity.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum DriveQueueBuildError {
+    /// The queue is full.
+    Full,
+}
+
+/// Error returned when submitting a queue for execution.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum DriveQueueSubmitError {
+    /// Another queue is already active.
+    QueueBusy,
+}
 
 /// Rotation direction for precise turning
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -217,6 +241,13 @@ pub enum RotationMotion {
     /// Positive = forward, Negative = backward
     WhileMoving(i8),
 }
+
+/// Encoder settle interval for brake/coast completion (milliseconds).
+pub const BRAKE_COAST_SETTLE_INTERVAL_MS: u64 = 100;
+/// Consecutive zero-delta samples required to declare settled.
+pub const BRAKE_COAST_SETTLE_CONSECUTIVE_SAMPLES: u8 = 3;
+/// Maximum time allowed to settle before failing completion (milliseconds).
+pub const BRAKE_COAST_SETTLE_TIMEOUT_MS: u64 = 2000;
 
 // Control parameters
 /// Number of encoder pulses per motor shaft revolution

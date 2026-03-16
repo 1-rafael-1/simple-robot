@@ -5,8 +5,11 @@
 //!
 //! # Interrupt vs completion behaviour
 //!
-//! - Interrupts preempt any active intent and cause its completion (if present)
+//! - Interrupts preempt any active intent and cause its completion (if requested)
 //!   to resolve as `Cancelled`.
+//! - The interrupt handler drains the queue. Any queued command that requested
+//!   completion is resolved as `Cancelled`. Additional queued completion requests
+//!   are dropped with a warning under the single-producer contract.
 //! - The interrupt handler also increments an epoch counter. Any queued commands
 //!   stamped before the interrupt are cancelled when dequeued.
 //!
@@ -14,17 +17,18 @@
 //!
 //! Epoch invalidation provides a simple, lock-free way to discard stale queued
 //! commands after a preemption. Active intents are cancelled immediately, while
-//! queued intents are cancelled lazily when dequeued by comparing epochs.
+//! queued intents are cancelled when dequeued by comparing epochs.
 
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Timer};
 
 use crate::task::drive::{
     api::{DRIVE_INTERRUPT, DRIVE_QUEUE, send_completion},
+    brake_coast::{BrakeCoastStepResult, run_brake_coast_step},
     distance::{DistanceStepResult, distance_stop_motors, run_distance_control_step},
     drift::run_drift_compensation_step,
     rotation::{RotationStepResult, run_rotation_control_step},
-    sensors::control::{stop_curve_imu, stop_rotation_imu},
+    sensors::control::{stop_curve_imu, stop_encoder_sampling, stop_rotation_imu},
     state::{ActiveIntent, DriveLoop},
     types::{self, CompletionStatus, DriveCompletion},
 };
@@ -37,6 +41,8 @@ pub(super) enum ActiveIntentOutcome {
     RotationStep(RotationStepResult),
     /// A control step completed for the active distance intent.
     DistanceStep(DistanceStepResult),
+    /// A control step completed for the active brake/coast intent.
+    BrakeCoastStep(BrakeCoastStepResult),
 }
 
 /// Poll the active intent (if any) and return the next action to perform.
@@ -64,6 +70,16 @@ pub(super) async fn poll_active_intent(loop_state: &mut DriveLoop) -> Option<Act
                 }
             }
         }
+        Some(ActiveIntent::BrakeCoast { state, .. }) => {
+            let interrupt_or_tick = select(DRIVE_INTERRUPT.wait(), brake_coast_tick_ms()).await;
+            match interrupt_or_tick {
+                Either::First(kind) => Some(ActiveIntentOutcome::Interrupt(kind)),
+                Either::Second(()) => {
+                    let result = run_brake_coast_step(state).await;
+                    Some(ActiveIntentOutcome::BrakeCoastStep(result))
+                }
+            }
+        }
         None => None,
     }
 }
@@ -76,13 +92,15 @@ pub(super) async fn apply_rotation_result(loop_state: &mut DriveLoop, result: Ro
         RotationStepResult::Failed { reason, telemetry } => (CompletionStatus::Failed(reason), telemetry),
     };
 
-    let completion = match loop_state.active_intent.as_mut() {
-        Some(ActiveIntent::RotateExact { completion, .. }) => completion.take(),
-        _ => None,
+    let completion_requested = match loop_state.active_intent.as_ref() {
+        Some(ActiveIntent::RotateExact {
+            completion_requested, ..
+        }) => *completion_requested,
+        _ => false,
     };
 
     stop_rotation_imu().await;
-    send_completion(completion, DriveCompletion { status, telemetry }).await;
+    send_completion(completion_requested, DriveCompletion { status, telemetry }).await;
 
     loop_state.active_intent = None;
 }
@@ -95,9 +113,11 @@ pub(super) async fn apply_distance_result(loop_state: &mut DriveLoop, result: Di
         DistanceStepResult::Failed { reason, telemetry } => (CompletionStatus::Failed(reason), telemetry),
     };
 
-    let completion = match loop_state.active_intent.as_mut() {
-        Some(ActiveIntent::DriveDistance { completion, .. }) => completion.take(),
-        _ => None,
+    let completion_requested = match loop_state.active_intent.as_ref() {
+        Some(ActiveIntent::DriveDistance {
+            completion_requested, ..
+        }) => *completion_requested,
+        _ => false,
     };
 
     distance_stop_motors().await;
@@ -106,7 +126,35 @@ pub(super) async fn apply_distance_result(loop_state: &mut DriveLoop, result: Di
     {
         stop_curve_imu(&state.kind).await;
     }
-    send_completion(completion, DriveCompletion { status, telemetry }).await;
+    send_completion(completion_requested, DriveCompletion { status, telemetry }).await;
+
+    loop_state.active_intent = None;
+}
+
+/// Apply brake/coast step results to the active intent (completions + intent clearing).
+pub(super) async fn apply_brake_coast_result(loop_state: &mut DriveLoop, result: BrakeCoastStepResult) {
+    let status = match result {
+        BrakeCoastStepResult::InProgress => return,
+        BrakeCoastStepResult::Completed => CompletionStatus::Success,
+        BrakeCoastStepResult::Failed(reason) => CompletionStatus::Failed(reason),
+    };
+
+    let completion_requested = match loop_state.active_intent.as_ref() {
+        Some(ActiveIntent::BrakeCoast {
+            completion_requested, ..
+        }) => *completion_requested,
+        _ => false,
+    };
+
+    stop_encoder_sampling().await;
+    send_completion(
+        completion_requested,
+        DriveCompletion {
+            status,
+            telemetry: types::CompletionTelemetry::None,
+        },
+    )
+    .await;
 
     loop_state.active_intent = None;
 }
@@ -150,6 +198,11 @@ async fn drift_tick_ms() {
 async fn rotation_tick_ms() {
     // 50Hz rotation control loop tick to align with 50Hz IMU sampling.
     Timer::after(Duration::from_millis(20)).await;
+}
+
+/// Brake/coast settle tick interval.
+async fn brake_coast_tick_ms() {
+    Timer::after(Duration::from_millis(types::BRAKE_COAST_SETTLE_INTERVAL_MS)).await;
 }
 
 /// Distance control tick interval.

@@ -35,10 +35,17 @@
 use crate::{
     system::event,
     task::{
-        drive::{self, DriveAction, DriveCommand, MotorSide, RotationDirection, RotationMotion},
+        drive::{self, DriveAction, DriveCommand, RotationDirection, RotationMotion},
         indicators::rgb_led_indicate,
     },
 };
+
+/// Manual drive base speed (percent).
+const MANUAL_SPEED: i8 = 20;
+/// Differential bias amount (percent points).
+const MANUAL_TURN_BIAS: i8 = 20;
+/// Rotation speed for button-triggered turns (0-100).
+const MANUAL_TURN_SPEED: u8 = 60;
 
 /// Button interaction types defining how a button event is interpreted
 #[derive(Debug, Clone, Copy)]
@@ -61,24 +68,28 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
         (event::ButtonId::A, ButtonActionType::Press) => {
             // Drive forward at 20% power
             rgb_led_indicate::update_indicator(true);
-            drive::send_drive_command(DriveCommand::Drive(DriveAction::Forward(20))).await;
+            drive::send_drive_command(DriveCommand::Drive(DriveAction::Differential {
+                left: MANUAL_SPEED,
+                right: MANUAL_SPEED,
+            }))
+            .await;
         }
 
         // Button B - Right turn
         (event::ButtonId::B, ButtonActionType::Press) => {
-            // Turn right using torque bias at 20% differential
+            // Turn right by slowing the right track
             rgb_led_indicate::update_indicator(true);
-            drive::send_drive_command(DriveCommand::Drive(DriveAction::TorqueBias {
-                reduce_side: MotorSide::Right,
-                bias_amount: 20,
-            }))
-            .await;
+            let left = MANUAL_SPEED;
+            let right = (MANUAL_SPEED - MANUAL_TURN_BIAS).clamp(-100, 100);
+            drive::send_drive_command(DriveCommand::Drive(DriveAction::Differential { left, right })).await;
         }
         (event::ButtonId::B, ButtonActionType::HoldEnd) => {
             // Precise 90-degree clockwise rotation
             // TODO: Track motor state to enable rotation while moving
             // For now, always use stationary rotation
-            let motion = RotationMotion::Stationary;
+            let motion = RotationMotion::Stationary {
+                speed: MANUAL_TURN_SPEED,
+            };
 
             drive::send_drive_command(DriveCommand::Drive(DriveAction::RotateExact {
                 degrees: 90.0,
@@ -90,19 +101,19 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
 
         // Button C - Left turn
         (event::ButtonId::C, ButtonActionType::Press) => {
-            // Turn left using torque bias at 20% differential
+            // Turn left by slowing the left track
             rgb_led_indicate::update_indicator(true);
-            drive::send_drive_command(DriveCommand::Drive(DriveAction::TorqueBias {
-                reduce_side: MotorSide::Left,
-                bias_amount: 20,
-            }))
-            .await;
+            let left = (MANUAL_SPEED - MANUAL_TURN_BIAS).clamp(-100, 100);
+            let right = MANUAL_SPEED;
+            drive::send_drive_command(DriveCommand::Drive(DriveAction::Differential { left, right })).await;
         }
         (event::ButtonId::C, ButtonActionType::HoldEnd) => {
             // Precise 90-degree counter-clockwise rotation
             // TODO: Track motor state to enable rotation while moving
             // For now, always use stationary rotation
-            let motion = RotationMotion::Stationary;
+            let motion = RotationMotion::Stationary {
+                speed: MANUAL_TURN_SPEED,
+            };
 
             drive::send_drive_command(DriveCommand::Drive(DriveAction::RotateExact {
                 degrees: 90.0,
@@ -116,7 +127,11 @@ pub async fn handle_button_action(button_id: event::ButtonId, action_type: Butto
         (event::ButtonId::D, ButtonActionType::Press) => {
             // Drive backward at 20% power
             rgb_led_indicate::update_indicator(true);
-            drive::send_drive_command(DriveCommand::Drive(DriveAction::Backward(20))).await;
+            drive::send_drive_command(DriveCommand::Drive(DriveAction::Differential {
+                left: -MANUAL_SPEED,
+                right: -MANUAL_SPEED,
+            }))
+            .await;
         }
 
         // All other button/action combinations have no effect
