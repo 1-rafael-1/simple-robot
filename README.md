@@ -1,40 +1,17 @@
 # simple-robot
 
-A no-longer-too-simple robot with different sensors and autonomous as well as remote-controlled movement written in Rust. This is a WIP.
+A no-longer-too-simple robot with different sensors and autonomous as well as remote-controlled movement written in Rust. This is a WIP and I use it to learn stuff as I go.
 
-![Robot Side View](misc/media/right.jpg)
+![Robot Side View](misc/media/bot_side.jpg)
 *Side view showing the robot's profile - picture of the v2 iteration, still WIP.*
-
-Check out the v1-robot navigating autonomously, download the demo video here: [Autonomous Operation](misc/media/autonomous-mode.mp4).
-
-> Note: The initial version of this robot is preserved in the [`v1` tag](../../tree/v1). That version represents a simple but functional autonomous robot using basic components. The main branch now tracks the development of an improved version.
-
-## Current Status
-
-**v2 Complete Overhaul - Hardware Phase**
-
-The robot is undergoing a complete redesign with a second custom PCB. The new PCB has been ordered and is awaiting delivery. Once it arrives, firmware development will begin in earnest.
-
-Current schematic and PCB designs can be found in the [KiCad directory](misc/KiCad/simple-robot).
-
-## Licensing Overview
-
-This project uses multiple licenses depending on the component:
-
-- **Firmware code** (`src/`, `build.rs`, `Cargo.toml`, etc.): Licensed under **MIT License** (see `LICENSE-MIT.md`)
-- **3D-printed chassis designs** (`misc/chassis/`): Based on the Proto-Tank Chassis by fustyles, licensed under **CC BY-SA 4.0** (see attribution below)
-- **Schematic and hardware design** (`misc/media/schematic_picture.png`): Licensed under **CC BY-SA 4.0** (see `LICENSE-CC-BY-SA-4.0.md`)
-- **Documentation** (`docs/`, `README.md`): Licensed under **CC BY-SA 4.0**
-
-Please review the individual license files and attribution sections for detailed information.
-
----
 
 ## What should this one day be?
 
-This started out as a hobby project for my 10-year-old son, who wanted me to build a robot for him. The thing started as a rather simple machine (v1) and then I got a little carried away.
+This started out as a hobby project for my 10-year-old son, who wanted me to build a robot for him. The thing started as a rather simple machine (v1) and then I got a little carried away. Check out the v1-robot navigating autonomously, download the demo video here: [Autonomous Operation](misc/media/autonomous-mode.mp4).
 
-In v1, the robot could move autonomously and avoid obstacles in a very simple way. That meant driving straight until an obstacle is detected, back up a little and then make a random turn. It was fun to watch and my son was happy with it. You could start and stop it with a remote control, and there even was some means to rc the robot around, but that was not the main point of the project.
+> Note: The initial version of this robot is preserved in the [`v1` tag](../../tree/v1). That version represents a simple but functional obstacle-avoiding robot using basic components. The main branch now tracks the development of an improved version.
+
+In v1, the robot could move autonomously by avoiding obstacles in a very simple way. That meant driving straight until an obstacle is detected, back up a little and then make a random turn. It was fun to watch and my son was happy with it. You could start and stop it with a remote control, and there even was some means to rc the robot around, but that was not the main point of the project.
 
 This was so much fun that I am now working on a version with much-improved capabilities. The overall goal is to arrive at a system that can 
 
@@ -46,21 +23,37 @@ This was so much fun that I am now working on a version with much-improved capab
 
 People have pointed out to me various things. The gist is that there are of course ready-made chassis solutions, ready-made RTOS for robotics and even probably complete systems available and that I am setting out to solve things that can be solved with much less effort by using existing things in code as well as hardware. This is all true and I do not dispute it. My motivation is different, though: I am not truly that much interested in having the actual robot, I have no use case at all for it, in fact. I just truly enjoy the process of building, figuring out how to do things, learning a ton of new stuff and it passes my rare spare time in a rewarding way.
 
-## So where are we now?
+## Current Status
 
-I am in the process of a complete overhaul of everything. I figured out that I will need to go through these steps to get to the final result:
+**v2 Complete Overhaul - Firmware Phase**
 
-1. Do the platform things first. That means the first milestone is to get to a chassis that can do the very basics reliably. This means we must be able to drive straight lines and do turns with some degree of precision. This sounds very basic and it is, but I am finding this to be challenging already. A home-printed chassis and tracks as well as cheap dc motors mean that from the start there must be calibration for imperfection and a lot of sensor feedback to get close to the goal. 
-At this point I have the code mostly in place to do this and breadboarded enough hardware to test it. It sort of works now, but there are a few things unproven and likely needing more work. My turns still overshoot and the straight lines are wobbly. I am hoping this is mostly down to not calibrating the 9-axis IMU properly yet, the magnetometer requires to flip and move the contraption around and a breadboarded ugliness of modules and wires does not allow for that. So all my tests were 6-axis only yet and the straight lines were no IMU support at all, just motor encoders.
-2. In order to get 1. done all the modules I use need to go onto a PCB. The physical mess of wires alone is an issue by itself and also I measured the ground bounce of doom on the breadboard. I am suspecting the I2C bus also dropped out a few times and all that being incredibly noisy, there is no thinking about RC control. So at this point I have made an overhauled schematic and my first 4-layer PCB design. This is ordered and I am waiting for it to arrive.
-3. While waiting for 2. I cleaned the code up to some degree. What I will do next is to design the chassis parts that will allow me to mount the new PCB. I also need to design something to fix the battery pack in place and finally also mounts for the front sensor array. That is a few things, so the servo & HC-SR04, two IR proximity sensors and the camera for the AI module must go somewhere. While at it the AI board and RF transceiver module need to be mounted as well. My FreeCAD skills are not great, so this will take time :-)
-4. Once all that is done and printed and the PCB arrives, a few sessions of soldering and assembly will be needed. Going to be a struggle because I already know I am going to make some mistakes.
-5. With all that done and working (hopefully) I can start to implement more complex driving modes. The first one will be to get the dumb obstacle avoidance mode of V1 working with the new platform. While doing that some sort of user control will be implemented, we have the transceiver and also a rotary encoder on the PCB and an OLED display, so some basic menu can be made for selections, resetting and initiating calibration and such stuff.
-6. Once that is done, the more advanced autonomous mode can be implemented, which will use the IMU and the ultrasonic sensor to navigate around obstacles. First instance of making some sort of spatial matrix and learning about how to make the robot know where it actually is and how that relates to obstacles it detected. Will need the ultrasonic sweeping servo for that, and will revive the code for that slumbering here for a long while.
-7. After that, the follow-me mode can be implemented, which will use the camera and the AI module to follow an object in front of it. I believe the module can give not only the fact of detection but also position in the camera view, so we should be able to perform turns and speed adjustments to keep the object in the center of the view.
-8. It might turn out to be easier to implement the autonomous object finding mode before the follow-me mode, but that is the last milestone anyway. This will use the same camera and AI module as the follow-me mode, but instead of following an object it will search for a given object until it finds it. That means some sort of search pattern needs to be implemented, so scanning around for the object and moving to some place if not found and repeating until it is found. If I can manage some sort of control about where we already looked and where we have not.
+The robot is undergoing a complete redesign with a second custom PCB. The PCB has been integrated and soldered. The chassis is assembled and most components connected. At this stage the entire thing is a somewhat complete platform that I use to test the firmware and slowly get it working piece by piece.
 
-At the end of it all and in case of success we will have a thing that is barely as smart as a vacuum cleaner robot :-)
+Current schematic and PCB designs can be found in the [KiCad directory](misc/KiCad/simple-robot).
+
+So far the integration is complete, so we can drive all motors, read all encoders, read all sensors and a menu system to engage different modes and tests is in place. The LED shows battery state and some flashy indicators, the OLED and the EC11 encoder make a usable UI. A lot of plumbing is done so in theory the thing can drive around and use the sensors to navigate.
+
+It is also possible to run and save calibration routines for motor speeds, gyroscope, accelerometer, magnetometer. The latter is not as easy to use as I hoped for though.
+
+I am still far from done. Here is what I still need to do, to get the platform working reliably:
+
+- [ ] Drive a truly straight line. So far only encoder feedback is used for that and tests show that this is less reliable than I hoped. So that needs IMU compensation rather than just encoders.
+- [ ] Turns in place have IMU feedback but that does not yet work well enough, at least not at faster speeds. One issue is the fact that the magnetometer is fairly unusable in the current setup, so it is 6 instead of 9 axis of IMU data. That should be good enough but a lot of tweaking is needed.
+- [ ] Basic obstacle avoidance driving mode refactored (level-triggered obstacle handling + queue drain); needs on-hardware validation.
+- [ ] Drive defined curves better. This already sort of works but it is too much driven by encoder differential feedback and that way starts with less curve than required. This is a logic mistake I made.
+- [ ] Drive command completion simplified to a single-producer completion channel; needs validation under real runs.
+- [ ] The magnetometer is not usable. It is severely biased and may not come around to be useful at all, with four dc motors beneath it and lots of wires around it. I tried my best with twisted motor wires, ferrite beads and calibration. No luck so far, and possibly not fixable or over my head. But one more attempt does not hurt... 
+
+## Licensing Overview
+
+This project uses multiple licenses depending on the component:
+
+- **Firmware code** (`src/`, `build.rs`, `Cargo.toml`, etc.): Licensed under **MIT License** (see `LICENSE-MIT.md`)
+- **3D-printed chassis designs** (`misc/chassis/`): Based on the Proto-Tank Chassis by fustyles, licensed under **CC BY-SA 4.0** (see attribution below)
+- **Schematic and hardware design** (`misc/media/schematic_picture.png`): Licensed under **CC BY-SA 4.0** (see `LICENSE-CC-BY-SA-4.0.md`)
+- **Documentation** (`docs/`, `README.md`): Licensed under **CC BY-SA 4.0**
+
+Please review the individual license files and attribution sections for detailed information.
 
 ## Schematic
 
@@ -116,9 +109,9 @@ The driver supports async I2C operations and includes examples for RP2350. This 
 
 ## The code
 
-The code is written in Rust and makes heavy use of the Embassy framework. I opted for a very modular approach, where mostly everything is an async task. These tasks all report into a central orchestration task, which then decides what to do next and is the only task that is allowed to send things to other tasks. Or should be, if I did not mess up somewhere.
+The code is written in Rust and makes heavy use of the Embassy framework. The architecture is task‑oriented, with a central orchestration loop handling events and routing them to behavior modules. Tasks stay resident and idle when not needed, which keeps the control flow predictable and makes it easy to evolve the system.
 
-The orchestration is based on events, which are raised from the tasks to the orchestration task. I opted to keep all tasks running all the time, even if they are not needed at the moment. Such tasks are signaled to either work or await. I found it easier to reason about the system that way. It is also easy to add/remove/refactor tasks that way.
+The drive subsystem is explicitly single‑producer/single‑executor: higher‑level modes build queues of drive steps, submit them to the drive queue executor, and await a single queue completion. Per‑step completion is internal to the executor, and interrupts remain available for preemption.
 
 There are two modules, `system` and `task`. The `system` module contains rather general things like the event system and state. The `task` module contains the tasks that are run by the system.
 

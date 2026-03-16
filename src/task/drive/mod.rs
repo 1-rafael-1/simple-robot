@@ -27,21 +27,15 @@
 //! completion (if any), increments an epoch, and discards queued commands that
 //! were stamped before the interrupt.
 //!
-//! # Completion Flow (per-command)
+//! # Completion Flow (queue-level)
 //!
-//! Completion handles are a fixed-size pool of one-shot completion channels.
-//! A `CompletionHandle` is just an index into that pool (not a channel itself);
-//! the handle stays with the caller while the `CompletionSender` is attached to
-//! a command so the drive loop can resolve it.
+//! Queue execution is owned by the drive queue executor. It awaits per-command
+//! completion internally and emits a single queue-level completion to the
+//! producer.
 //!
-//! - **Acquire** a `CompletionHandle` from the pool (fixed-size; returns `Exhausted` immediately).
-//! - **Create** a `CompletionSender` from the handle and attach it to the command.
-//! - **Await** completion on the handle; the drive loop resolves it on success,
-//!   failure, or cancellation (interrupts and epoch invalidation yield `Cancelled`).
-//! - **Release** the handle back to the pool after you receive the result to avoid leaks.
-//!
-//! **Typical usage:** `acquire_completion_handle` → `completion_sender` →
-//! `send_drive_command_with_completion` → `wait_for_completion` → `release_completion_handle`.
+//! - **Submit and await** a queue using [`DriveQueueBuilder`].
+//! - Queue completion resolves on success, failure, or cancellation.
+//! - The last step's `DriveCompletion` is returned in the queue completion.
 //!
 //! # Data Flow
 //!
@@ -63,7 +57,8 @@
 //! # Module Index
 //!
 //! ## Public surface
-//! - [`api`]: Command queueing and completion pool.
+//! - [`api`]: Command queueing, interrupts, and internal completion wiring.
+//! - [`queue`]: Queue builder and queue executor task.
 //! - [`types`]: Command, telemetry, and completion types.
 //!
 //! ## Loop orchestration
@@ -92,6 +87,7 @@ mod intent;
 mod state;
 
 // ── Control algorithms ────────────────────────────────────────────────────────
+mod brake_coast;
 mod distance;
 mod rotation;
 
@@ -106,18 +102,17 @@ mod calibration;
 
 // ── Public API surface ────────────────────────────────────────────────────────
 mod api;
+mod queue;
 pub mod types;
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
 
-pub use api::{
-    acquire_completion_handle, completion_sender, release_completion_handle, send_drive_command,
-    send_drive_command_with_completion, send_drive_interrupt, wait_for_completion,
-};
+pub use api::{send_drive_command, send_drive_interrupt};
 use intent::{
-    ActiveIntentOutcome, apply_distance_result, apply_rotation_result, poll_active_intent, step_idle_with_drift,
-    step_idle_without_drift,
+    ActiveIntentOutcome, apply_brake_coast_result, apply_distance_result, apply_rotation_result, poll_active_intent,
+    step_idle_with_drift, step_idle_without_drift,
 };
+pub use queue::{DriveQueueBuilder, drive_queue_executor};
 pub use sensors::data::{
     clear_encoder_measurement, clear_imu_measurements, get_latest_encoder_measurement, send_accel_measurement,
     send_gyro_measurement, send_mag_measurement, try_send_encoder_measurement, try_send_imu_measurement,
@@ -125,7 +120,7 @@ pub use sensors::data::{
 use state::DriveLoop;
 pub use types::{
     CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind,
-    ImuCalibrationKind, InterruptKind, TurnDirection,
+    DriveQueueSubmitError, ImuCalibrationKind, InterruptKind, TurnDirection,
 };
 
 /// Drive control task - coordinates motion and sensor feedback.
@@ -148,9 +143,8 @@ pub use types::{
 /// channels rather than having this task consume system events directly.
 #[embassy_executor::task]
 pub async fn drive() {
-    // Initialise per-task state and the completion channel pool once.
+    // Initialise per-task state.
     let mut loop_state = DriveLoop::new();
-    api::init_completion_pool_once();
 
     loop {
         // Step 1: If an intent is active, poll it with higher priority than new commands.
@@ -164,6 +158,9 @@ pub async fn drive() {
                 }
                 ActiveIntentOutcome::DistanceStep(result) => {
                     apply_distance_result(&mut loop_state, result).await;
+                }
+                ActiveIntentOutcome::BrakeCoastStep(result) => {
+                    apply_brake_coast_result(&mut loop_state, result).await;
                 }
             }
             continue;
