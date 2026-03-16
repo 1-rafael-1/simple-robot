@@ -46,8 +46,8 @@ use crate::{
     },
     task::{
         drive::{
-            CompletionStatus, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, InterruptKind,
-            complete_drive_command, send_drive_command, send_drive_interrupt,
+            CompletionStatus, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, DriveQueueBuilder,
+            DriveQueueSubmitError, InterruptKind, send_drive_command, send_drive_interrupt,
             types::{RotationDirection, RotationMotion},
         },
         sensors::ultrasonic::{start_ultrasonic_centered_obstacle_detect, stop_ultrasonic_measurements},
@@ -164,14 +164,28 @@ pub async fn coast_obstacle_avoid_task() {
 async fn drive_forward() -> CompletionStatus {
     info!("coast-avoid: driving forward");
 
-    let completion = complete_drive_command(DriveCommand::Drive(DriveAction::DriveDistance {
-        kind: DriveDistanceKind::Straight {
-            distance_cm: MAX_FORWARD_DISTANCE_CM,
-        },
-        direction: DriveDirection::Forward,
-        speed: FORWARD_SPEED,
-    }))
-    .await;
+    let mut queue = DriveQueueBuilder::new();
+    if queue
+        .push(DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::Straight {
+                distance_cm: MAX_FORWARD_DISTANCE_CM,
+            },
+            direction: DriveDirection::Forward,
+            speed: FORWARD_SPEED,
+        }))
+        .is_err()
+    {
+        info!("coast-avoid: forward queue full");
+        return CompletionStatus::Failed("queue full");
+    }
+
+    let completion = match queue.submit().await {
+        Ok(completion) => completion,
+        Err(DriveQueueSubmitError::QueueBusy) => {
+            info!("coast-avoid: forward queue busy");
+            return CompletionStatus::Cancelled;
+        }
+    };
 
     match completion.status {
         CompletionStatus::Cancelled => {
@@ -198,32 +212,6 @@ async fn avoid_obstacle() {
     // ── Back up ───────────────────────────────────────────────────────────────
     info!("coast-avoid: backing up {=f32} cm", BACKUP_DISTANCE_CM);
 
-    let completion = complete_drive_command(DriveCommand::Drive(DriveAction::DriveDistance {
-        kind: DriveDistanceKind::Straight {
-            distance_cm: BACKUP_DISTANCE_CM,
-        },
-        direction: DriveDirection::Backward,
-        speed: REVERSE_SPEED,
-    }))
-    .await;
-
-    match completion.status {
-        CompletionStatus::Cancelled => {
-            info!("coast-avoid: backup cancelled");
-            return;
-        }
-        CompletionStatus::Failed(reason) => {
-            info!("coast-avoid: backup failed: {=str}", reason);
-        }
-        CompletionStatus::Success => {}
-    }
-
-    if !ACTIVE.load(Ordering::Relaxed) {
-        return;
-    }
-
-    Timer::after(Duration::from_millis(100)).await;
-
     // ── Random turn ───────────────────────────────────────────────────────────
     // Seed the RNG from the current uptime so successive calls differ.
     let seed = Instant::now().as_micros();
@@ -238,20 +226,54 @@ async fn avoid_obstacle() {
 
     info!("coast-avoid: turning {} degrees", turn_degrees);
 
-    let completion = complete_drive_command(DriveCommand::Drive(DriveAction::RotateExact {
-        degrees: f32::from(turn_degrees),
-        direction,
-        motion: RotationMotion::Stationary { speed: TURN_SPEED },
-    }))
-    .await;
+    let mut queue = DriveQueueBuilder::new();
+    if queue
+        .push(DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::Straight {
+                distance_cm: BACKUP_DISTANCE_CM,
+            },
+            direction: DriveDirection::Backward,
+            speed: REVERSE_SPEED,
+        }))
+        .is_err()
+    {
+        info!("coast-avoid: avoidance queue full (backup)");
+        return;
+    }
+
+    if queue
+        .push(DriveCommand::Drive(DriveAction::RotateExact {
+            degrees: f32::from(turn_degrees),
+            direction,
+            motion: RotationMotion::Stationary { speed: TURN_SPEED },
+        }))
+        .is_err()
+    {
+        info!("coast-avoid: avoidance queue full (turn)");
+        return;
+    }
+
+    let completion = match queue.submit().await {
+        Ok(completion) => completion,
+        Err(DriveQueueSubmitError::QueueBusy) => {
+            info!("coast-avoid: avoidance queue busy");
+            return;
+        }
+    };
 
     match completion.status {
         CompletionStatus::Cancelled => {
-            info!("coast-avoid: turn cancelled");
+            let failed_step = completion.failed_step_index.unwrap_or(0);
+            info!("coast-avoid: avoidance cancelled (step {=usize})", failed_step);
             return;
         }
         CompletionStatus::Failed(reason) => {
-            info!("coast-avoid: turn failed: {=str}", reason);
+            let failed_step = completion.failed_step_index.unwrap_or(0);
+            info!(
+                "coast-avoid: avoidance failed: {=str} (step {=usize})",
+                reason, failed_step
+            );
+            return;
         }
         CompletionStatus::Success => {}
     }

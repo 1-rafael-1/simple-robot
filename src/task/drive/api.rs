@@ -1,16 +1,16 @@
 //! Drive task public API and completion signaling.
 //!
 //! This module owns the command queue and a single completion channel used by
-//! the governing task to await per-command results.
+//! the drive queue executor to await per-command results.
 //!
 //! # Completion Semantics (single producer)
 //!
-//! The system assumes a single governing producer that enqueues one command
-//! at a time and awaits its completion before sending the next. Completion is
-//! delivered through a single global channel. Do not issue concurrent
-//! `complete_drive_command` calls from multiple tasks.
+//! The system assumes a single governing producer that submits one queue at a
+//! time and awaits its completion before sending the next. Per-command
+//! completion is internal to the drive queue executor and should not be awaited
+//! directly by other tasks.
 //!
-//! **Typical usage:** `complete_drive_command`.
+//! **Typical usage:** submit a queue via `DriveQueueBuilder`.
 //!
 //! If a command is queued without completion, no completion event is emitted.
 //!
@@ -65,9 +65,8 @@ pub async fn send_drive_command(command: DriveCommand) {
 
 /// Send a drive command and wait for its completion.
 ///
-/// This is the hardened single-producer API and should be preferred over
-/// manual completion signaling.
-pub async fn complete_drive_command(command: DriveCommand) -> DriveCompletion {
+/// This is an internal helper for the drive queue executor.
+pub(super) async fn complete_drive_command(command: DriveCommand) -> DriveCompletion {
     send_drive_command_internal(command, true).await;
     wait_for_completion_internal().await
 }

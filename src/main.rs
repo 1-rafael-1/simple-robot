@@ -427,6 +427,9 @@ fn init_motor_driver(spawner: Spawner, pins: MotorDriverPins) {
         encoder_right_rear,
     ));
 
+    // Spawn drive queue executor task (queue-level completion)
+    spawner.must_spawn(task::drive::drive_queue_executor());
+
     // Spawn drive task (high-level drive control)
     spawner.must_spawn(task::drive::drive());
 }

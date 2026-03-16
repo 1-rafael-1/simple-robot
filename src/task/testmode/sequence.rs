@@ -36,7 +36,7 @@ use crate::{
     task::{
         drive::{
             CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind,
-            TurnDirection, complete_drive_command, send_drive_command,
+            DriveQueueBuilder, TurnDirection,
             types::{RotationDirection, RotationMotion},
         },
         io::display::{DisplayAction, display_update},
@@ -142,33 +142,40 @@ async fn run_testing_sequence() {
     let target_deg: f32 = 90.0;
     let test_speeds: [u8; 4] = [40, 60, 80, 100];
 
-    for speed in test_speeds {
-        defmt::info!("🧪 TEST: Turn in place 90° at speed {}", speed);
+    let mut turn_queue = DriveQueueBuilder::new();
 
-        // Pre-turn display
+    for speed in test_speeds {
+        defmt::info!("🧪 TEST: Queue turn 90° at speed {}", speed);
+
+        // Pre-turn display (queueing only; completion reported after batch)
         show_line(0, "TURN TEST").await;
         {
             let mut s: String<20> = String::new();
             let _ = write(&mut s, format_args!("SPD:{speed:>3} TGT:{target_deg:>4.1}"));
             display_update(DisplayAction::ShowText(s, 1)).await;
         }
-        show_line(2, "Turning...").await;
+        show_line(2, "Queueing...").await;
         show_line(3, "").await;
 
-        // Ensure we're stopped before the next turn
-        send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
-        Timer::after(Duration::from_millis(500)).await;
+        if turn_queue
+            .push(DriveCommand::Drive(DriveAction::RotateExact {
+                degrees: target_deg,
+                direction: RotationDirection::Clockwise,
+                motion: RotationMotion::Stationary { speed },
+            }))
+            .is_err()
+        {
+            defmt::warn!("🧪 TEST: turn queue full");
+            return;
+        }
+    }
 
-        // Start the turn
-        let completion = complete_drive_command(DriveCommand::Drive(DriveAction::RotateExact {
-            degrees: target_deg,
-            direction: RotationDirection::Clockwise,
-            motion: RotationMotion::Stationary { speed },
-        }))
-        .await;
+    let Ok(turn_completion) = turn_queue.submit().await else {
+        defmt::warn!("🧪 TEST: turn queue busy");
+        return;
+    };
 
-        // Await completion (no global event consumption)
-
+    if let Some(completion) = turn_completion.last_step_completion {
         let (final_yaw_deg, angle_error_deg, status) = if let CompletionTelemetry::RotateExact {
             final_yaw_deg,
             angle_error_deg,
@@ -185,7 +192,7 @@ async fn run_testing_sequence() {
         // error = achieved - target, so achieved = target + error.
         let achieved_deg = target_deg + angle_error_deg;
 
-        // Update display with the final telemetry for this turn.
+        // Update display with the final telemetry for the last queued turn.
         show_turn_status(target_deg, achieved_deg, final_yaw_deg, angle_error_deg).await;
 
         let status_str = match status {
@@ -194,112 +201,80 @@ async fn run_testing_sequence() {
             CompletionStatus::Failed(_) => "Failed",
         };
         defmt::info!(
-            "🧪 TEST: Rotation complete: status={=str}, final_yaw={=f32}°, angle_error={=f32}°",
+            "🧪 TEST: Turn batch complete: status={=str}, final_yaw={=f32}°, angle_error={=f32}°",
             status_str,
             final_yaw_deg,
             angle_error_deg
         );
 
         if let CompletionStatus::Failed(reason) = status {
-            defmt::warn!("🧪 TEST: Rotation failed: {=str}", reason);
+            defmt::warn!("🧪 TEST: Turn batch failed: {=str}", reason);
         }
-
-        // Stop after each turn
-        send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
-        Timer::after(Duration::from_millis(750)).await;
     }
 
     // Straight distance runs after turns (encoder-based).
     show_line(0, "DIST TEST").await;
-    show_line(1, "FWD 50 CM").await;
-    show_line(2, "").await;
+    show_line(1, "FWD/REV/ARC").await;
+    show_line(2, "Queueing...").await;
     show_line(3, "").await;
 
-    let completion = complete_drive_command(DriveCommand::Drive(DriveAction::DriveDistance {
-        kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
-        direction: DriveDirection::Forward,
-        speed: 60,
-    }))
-    .await;
+    let mut distance_queue = DriveQueueBuilder::new();
 
-    if let CompletionTelemetry::DriveDistance {
-        achieved_left_revs,
-        achieved_right_revs,
-        ..
-    } = completion.telemetry
+    if distance_queue
+        .push(DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
+            direction: DriveDirection::Forward,
+            speed: 60,
+        }))
+        .is_err()
     {
-        let status_str = match completion.status {
-            CompletionStatus::Success => "Success",
-            CompletionStatus::Cancelled => "Cancelled",
-            CompletionStatus::Failed(_) => "Failed",
-        };
-        defmt::info!(
-            "🧪 TEST: Forward distance complete: status={=str} left={=f32} right={=f32}",
-            status_str,
-            achieved_left_revs,
-            achieved_right_revs
-        );
+        defmt::warn!("🧪 TEST: distance queue full (forward)");
+        return;
     }
 
-    send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
-    Timer::after(Duration::from_millis(750)).await;
-
-    show_line(1, "REV 50 CM").await;
-
-    let completion = complete_drive_command(DriveCommand::Drive(DriveAction::DriveDistance {
-        kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
-        direction: DriveDirection::Backward,
-        speed: 60,
-    }))
-    .await;
-
-    if let CompletionTelemetry::DriveDistance {
-        achieved_left_revs,
-        achieved_right_revs,
-        ..
-    } = completion.telemetry
+    if distance_queue
+        .push(DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
+            direction: DriveDirection::Backward,
+            speed: 60,
+        }))
+        .is_err()
     {
-        let status_str = match completion.status {
-            CompletionStatus::Success => "Success",
-            CompletionStatus::Cancelled => "Cancelled",
-            CompletionStatus::Failed(_) => "Failed",
-        };
-        defmt::info!(
-            "🧪 TEST: Reverse distance complete: status={=str} left={=f32} right={=f32}",
-            status_str,
-            achieved_left_revs,
-            achieved_right_revs
-        );
+        defmt::warn!("🧪 TEST: distance queue full (reverse)");
+        return;
     }
-
-    send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
-    Timer::after(Duration::from_millis(750)).await;
 
     // Full circle curve test: 1m radius, 360° arc (centerline).
-    show_line(0, "CIRCLE TEST").await;
-    show_line(1, "R=100cm 360").await;
-    show_line(2, "FWD LEFT").await;
-    show_line(3, "").await;
-
     defmt::info!("🧪 TEST: Curve circle 360° at radius 1m");
     let circle_arc_cm = 2.0 * core::f32::consts::PI * 100.0;
 
-    let completion = complete_drive_command(DriveCommand::Drive(DriveAction::DriveDistance {
-        kind: DriveDistanceKind::CurveArc {
-            radius_cm: 100.0,
-            arc_length_cm: circle_arc_cm,
-            direction: TurnDirection::Left,
-        },
-        direction: DriveDirection::Forward,
-        speed: 50,
-    }))
-    .await;
+    if distance_queue
+        .push(DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::CurveArc {
+                radius_cm: 100.0,
+                arc_length_cm: circle_arc_cm,
+                direction: TurnDirection::Left,
+            },
+            direction: DriveDirection::Forward,
+            speed: 50,
+        }))
+        .is_err()
+    {
+        defmt::warn!("🧪 TEST: distance queue full (curve)");
+        return;
+    }
 
-    if let CompletionTelemetry::DriveDistance {
-        achieved_left_revs,
-        achieved_right_revs,
-        ..
-    } = completion.telemetry
+    let Ok(distance_completion) = distance_queue.submit().await else {
+        defmt::warn!("🧪 TEST: distance queue busy");
+        return;
+    };
+
+    if let Some(completion) = distance_completion.last_step_completion
+        && let CompletionTelemetry::DriveDistance {
+            achieved_left_revs,
+            achieved_right_revs,
+            ..
+        } = completion.telemetry
     {
         let status_str = match completion.status {
             CompletionStatus::Success => "Success",
@@ -307,15 +282,12 @@ async fn run_testing_sequence() {
             CompletionStatus::Failed(_) => "Failed",
         };
         defmt::info!(
-            "🧪 TEST: Circle complete: status={=str} left={=f32} right={=f32}",
+            "🧪 TEST: Distance batch complete: status={=str} left={=f32} right={=f32}",
             status_str,
             achieved_left_revs,
             achieved_right_revs
         );
     }
-
-    send_drive_command(DriveCommand::Drive(DriveAction::Coast)).await;
-    Timer::after(Duration::from_millis(750)).await;
 
     // Do not overwrite the OLED here; keep the last test's telemetry visible.
     defmt::info!("🧪 TEST: Sequence complete (OLED left showing last test telemetry)");

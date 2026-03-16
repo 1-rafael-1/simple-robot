@@ -33,7 +33,10 @@ use crate::{
             api::{self, DriveCommandEnvelope},
             distance::DistanceDriveState,
             rotation::RotationState,
-            sensors::control::{self as lifecycle, start_encoder_sampling},
+            sensors::{
+                control::{self as lifecycle, start_encoder_sampling},
+                data::get_latest_encoder_measurement,
+            },
             state::{ActiveIntent, DriveLoop},
             types::{self, CompletionStatus, DriveAction, DriveCommand, DriveCompletion},
         },
@@ -139,22 +142,22 @@ impl DriveLoop {
                     .await;
             }
             DriveAction::Coast => {
-                self.handle_coast().await;
+                let status = self.handle_coast().await;
                 api::send_completion(
                     completion_requested,
                     DriveCompletion {
-                        status: CompletionStatus::Success,
+                        status,
                         telemetry: types::CompletionTelemetry::None,
                     },
                 )
                 .await;
             }
             DriveAction::Brake => {
-                self.handle_brake().await;
+                let status = self.handle_brake().await;
                 api::send_completion(
                     completion_requested,
                     DriveCompletion {
-                        status: CompletionStatus::Success,
+                        status,
                         telemetry: types::CompletionTelemetry::None,
                     },
                 )
@@ -335,28 +338,80 @@ impl DriveLoop {
 
     /// Handle a `Coast` command.
     ///
-    /// Disables drift compensation, stops encoder sampling, and sends a coast
-    /// (freewheel) command to all motor drivers.
-    async fn handle_coast(&mut self) {
+    /// Disables drift compensation, starts encoder sampling for settle detection,
+    /// and sends a coast (freewheel) command to all motor drivers. Completion is
+    /// reported only after encoders settle or the timeout expires.
+    async fn handle_coast(&mut self) -> CompletionStatus {
         info!("coast");
         self.drift.enabled = false;
-        lifecycle::stop_encoder_sampling().await;
+        start_encoder_sampling(types::BRAKE_COAST_SETTLE_INTERVAL_MS, true).await;
         motor_driver::send_motor_command(MotorCommand::CoastAll).await;
 
         motion::set_track_speeds(0, 0).await;
+
+        let settle_result = self.wait_for_encoder_settle().await;
+        lifecycle::stop_encoder_sampling().await;
+
+        match settle_result {
+            Ok(()) => CompletionStatus::Success,
+            Err(reason) => CompletionStatus::Failed(reason),
+        }
     }
 
     /// Handle a `Brake` command.
     ///
-    /// Disables drift compensation, stops encoder sampling, and applies active
-    /// electrical braking to all motor drivers.
-    async fn handle_brake(&mut self) {
+    /// Disables drift compensation, starts encoder sampling for settle detection,
+    /// and applies active electrical braking to all motor drivers. Completion is
+    /// reported only after encoders settle or the timeout expires.
+    async fn handle_brake(&mut self) -> CompletionStatus {
         info!("brake");
         self.drift.enabled = false;
-        lifecycle::stop_encoder_sampling().await;
+        start_encoder_sampling(types::BRAKE_COAST_SETTLE_INTERVAL_MS, true).await;
         motor_driver::send_motor_command(MotorCommand::BrakeAll).await;
 
         motion::set_track_speeds(0, 0).await;
+
+        let settle_result = self.wait_for_encoder_settle().await;
+        lifecycle::stop_encoder_sampling().await;
+
+        match settle_result {
+            Ok(()) => CompletionStatus::Success,
+            Err(reason) => CompletionStatus::Failed(reason),
+        }
+    }
+
+    /// Wait for encoder deltas to reach zero across consecutive samples.
+    async fn wait_for_encoder_settle(&self) -> Result<(), &'static str> {
+        let deadline = Instant::now() + Duration::from_millis(types::BRAKE_COAST_SETTLE_TIMEOUT_MS);
+        let mut consecutive: u8 = 0;
+        let mut last_measurement: Option<crate::task::sensors::encoders::EncoderMeasurement> = None;
+
+        loop {
+            if Instant::now() >= deadline {
+                return Err("encoder settle timeout");
+            }
+
+            if let Some(measurement) = get_latest_encoder_measurement().await {
+                if let Some(previous) = last_measurement {
+                    let delta_left = u32::from(measurement.left_front.wrapping_sub(previous.left_front))
+                        + u32::from(measurement.left_rear.wrapping_sub(previous.left_rear));
+                    let delta_right = u32::from(measurement.right_front.wrapping_sub(previous.right_front))
+                        + u32::from(measurement.right_rear.wrapping_sub(previous.right_rear));
+
+                    if delta_left == 0 && delta_right == 0 {
+                        consecutive = consecutive.saturating_add(1);
+                        if consecutive >= types::BRAKE_COAST_SETTLE_CONSECUTIVE_SAMPLES {
+                            return Ok(());
+                        }
+                    } else {
+                        consecutive = 0;
+                    }
+                }
+                last_measurement = Some(measurement);
+            }
+
+            Timer::after(Duration::from_millis(types::BRAKE_COAST_SETTLE_INTERVAL_MS)).await;
+        }
     }
 
     /// Handle a `Standby` command.

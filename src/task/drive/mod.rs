@@ -27,17 +27,15 @@
 //! completion (if any), increments an epoch, and discards queued commands that
 //! were stamped before the interrupt.
 //!
-//! # Completion Flow (per-command)
+//! # Completion Flow (queue-level)
 //!
-//! Completion is delivered through a single global channel intended for a
-//! single governing producer that sends one command at a time.
-//! Do not issue concurrent completion-requested commands from multiple tasks.
+//! Queue execution is owned by the drive queue executor. It awaits per-command
+//! completion internally and emits a single queue-level completion to the
+//! producer.
 //!
-//! - **Send and wait** for a command using the hardened API.
-//! - The drive loop resolves completion on success, failure, or cancellation
-//!   (interrupts and epoch invalidation yield `Cancelled`).
-//!
-//! **Typical usage:** `complete_drive_command`.
+//! - **Submit and await** a queue using [`DriveQueueBuilder`].
+//! - Queue completion resolves on success, failure, or cancellation.
+//! - The last step's `DriveCompletion` is returned in the queue completion.
 //!
 //! # Data Flow
 //!
@@ -59,7 +57,8 @@
 //! # Module Index
 //!
 //! ## Public surface
-//! - [`api`]: Command queueing and completion signaling.
+//! - [`api`]: Command queueing, interrupts, and internal completion wiring.
+//! - [`queue`]: Queue builder and queue executor task.
 //! - [`types`]: Command, telemetry, and completion types.
 //!
 //! ## Loop orchestration
@@ -102,15 +101,17 @@ mod calibration;
 
 // ── Public API surface ────────────────────────────────────────────────────────
 mod api;
+mod queue;
 pub mod types;
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
 
-pub use api::{complete_drive_command, send_drive_command, send_drive_interrupt};
+pub use api::{send_drive_command, send_drive_interrupt};
 use intent::{
     ActiveIntentOutcome, apply_distance_result, apply_rotation_result, poll_active_intent, step_idle_with_drift,
     step_idle_without_drift,
 };
+pub use queue::{DriveQueueBuilder, drive_queue_executor};
 pub use sensors::data::{
     clear_encoder_measurement, get_latest_encoder_measurement, send_accel_measurement, send_gyro_measurement,
     send_mag_measurement, try_send_encoder_measurement, try_send_imu_measurement,
@@ -118,7 +119,7 @@ pub use sensors::data::{
 use state::DriveLoop;
 pub use types::{
     CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind,
-    ImuCalibrationKind, InterruptKind, TurnDirection,
+    DriveQueueSubmitError, ImuCalibrationKind, InterruptKind, TurnDirection,
 };
 
 /// Drive control task - coordinates motion and sensor feedback.
