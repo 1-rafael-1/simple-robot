@@ -79,12 +79,12 @@ pub async fn handle_obstacle_detected(source: ObstacleSource, detected: bool) {
         changed
     };
 
-    if changed {
-        if combined && coast_obstacle_avoid::is_active() {
-            info!("coast-avoid active — issuing EmergencyBrake");
-            send_drive_interrupt(InterruptKind::EmergencyBrake);
-        }
+    if combined && coast_obstacle_avoid::is_active() {
+        info!("coast-avoid active — issuing EmergencyBrake");
+        send_drive_interrupt(InterruptKind::EmergencyBrake);
+    }
 
+    if changed {
         update_obstacle_indicator(combined);
 
         let ui_mode = {
