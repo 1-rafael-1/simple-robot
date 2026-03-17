@@ -55,7 +55,7 @@ pub enum TextStyle {
 /// Display actions that can be requested by other tasks
 pub enum DisplayAction {
     /// Show a sensor sweep pattern with distance (cm) and angle (degrees)
-    ShowSweep(f64, f32),
+    ShowSweep(Option<f64>, f32),
     /// Show a text message on the display (bold)
     ShowText(String<20>, u8),
     /// Show a text message with an explicit style
@@ -328,7 +328,7 @@ fn handle_show_sweep(
     points: &mut PointsBuffer,
     last_angle: &mut f32,
     moving_right: &mut bool,
-    distance: f64,
+    distance: Option<f64>,
     angle: f32,
 ) -> Result<(), DisplayError> {
     // Clear only sweep area (below header)
@@ -392,10 +392,12 @@ fn handle_show_sweep(
     });
 
     // Add new detection point if object within range
-    if distance <= MAX_DISTANCE_CM {
+    if let Some(dist) = distance
+        && dist <= MAX_DISTANCE_CM
+    {
         // Scale distance from cm to display pixels
         // Maps 0-200cm to 0-RADIUS pixels proportionally
-        let scaled_distance = (distance / MAX_DISTANCE_CM) * f64::from(RADIUS);
+        let scaled_distance = (dist / MAX_DISTANCE_CM) * f64::from(RADIUS);
 
         // Convert polar coordinates (distance, angle) to cartesian (x, y)
         // Use display_angle (with 10° offset) to match sweep line positioning
@@ -414,6 +416,7 @@ fn handle_show_sweep(
             let _ = points.push(point); // This should succeed now, but ignore if it still fails
         }
     }
+    //}
 
     // Draw all points
     for point in points.iter() {

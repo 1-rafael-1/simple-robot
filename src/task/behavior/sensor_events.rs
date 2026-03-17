@@ -49,10 +49,11 @@ pub async fn handle_ultrasonic_sweep_reading(reading: UltrasonicReading, angle: 
         match reading {
             UltrasonicReading::Distance(distance) => {
                 let _ = core::fmt::write(&mut header, format_args!("US:{distance:>5.1} A:{angle:>4.1}"));
-                display::display_update(display::DisplayAction::ShowSweep(distance, angle)).await;
+                display::display_update(display::DisplayAction::ShowSweep(Some(distance), angle)).await;
             }
             UltrasonicReading::Timeout => {
                 let _ = core::fmt::write(&mut header, format_args!("US:timeout A:{angle:>4.1}"));
+                display::display_update(display::DisplayAction::ShowSweep(None, angle)).await;
             }
             UltrasonicReading::Error => {
                 let _ = core::fmt::write(&mut header, format_args!("US:error A:{angle:>4.1}"));

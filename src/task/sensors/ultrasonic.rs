@@ -337,8 +337,8 @@ pub async fn ultrasonic_sweep(
 
         loop {
             // Update servo position
-            let current_angle = if sweeping { angle } else { fixed_angle };
-            servo.rotate_float(current_angle);
+            let measurement_angle = if sweeping { angle } else { fixed_angle };
+            servo.rotate_float(measurement_angle);
 
             // Give servo time to reach position, also see if we must stop or switch modes
             match select(Timer::after_millis(15), US_SWEEP_CONTROL.wait()).await {
@@ -419,7 +419,7 @@ pub async fn ultrasonic_sweep(
                         error!("{}", e);
                     }
                     Err(_) => {
-                        error!("Ultrasonic measurement timed out");
+                        info!("Ultrasonic measurement timed out");
                     }
                 }
             }
@@ -449,7 +449,7 @@ pub async fn ultrasonic_sweep(
             }
 
             // Send reading event to orchestration task
-            raise_event(Events::UltrasonicSweepReadingTaken(reading, current_angle)).await;
+            raise_event(Events::UltrasonicSweepReadingTaken(reading, measurement_angle)).await;
 
             // Update angle and check for direction change
             if sweeping {
