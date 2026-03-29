@@ -68,8 +68,16 @@ pub enum DriveAction {
     /// Passive stop (freewheeling).
     ///
     /// Completion is reported only after encoder counts settle.
-    #[allow(dead_code)]
     Coast,
+    /// Idle in place for a fixed duration.
+    ///
+    /// This issues a coast (freewheel) command, does not change standby state,
+    /// and completes after the requested duration. Use it to pause between
+    /// queued actions without braking.
+    Idle {
+        /// Duration to remain idle (milliseconds).
+        duration_ms: u64,
+    },
     /// Enter low-power standby mode
     #[allow(dead_code)] // (Unused for now, but may be used for power-saving states or idle behavior)
     Standby,

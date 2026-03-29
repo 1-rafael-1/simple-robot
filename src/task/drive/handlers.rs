@@ -146,6 +146,9 @@ impl DriveLoop {
             DriveAction::Brake => {
                 self.handle_brake(completion_requested).await;
             }
+            DriveAction::Idle { duration_ms } => {
+                self.handle_idle(duration_ms, completion_requested).await;
+            }
             DriveAction::Standby => {
                 self.handle_standby().await;
                 api::send_completion(
@@ -356,6 +359,37 @@ impl DriveLoop {
         });
     }
 
+    /// Handle an `Idle` command.
+    ///
+    /// Disables drift compensation and stops encoder sampling, then registers
+    /// an idle intent while coasting in place.
+    async fn handle_idle(&mut self, duration_ms: u64, completion_requested: bool) {
+        self.drift.enabled = false;
+        lifecycle::stop_encoder_sampling().await;
+
+        motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+        motion::set_track_speeds(0, 0).await;
+
+        if duration_ms == 0 {
+            api::send_completion(
+                completion_requested,
+                DriveCompletion {
+                    status: CompletionStatus::Success,
+                    telemetry: types::CompletionTelemetry::None,
+                },
+            )
+            .await;
+            return;
+        }
+
+        let started_at_ms = Instant::now().as_millis();
+        self.active_intent = Some(ActiveIntent::Idle {
+            duration_ms,
+            started_at_ms,
+            completion_requested,
+        });
+    }
+
     /// Handle a `Standby` command.
     ///
     /// Disables drift compensation, stops encoder sampling, and powers down the
@@ -460,7 +494,10 @@ impl DriveLoop {
                         completion_sent = true;
                     }
                 }
-                ActiveIntent::BrakeCoast {
+                ActiveIntent::Idle {
+                    completion_requested, ..
+                }
+                | ActiveIntent::BrakeCoast {
                     completion_requested, ..
                 } => {
                     api::send_completion(

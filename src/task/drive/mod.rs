@@ -109,8 +109,8 @@ pub mod types;
 
 pub use api::{send_drive_command, send_drive_interrupt};
 use intent::{
-    ActiveIntentOutcome, apply_brake_coast_result, apply_distance_result, apply_rotation_result, poll_active_intent,
-    step_idle_with_drift, step_idle_without_drift,
+    ActiveIntentOutcome, apply_brake_coast_result, apply_distance_result, apply_idle_result, apply_rotation_result,
+    poll_active_intent, step_idle_with_drift, step_idle_without_drift,
 };
 pub use queue::{DriveQueueBuilder, drive_queue_executor};
 pub use sensors::data::{
@@ -158,6 +158,9 @@ pub async fn drive() {
                 }
                 ActiveIntentOutcome::DistanceStep(result) => {
                     apply_distance_result(&mut loop_state, result).await;
+                }
+                ActiveIntentOutcome::IdleElapsed => {
+                    apply_idle_result(&mut loop_state).await;
                 }
                 ActiveIntentOutcome::BrakeCoastStep(result) => {
                     apply_brake_coast_result(&mut loop_state, result).await;

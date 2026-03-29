@@ -79,6 +79,15 @@ pub(super) enum ActiveIntent {
         /// Whether this intent should emit a completion event when finished.
         completion_requested: bool,
     },
+    /// Active idle intent with a fixed duration.
+    Idle {
+        /// Duration to remain idle (milliseconds).
+        duration_ms: u64,
+        /// Wall-clock start time used for duration tracking (milliseconds).
+        started_at_ms: u64,
+        /// Whether this intent should emit a completion event when finished.
+        completion_requested: bool,
+    },
     /// Active brake/coast settle intent with encoder settle tracking.
     BrakeCoast {
         /// Brake/coast settle state.
