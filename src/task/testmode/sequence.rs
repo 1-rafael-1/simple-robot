@@ -37,7 +37,7 @@ use crate::{
         drive::{
             CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind,
             DriveQueueBuilder, TurnDirection,
-            types::{RotationDirection, RotationMotion},
+            types::{DriveQueueBuildError, RotationDirection, RotationMotion},
         },
         io::display::{DisplayAction, display_update},
         sensors::imu::{AhrsFusionMode, set_ahrs_fusion_mode},
@@ -108,6 +108,51 @@ async fn run_testing_sequence() {
         }
     }
 
+    fn build_turn_queue(target_deg: f32, test_speeds: &[u8]) -> Result<DriveQueueBuilder, DriveQueueBuildError> {
+        let mut queue = DriveQueueBuilder::new();
+
+        for speed in test_speeds {
+            queue.push(DriveCommand::Drive(DriveAction::RotateExact {
+                degrees: target_deg,
+                direction: RotationDirection::Clockwise,
+                motion: RotationMotion::Stationary { speed: *speed },
+            }))?;
+            queue.push(DriveCommand::Drive(DriveAction::Coast))?;
+        }
+
+        queue.push(DriveCommand::Drive(DriveAction::Idle { duration_ms: 1000 }))?;
+
+        Ok(queue)
+    }
+
+    fn build_distance_queue(circle_arc_cm: f32) -> Result<DriveQueueBuilder, DriveQueueBuildError> {
+        let mut queue = DriveQueueBuilder::new();
+
+        queue.push(DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
+            direction: DriveDirection::Forward,
+            speed: 70,
+        }))?;
+
+        queue.push(DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
+            direction: DriveDirection::Backward,
+            speed: 70,
+        }))?;
+
+        queue.push(DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::CurveArc {
+                radius_cm: 100.0,
+                arc_length_cm: circle_arc_cm,
+                direction: TurnDirection::Left,
+            },
+            direction: DriveDirection::Forward,
+            speed: 60,
+        }))?;
+
+        Ok(queue)
+    }
+
     // Clear display at start of test.
     display_update(DisplayAction::Clear).await;
     show_line(0, "TURN TEST").await;
@@ -142,8 +187,6 @@ async fn run_testing_sequence() {
     let target_deg: f32 = 90.0;
     let test_speeds: [u8; 4] = [40, 60, 80, 100];
 
-    let mut turn_queue = DriveQueueBuilder::new();
-
     for speed in test_speeds {
         defmt::info!("🧪 TEST: Queue turn 90° at speed {}", speed);
 
@@ -156,20 +199,15 @@ async fn run_testing_sequence() {
         }
         show_line(2, "Queueing...").await;
         show_line(3, "").await;
-
-        if turn_queue
-            .push(DriveCommand::Drive(DriveAction::RotateExact {
-                degrees: target_deg,
-                direction: RotationDirection::Clockwise,
-                motion: RotationMotion::Stationary { speed },
-            }))
-            .is_err()
-        {
-            defmt::warn!("🧪 TEST: turn queue full");
-            return;
-        }
     }
 
+    // make the queue of turns
+    let Ok(turn_queue) = build_turn_queue(target_deg, &test_speeds) else {
+        defmt::warn!("🧪 TEST: turn queue full");
+        return;
+    };
+
+    // and submit it for execution
     let Ok(turn_completion) = turn_queue.submit().await else {
         defmt::warn!("🧪 TEST: turn queue busy");
         return;
@@ -218,51 +256,14 @@ async fn run_testing_sequence() {
     show_line(2, "Queueing...").await;
     show_line(3, "").await;
 
-    let mut distance_queue = DriveQueueBuilder::new();
-
-    if distance_queue
-        .push(DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
-            direction: DriveDirection::Forward,
-            speed: 70,
-        }))
-        .is_err()
-    {
-        defmt::warn!("🧪 TEST: distance queue full (forward)");
-        return;
-    }
-
-    if distance_queue
-        .push(DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
-            direction: DriveDirection::Backward,
-            speed: 70,
-        }))
-        .is_err()
-    {
-        defmt::warn!("🧪 TEST: distance queue full (reverse)");
-        return;
-    }
-
     // Full circle curve test: 1m radius, 360° arc (centerline).
     defmt::info!("🧪 TEST: Curve circle 360° at radius 1m");
     let circle_arc_cm = 2.0 * core::f32::consts::PI * 100.0;
 
-    if distance_queue
-        .push(DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::CurveArc {
-                radius_cm: 100.0,
-                arc_length_cm: circle_arc_cm,
-                direction: TurnDirection::Left,
-            },
-            direction: DriveDirection::Forward,
-            speed: 60,
-        }))
-        .is_err()
-    {
-        defmt::warn!("🧪 TEST: distance queue full (curve)");
+    let Ok(distance_queue) = build_distance_queue(circle_arc_cm) else {
+        defmt::warn!("🧪 TEST: distance queue full");
         return;
-    }
+    };
 
     let Ok(distance_completion) = distance_queue.submit().await else {
         defmt::warn!("🧪 TEST: distance queue busy");
