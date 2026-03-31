@@ -32,6 +32,7 @@ use crate::{
         drive::{
             api::{self, DriveCommandEnvelope},
             brake_coast::BrakeCoastState,
+            clear_imu_measurements,
             distance::DistanceDriveState,
             rotation::RotationState,
             sensors::control::{self as lifecycle, start_encoder_sampling},
@@ -145,6 +146,9 @@ impl DriveLoop {
             DriveAction::Brake => {
                 self.handle_brake(completion_requested).await;
             }
+            DriveAction::Idle { duration_ms } => {
+                self.handle_idle(duration_ms, completion_requested).await;
+            }
             DriveAction::Standby => {
                 self.handle_standby().await;
                 api::send_completion(
@@ -194,9 +198,11 @@ impl DriveLoop {
 
     /// Handle a `RotateExact` command.
     ///
-    /// Starts IMU streaming, initialises [`RotationState`], applies the initial
-    /// motor speeds, and stores the intent as the active intent so the poll loop
-    /// can drive it to completion.
+    /// Starts IMU streaming, clears stale IMU samples, initialises
+    /// [`RotationState`], and stores the intent as the active intent so the poll
+    /// loop can drive it to completion. Motors are held at zero until the first
+    /// IMU sample arrives, at which point the rotation tick begins applying
+    /// computed speeds.
     async fn handle_rotate_exact(
         &mut self,
         degrees: f32,
@@ -205,18 +211,17 @@ impl DriveLoop {
         completion_requested: bool,
     ) {
         lifecycle::start_rotation_imu().await;
+        clear_imu_measurements();
+
+        motor_driver::send_motor_command(MotorCommand::SetTracks {
+            left_speed: 0,
+            right_speed: 0,
+        })
+        .await;
+        motion::set_track_speeds(0, 0).await;
 
         let rotation_state = RotationState::new(degrees, direction, motion);
         let started_at_ms = Instant::now().as_millis();
-
-        let (left_speed, right_speed) = rotation_state.calculate_motor_speeds();
-        motor_driver::send_motor_command(MotorCommand::SetTracks {
-            left_speed,
-            right_speed,
-        })
-        .await;
-
-        motion::set_track_speeds(left_speed, right_speed).await;
 
         self.active_intent = Some(ActiveIntent::RotateExact {
             state: rotation_state,
@@ -356,6 +361,37 @@ impl DriveLoop {
         });
     }
 
+    /// Handle an `Idle` command.
+    ///
+    /// Disables drift compensation and stops encoder sampling, then registers
+    /// an idle intent while coasting in place.
+    async fn handle_idle(&mut self, duration_ms: u64, completion_requested: bool) {
+        self.drift.enabled = false;
+        lifecycle::stop_encoder_sampling().await;
+
+        motor_driver::send_motor_command(MotorCommand::CoastAll).await;
+        motion::set_track_speeds(0, 0).await;
+
+        if duration_ms == 0 {
+            api::send_completion(
+                completion_requested,
+                DriveCompletion {
+                    status: CompletionStatus::Success,
+                    telemetry: types::CompletionTelemetry::None,
+                },
+            )
+            .await;
+            return;
+        }
+
+        let started_at_ms = Instant::now().as_millis();
+        self.active_intent = Some(ActiveIntent::Idle {
+            duration_ms,
+            started_at_ms,
+            completion_requested,
+        });
+    }
+
     /// Handle a `Standby` command.
     ///
     /// Disables drift compensation, stops encoder sampling, and powers down the
@@ -460,7 +496,10 @@ impl DriveLoop {
                         completion_sent = true;
                     }
                 }
-                ActiveIntent::BrakeCoast {
+                ActiveIntent::Idle {
+                    completion_requested, ..
+                }
+                | ActiveIntent::BrakeCoast {
                     completion_requested, ..
                 } => {
                     api::send_completion(

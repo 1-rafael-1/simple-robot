@@ -6,14 +6,17 @@
 //!   speeds, detects completion. No async, no I/O.
 //! - [`run_rotation_control_step`]: async runner — consumes IMU samples from the
 //!   feedback channel, drives `RotationState`, issues motor commands, and applies
-//!   an IMU watchdog that aborts rotation if no samples arrive for 300 ms.
+//!   a short IMU wait per tick to smooth sampling gaps without stalling rotation.
+//!   It also captures post-stop settling and can apply a single corrective pulse
+//!   if the robot coasts past the target after stopping.
 //!
 //! # IMU dependence and timeout behavior
 //!
 //! Rotation relies on continuous IMU yaw samples. The loop drains all queued
 //! samples each tick and uses the newest one. If no samples are available, it
-//! waits once for 300 ms and retries; continued absence is treated as a hard
-//! failure to prevent uncontrolled rotation.
+//! waits briefly for a fresh sample and retries once per tick; otherwise it
+//! keeps the previous motor command and tries again on the next tick. After
+//! stopping, it waits briefly to capture any settling and updates telemetry.
 //!
 //! # Telemetry logging
 //!
@@ -53,6 +56,12 @@ pub struct RotationState {
     motion: types::RotationMotion,
     /// Base forward/backward speed when rotating while moving.
     base_speed: i8,
+    /// Count of corrective direction flips detected.
+    correction_flips: u8,
+    /// Timestamp when overshoot correction started (ms since boot).
+    correction_started_at_ms: Option<u64>,
+    /// Last signed error direction for flip detection.
+    last_error_sign: i8,
 }
 
 impl RotationState {
@@ -71,6 +80,9 @@ impl RotationState {
             direction,
             motion,
             base_speed,
+            correction_flips: 0,
+            correction_started_at_ms: None,
+            last_error_sign: 0,
         }
     }
 
@@ -97,7 +109,19 @@ impl RotationState {
         self.last_yaw = Some(measurement.orientation.yaw);
         self.last_update_ms = measurement.timestamp_ms;
 
-        (self.accumulated_angle - self.target_angle).abs() <= types::ROTATION_TOLERANCE_DEG
+        let error_deg = self.target_angle - self.accumulated_angle;
+        let error_sign = if error_deg >= 0.0 { 1 } else { -1 };
+        if error_deg.abs() > types::ROTATION_CORRECTION_DEADBAND_DEG {
+            if self.last_error_sign != 0 && error_sign != self.last_error_sign {
+                self.correction_flips = self.correction_flips.saturating_add(1);
+                if self.correction_started_at_ms.is_none() {
+                    self.correction_started_at_ms = Some(measurement.timestamp_ms);
+                }
+            }
+            self.last_error_sign = error_sign;
+        }
+
+        error_deg.abs() <= types::ROTATION_TOLERANCE_DEG
     }
 
     /// Calculates appropriate motor speeds for the current rotation state.
@@ -108,8 +132,8 @@ impl RotationState {
         let error_deg = self.target_angle - self.accumulated_angle;
         let remaining_degrees = error_deg.abs();
 
-        // If we overshot, reverse effective direction to hunt back toward the setpoint.
-        let effective_direction = if error_deg < 0.0 {
+        // If we overshot beyond the deadband, reverse effective direction to hunt back toward the setpoint.
+        let effective_direction = if error_deg < -types::ROTATION_CORRECTION_DEADBAND_DEG {
             match self.direction {
                 types::RotationDirection::Clockwise => types::RotationDirection::CounterClockwise,
                 types::RotationDirection::CounterClockwise => types::RotationDirection::Clockwise,
@@ -123,20 +147,20 @@ impl RotationState {
                 // Keep a floor of ROTATION_SPEED_MIN to overcome static friction, but
                 // still taper near the target to limit overshoot.
                 let requested = speed.clamp(0, 100);
-                if remaining_degrees < 10.0 {
+                if remaining_degrees < types::ROTATION_RAMP_DOWN_START_DEG {
                     let min = types::ROTATION_SPEED_MIN;
                     let max = requested.max(min);
                     let speed_range = max - min;
-                    let speed_factor = remaining_degrees / 10.0;
+                    let speed_factor = remaining_degrees / types::ROTATION_RAMP_DOWN_START_DEG;
                     Self::clamp_speed_u8(f32::from(min) + (f32::from(speed_range) * speed_factor))
                 } else {
                     requested
                 }
             }
             types::RotationMotion::WhileMoving(_) => {
-                if remaining_degrees < 10.0 {
+                if remaining_degrees < types::ROTATION_RAMP_DOWN_START_DEG {
                     let speed_range = types::ROTATION_SPEED_MAX - types::ROTATION_SPEED_MIN;
-                    let speed_factor = remaining_degrees / 10.0;
+                    let speed_factor = remaining_degrees / types::ROTATION_RAMP_DOWN_START_DEG;
                     Self::clamp_speed_u8(f32::from(types::ROTATION_SPEED_MIN) + (f32::from(speed_range) * speed_factor))
                 } else {
                     types::ROTATION_SPEED_MAX
@@ -197,57 +221,175 @@ pub(super) enum RotationStepResult {
     },
 }
 
+/// Stop rotation motors and update the motion state.
+async fn stop_rotation_motors() {
+    motor_driver::send_motor_command(MotorCommand::SetTracks {
+        left_speed: 0,
+        right_speed: 0,
+    })
+    .await;
+
+    motion::set_track_speeds(0, 0).await;
+}
+
+/// Build a failure result with consistent telemetry from the current state.
+fn rotation_failure(
+    rotation_state: &RotationState,
+    started_at_ms: u64,
+    now_ms: u64,
+    reason: &'static str,
+) -> RotationStepResult {
+    let accumulated = rotation_state.accumulated_angle.abs();
+    let target = rotation_state.target_angle.abs();
+    let last_yaw_deg = rotation_state.last_yaw.unwrap_or(0.0);
+    let duration_ms = now_ms - started_at_ms;
+
+    RotationStepResult::Failed {
+        reason,
+        telemetry: types::CompletionTelemetry::RotateExact {
+            final_yaw_deg: last_yaw_deg,
+            angle_error_deg: accumulated - target,
+            duration_ms,
+        },
+    }
+}
+
+/// Build a success result using the final IMU measurement.
+fn rotation_success(
+    measurement: &ImuMeasurement,
+    rotation_state: &RotationState,
+    started_at_ms: u64,
+) -> RotationStepResult {
+    let accumulated = rotation_state.accumulated_angle.abs();
+    let target = rotation_state.target_angle.abs();
+    let duration_ms = Instant::now().as_millis() - started_at_ms;
+
+    RotationStepResult::Completed {
+        telemetry: types::CompletionTelemetry::RotateExact {
+            final_yaw_deg: measurement.orientation.yaw,
+            angle_error_deg: accumulated - target,
+            duration_ms,
+        },
+    }
+}
+
+/// Drain the IMU feedback channel and return the newest sample since rotation start.
+fn drain_latest_imu_since(started_at_ms: u64) -> Option<ImuMeasurement> {
+    let mut latest: Option<ImuMeasurement> = None;
+    while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
+        if m.timestamp_ms >= started_at_ms {
+            latest = Some(m);
+        }
+    }
+    latest
+}
+
+/// Wait for a fresh IMU sample, then return the newest available sample.
+async fn wait_for_latest_imu_since(started_at_ms: u64, wait_ms: u64) -> Option<ImuMeasurement> {
+    if let Some(latest) = drain_latest_imu_since(started_at_ms) {
+        return Some(latest);
+    }
+
+    Timer::after(Duration::from_millis(wait_ms)).await;
+    drain_latest_imu_since(started_at_ms)
+}
+
+/// Read the newest IMU sample for this tick, waiting briefly if needed.
+async fn read_rotation_measurement(started_at_ms: u64) -> Option<ImuMeasurement> {
+    if let Some(measurement) = drain_latest_imu_since(started_at_ms) {
+        return Some(measurement);
+    }
+
+    Timer::after(Duration::from_millis(types::ROTATION_IMU_WAIT_TIMEOUT_MS)).await;
+    drain_latest_imu_since(started_at_ms)
+}
+
+/// Capture post-stop settling and optional correction pulse; returns final IMU measurement.
+async fn capture_post_stop_measurement(
+    rotation_state: &mut RotationState,
+    started_at_ms: u64,
+    measurement: ImuMeasurement,
+) -> ImuMeasurement {
+    let settled = wait_for_latest_imu_since(started_at_ms, types::ROTATION_POST_STOP_SETTLE_MS)
+        .await
+        .map_or(measurement, |settle| {
+            rotation_state.update(&settle);
+
+            #[cfg(feature = "telemetry_logs")]
+            {
+                let error_deg = rotation_state.target_angle - rotation_state.accumulated_angle;
+                defmt::info!(
+                    "rotate_exact: post_stop yaw={=f32}°, acc={=f32}°, err={=f32}°",
+                    settle.orientation.yaw,
+                    rotation_state.accumulated_angle.abs(),
+                    error_deg
+                );
+            }
+
+            settle
+        });
+
+    let error_deg = rotation_state.target_angle - rotation_state.accumulated_angle;
+    let needs_correction = error_deg.abs() > types::ROTATION_TOLERANCE_DEG;
+    let can_pulse = matches!(rotation_state.motion, types::RotationMotion::Stationary { .. });
+
+    if !needs_correction || !can_pulse {
+        return settled;
+    }
+
+    #[cfg(feature = "telemetry_logs")]
+    {
+        defmt::info!("rotate_exact: post_stop correction pulse err={=f32}°", error_deg);
+    }
+
+    let (left_speed, right_speed) = rotation_state.calculate_motor_speeds();
+    motor_driver::send_motor_command(MotorCommand::SetTracks {
+        left_speed,
+        right_speed,
+    })
+    .await;
+
+    motion::set_track_speeds(left_speed, right_speed).await;
+    Timer::after(Duration::from_millis(types::ROTATION_POST_STOP_CORRECTION_PULSE_MS)).await;
+
+    stop_rotation_motors().await;
+
+    if let Some(settle) = wait_for_latest_imu_since(started_at_ms, types::ROTATION_POST_STOP_SETTLE_MS).await {
+        rotation_state.update(&settle);
+
+        #[cfg(feature = "telemetry_logs")]
+        {
+            let error_deg = rotation_state.target_angle - rotation_state.accumulated_angle;
+            defmt::info!(
+                "rotate_exact: post_pulse yaw={=f32}°, acc={=f32}°, err={=f32}°",
+                settle.orientation.yaw,
+                rotation_state.accumulated_angle.abs(),
+                error_deg
+            );
+        }
+
+        return settle;
+    }
+
+    settled
+}
+
 /// Run a single step of the rotation control loop.
 ///
 /// Drains all queued IMU samples and uses the newest one. If no sample is
-/// available, waits 300 ms and retries once; a second absence is treated as a
-/// hard `ImuTimeout` failure to prevent uncontrolled rotation.
+/// available, waits briefly for a fresh sample and retries once this tick.
+/// If still empty, it keeps the previous motor command and tries again next tick.
 pub(super) async fn run_rotation_control_step(
     rotation_state: &mut RotationState,
     started_at_ms: u64,
 ) -> RotationStepResult {
-    // Drain the IMU feedback channel; keep only the newest sample.
-    let mut latest: Option<ImuMeasurement> = None;
-    while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
-        latest = Some(m);
+    let now_ms = Instant::now().as_millis();
+    if now_ms - started_at_ms > types::ROTATION_TIMEOUT_MS {
+        stop_rotation_motors().await;
+        return rotation_failure(rotation_state, started_at_ms, now_ms, "RotateTimeout");
     }
 
-    // Watchdog: no IMU data → wait 300 ms and retry once before aborting.
-    let Some(measurement) = latest else {
-        defmt::warn!("rotate_exact: no IMU data available (will abort after 300ms without updates)");
-        Timer::after(Duration::from_millis(300)).await;
-
-        let mut latest_after_wait: Option<ImuMeasurement> = None;
-        while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
-            latest_after_wait = Some(m);
-        }
-
-        if latest_after_wait.is_none() {
-            defmt::warn!("rotate_exact: aborting rotation due to missing IMU data (>= 300ms)");
-
-            motor_driver::send_motor_command(MotorCommand::SetTracks {
-                left_speed: 0,
-                right_speed: 0,
-            })
-            .await;
-
-            motion::set_track_speeds(0, 0).await;
-
-            let accumulated = rotation_state.accumulated_angle.abs();
-            let target = rotation_state.target_angle.abs();
-            let last_yaw_deg = rotation_state.last_yaw.unwrap_or(0.0);
-            let duration_ms = Instant::now().as_millis() - started_at_ms;
-
-            return RotationStepResult::Failed {
-                reason: "ImuTimeout",
-                telemetry: types::CompletionTelemetry::RotateExact {
-                    final_yaw_deg: last_yaw_deg,
-                    angle_error_deg: accumulated - target,
-                    duration_ms,
-                },
-            };
-        }
-
+    let Some(measurement) = read_rotation_measurement(started_at_ms).await else {
         return RotationStepResult::InProgress;
     };
 
@@ -267,25 +409,23 @@ pub(super) async fn run_rotation_control_step(
     // Advance the state machine. If the target is reached, stop motors and report completion.
     let done = rotation_state.update(&measurement);
     if done {
-        motor_driver::send_motor_command(MotorCommand::SetTracks {
-            left_speed: 0,
-            right_speed: 0,
-        })
-        .await;
+        stop_rotation_motors().await;
 
-        motion::set_track_speeds(0, 0).await;
+        let final_measurement = capture_post_stop_measurement(rotation_state, started_at_ms, measurement).await;
 
-        let accumulated = rotation_state.accumulated_angle.abs();
-        let target = rotation_state.target_angle.abs();
-        let duration_ms = Instant::now().as_millis() - started_at_ms;
+        return rotation_success(&final_measurement, rotation_state, started_at_ms);
+    }
 
-        return RotationStepResult::Completed {
-            telemetry: types::CompletionTelemetry::RotateExact {
-                final_yaw_deg: measurement.orientation.yaw,
-                angle_error_deg: accumulated - target,
-                duration_ms,
-            },
-        };
+    if rotation_state.correction_flips >= types::ROTATION_CORRECTION_MAX_FLIPS {
+        stop_rotation_motors().await;
+        return rotation_failure(rotation_state, started_at_ms, now_ms, "RotateCorrectionLimit");
+    }
+
+    if let Some(start_ms) = rotation_state.correction_started_at_ms
+        && now_ms - start_ms > types::ROTATION_CORRECTION_TIMEOUT_MS
+    {
+        stop_rotation_motors().await;
+        return rotation_failure(rotation_state, started_at_ms, now_ms, "RotateCorrectionTimeout");
     }
 
     // Still in progress — apply updated motor speeds for this tick.

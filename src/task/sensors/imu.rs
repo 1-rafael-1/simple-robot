@@ -102,6 +102,32 @@ const SAMPLE_RATE_HZ: f32 = 50.0;
 /// Beta parameter for Madgwick filter (0.0-1.0). Higher values give faster convergence but more noise sensitivity.
 const BETA: f32 = 0.15; // Balanced for indoor tracked robot with motor vibrations
 
+// Stationary gyro bias trim (runtime-only; no flash writes).
+// Helps keep 6-axis yaw stable at rest by trimming residual gyro bias when "still" is detected.
+
+/// Accel magnitude (g) window for stillness detection (tighter than the general accel gating window).
+const STILL_ACCEL_MIN_G: f32 = 0.95;
+/// Upper bound for stillness accel magnitude (g).
+const STILL_ACCEL_MAX_G: f32 = 1.05;
+
+/// Gyro norm threshold (deg/s) for stillness detection.
+const STILL_GYRO_NORM_MAX_DPS: f32 = 0.8;
+
+/// Time the IMU must be still before trimming starts.
+const STILL_REQUIRED_MS: u32 = 1000;
+
+/// Runtime gyro bias trim update gain when still (0..1).
+const RUNTIME_GYRO_TRIM_ALPHA: f32 = 0.005;
+
+/// Clamp runtime trim to a safe maximum (deg/s).
+const RUNTIME_GYRO_TRIM_MAX_ABS_DPS: f32 = 3.0;
+
+/// Stillness/bias-trim diagnostics logging interval in milliseconds.
+///
+/// Only used when `telemetry_logs` is enabled.
+#[cfg(feature = "telemetry_logs")]
+const STILLNESS_DIAG_LOG_INTERVAL_MS: u32 = 1000;
+
 /// Maximum consecutive read failures before terminating the IMU task. This prevents infinite loops if the sensor becomes unresponsive.
 const MAX_CONSECUTIVE_FAILURES: u32 = 10;
 
@@ -567,6 +593,89 @@ fn log_mag_diagnostics(mag_data: &Vector3<f32>, use_magnetometer: bool) {
 #[cfg(not(feature = "telemetry_logs"))]
 const fn log_mag_diagnostics(_mag_data: &Vector3<f32>, _use_magnetometer: bool) {}
 
+/// Mutable IMU sampling state held across ticks.
+#[derive(Default)]
+struct SampleState {
+    /// Last valid accel direction used for fallback.
+    last_good_accel_dir: Option<Vector3<f32>>,
+    /// Runtime gyro bias trim (deg/s), applied on top of persisted calibration.
+    runtime_gyro_bias_trim_dps: Vector3<f32>,
+    /// Accumulated stillness time (ms).
+    stillness_ms_accum: u32,
+    /// Consecutive accelerometer read failures.
+    accel_consecutive_failures: u32,
+    /// Consecutive gyroscope read failures.
+    gyro_consecutive_failures: u32,
+    /// Consecutive magnetometer read failures.
+    mag_consecutive_failures: u32,
+}
+
+/// Update stillness detection and runtime gyro bias trim.
+fn update_stillness_and_trim(
+    accel_norm: f32,
+    raw_gyro: Vector3<f32>,
+    gyro_data: Vector3<f32>,
+    gyro_bias: (f32, f32, f32),
+    dt_seconds: f32,
+    state: &mut SampleState,
+) {
+    let accel_still = (STILL_ACCEL_MIN_G..=STILL_ACCEL_MAX_G).contains(&accel_norm);
+    let raw_gyro_norm_dps = raw_gyro.norm();
+    let gyro_still = raw_gyro_norm_dps <= STILL_GYRO_NORM_MAX_DPS;
+
+    if accel_still && gyro_still {
+        let dt_ms = (dt_seconds * 1000.0).clamp(0.0, 1000.0);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        {
+            state.stillness_ms_accum = state.stillness_ms_accum.saturating_add(dt_ms as u32);
+        }
+
+        if state.stillness_ms_accum >= STILL_REQUIRED_MS {
+            // Residual after persisted bias subtraction (deg/s).
+            let residual = Vector3::new(
+                gyro_data.x - gyro_bias.0,
+                gyro_data.y - gyro_bias.1,
+                gyro_data.z - gyro_bias.2,
+            );
+
+            let alpha = RUNTIME_GYRO_TRIM_ALPHA.clamp(0.0, 1.0);
+            state.runtime_gyro_bias_trim_dps.x = ((1.0 - alpha) * state.runtime_gyro_bias_trim_dps.x
+                + (alpha * residual.x))
+                .clamp(-RUNTIME_GYRO_TRIM_MAX_ABS_DPS, RUNTIME_GYRO_TRIM_MAX_ABS_DPS);
+            state.runtime_gyro_bias_trim_dps.y = ((1.0 - alpha) * state.runtime_gyro_bias_trim_dps.y
+                + (alpha * residual.y))
+                .clamp(-RUNTIME_GYRO_TRIM_MAX_ABS_DPS, RUNTIME_GYRO_TRIM_MAX_ABS_DPS);
+            state.runtime_gyro_bias_trim_dps.z = ((1.0 - alpha) * state.runtime_gyro_bias_trim_dps.z
+                + (alpha * residual.z))
+                .clamp(-RUNTIME_GYRO_TRIM_MAX_ABS_DPS, RUNTIME_GYRO_TRIM_MAX_ABS_DPS);
+        }
+    } else {
+        state.stillness_ms_accum = 0;
+    }
+
+    #[cfg(feature = "telemetry_logs")]
+    {
+        use core::sync::atomic::{AtomicU32, Ordering};
+        static LAST_STILL_DIAG_MS: AtomicU32 = AtomicU32::new(0);
+
+        let now_ms_u64 = Instant::now().as_millis();
+        let now_ms = u32::try_from(now_ms_u64).unwrap_or(u32::MAX);
+
+        let last = LAST_STILL_DIAG_MS.load(Ordering::Relaxed);
+        if now_ms.wrapping_sub(last) >= STILLNESS_DIAG_LOG_INTERVAL_MS {
+            LAST_STILL_DIAG_MS.store(now_ms, Ordering::Relaxed);
+            defmt::info!(
+                "IMU still: a={=bool} g={=bool} still_ms={} trim_z={=f32} raw_gz={=f32}",
+                accel_still,
+                gyro_still,
+                state.stillness_ms_accum,
+                state.runtime_gyro_bias_trim_dps.z,
+                raw_gyro.z
+            );
+        }
+    }
+}
+
 /// Outcome of a single IMU sampling attempt, used to control the main loop flow
 enum SampleOutcome {
     /// Successfully obtained a new IMU measurement to process
@@ -709,26 +818,22 @@ async fn prepare_magnetometer(
 }
 
 /// Perform a single IMU sampling step: read sensors, apply corrections, update AHRS filter, and produce measurement
-#[allow(clippy::too_many_arguments)]
 async fn sample_once(
     sensor: &mut ImuSensor,
     madgwick: &mut Madgwick<f32>,
     fusion_mode: AhrsFusionMode,
     dt_seconds: f32,
     current_calibration: Option<&flash_storage::ImuCalibration>,
-    last_good_accel_dir: &mut Option<Vector3<f32>>,
-    accel_consecutive_failures: &mut u32,
-    gyro_consecutive_failures: &mut u32,
-    mag_consecutive_failures: &mut u32,
+    state: &mut SampleState,
 ) -> SampleOutcome {
     // Read accelerometer (in g-force)
-    let accel_data = match read_accelerometer(sensor, accel_consecutive_failures).await {
+    let accel_data = match read_accelerometer(sensor, &mut state.accel_consecutive_failures).await {
         Ok(data) => data,
         Err(outcome) => return outcome,
     };
 
     // Read gyroscope (in degrees/second) and apply bias correction
-    let gyro_data = match read_gyroscope(sensor, gyro_consecutive_failures).await {
+    let gyro_data = match read_gyroscope(sensor, &mut state.gyro_consecutive_failures).await {
         Ok(data) => data,
         Err(outcome) => return outcome,
     };
@@ -755,9 +860,10 @@ async fn sample_once(
         (cal.gyro_x_bias, cal.gyro_y_bias, cal.gyro_z_bias)
     });
 
-    let gyro_x = gyro_data.x - gyro_bias_x;
-    let gyro_y = gyro_data.y - gyro_bias_y;
-    let gyro_z = gyro_data.z - gyro_bias_z;
+    // Apply persisted bias + runtime trim (deg/s).
+    let gyro_x = gyro_data.x - gyro_bias_x - state.runtime_gyro_bias_trim_dps.x;
+    let gyro_y = gyro_data.y - gyro_bias_y - state.runtime_gyro_bias_trim_dps.y;
+    let gyro_z = gyro_data.z - gyro_bias_z - state.runtime_gyro_bias_trim_dps.z;
 
     {
         let mut latest = LATEST_CALIBRATED_GYRO.lock().await;
@@ -780,13 +886,22 @@ async fn sample_once(
     let accel_norm = accel_corrected.norm();
     let accel_dir = if (0.85..=1.15).contains(&accel_norm) && accel_norm > 0.0 {
         let unit = accel_corrected / accel_norm;
-        *last_good_accel_dir = Some(unit);
+        state.last_good_accel_dir = Some(unit);
         unit
-    } else if let Some(last) = last_good_accel_dir.as_ref() {
+    } else if let Some(last) = state.last_good_accel_dir.as_ref() {
         *last
     } else {
         accel_corrected / accel_norm.max(1e-3)
     };
+
+    update_stillness_and_trim(
+        accel_norm,
+        raw_gyro,
+        gyro_data,
+        (gyro_bias_x, gyro_bias_y, gyro_bias_z),
+        dt_seconds,
+        state,
+    );
 
     // Convert gyroscope from degrees/s to radians/s for AHRS.
     // Scale by measured dt to correct for loop timing drift.
@@ -802,7 +917,7 @@ async fn sample_once(
         }
         AhrsFusionMode::Axis9 => {
             let (mag_data, use_magnetometer) =
-                match prepare_magnetometer(sensor, current_calibration, mag_consecutive_failures).await {
+                match prepare_magnetometer(sensor, current_calibration, &mut state.mag_consecutive_failures).await {
                     Ok(data) => data,
                     Err(outcome) => return outcome,
                 };
@@ -845,7 +960,6 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor, madgwick: &mut Madgwick<f3
     // Calibration will be loaded by orchestrator during initialization
     // and sent via LoadCalibration command
     let mut current_calibration: Option<flash_storage::ImuCalibration> = None;
-    let mut last_good_accel_dir: Option<Vector3<f32>> = None;
 
     // Selectable AHRS fusion mode (default to DEFAULT_FUSION_MODE).
     // Testing can still switch modes explicitly while validating control flow.
@@ -862,10 +976,8 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor, madgwick: &mut Madgwick<f3
                 // Enter reading loop
                 info!("Starting IMU reading");
 
-                // Track consecutive sensor read failures per sensor
-                let mut accel_consecutive_failures = 0u32;
-                let mut gyro_consecutive_failures = 0u32;
-                let mut mag_consecutive_failures = 0u32;
+                // Per-run sampling state (resets when IMU restarts)
+                let mut sample_state = SampleState::default();
 
                 // IMU loop timing diagnostics (rate-limited)
                 #[cfg(feature = "telemetry_logs")]
@@ -908,10 +1020,7 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor, madgwick: &mut Madgwick<f3
                                 fusion_mode,
                                 dt_seconds,
                                 current_calibration.as_ref(),
-                                &mut last_good_accel_dir,
-                                &mut accel_consecutive_failures,
-                                &mut gyro_consecutive_failures,
-                                &mut mag_consecutive_failures,
+                                &mut sample_state,
                             )
                             .await
                             {

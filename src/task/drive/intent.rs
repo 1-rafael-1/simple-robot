@@ -20,7 +20,7 @@
 //! queued intents are cancelled when dequeued by comparing epochs.
 
 use embassy_futures::select::{Either, select};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 
 use crate::task::drive::{
     api::{DRIVE_INTERRUPT, DRIVE_QUEUE, send_completion},
@@ -41,6 +41,8 @@ pub(super) enum ActiveIntentOutcome {
     RotationStep(RotationStepResult),
     /// A control step completed for the active distance intent.
     DistanceStep(DistanceStepResult),
+    /// The active idle intent reached its duration.
+    IdleElapsed,
     /// A control step completed for the active brake/coast intent.
     BrakeCoastStep(BrakeCoastStepResult),
 }
@@ -68,6 +70,24 @@ pub(super) async fn poll_active_intent(loop_state: &mut DriveLoop) -> Option<Act
                     let result = run_distance_control_step(state).await;
                     Some(ActiveIntentOutcome::DistanceStep(result))
                 }
+            }
+        }
+        Some(ActiveIntent::Idle {
+            duration_ms,
+            started_at_ms,
+            ..
+        }) => {
+            let now_ms = Instant::now().as_millis();
+            let elapsed_ms = now_ms.saturating_sub(*started_at_ms);
+            let remaining_ms = duration_ms.saturating_sub(elapsed_ms);
+            let interrupt_or_idle = select(
+                DRIVE_INTERRUPT.wait(),
+                Timer::after(Duration::from_millis(remaining_ms)),
+            )
+            .await;
+            match interrupt_or_idle {
+                Either::First(kind) => Some(ActiveIntentOutcome::Interrupt(kind)),
+                Either::Second(()) => Some(ActiveIntentOutcome::IdleElapsed),
             }
         }
         Some(ActiveIntent::BrakeCoast { state, .. }) => {
@@ -127,6 +147,27 @@ pub(super) async fn apply_distance_result(loop_state: &mut DriveLoop, result: Di
         stop_curve_imu(&state.kind).await;
     }
     send_completion(completion_requested, DriveCompletion { status, telemetry }).await;
+
+    loop_state.active_intent = None;
+}
+
+/// Apply idle completion to the active intent (completions + intent clearing).
+pub(super) async fn apply_idle_result(loop_state: &mut DriveLoop) {
+    let completion_requested = match loop_state.active_intent.as_ref() {
+        Some(ActiveIntent::Idle {
+            completion_requested, ..
+        }) => *completion_requested,
+        _ => false,
+    };
+
+    send_completion(
+        completion_requested,
+        DriveCompletion {
+            status: CompletionStatus::Success,
+            telemetry: types::CompletionTelemetry::None,
+        },
+    )
+    .await;
 
     loop_state.active_intent = None;
 }
