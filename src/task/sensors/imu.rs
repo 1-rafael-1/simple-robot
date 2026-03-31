@@ -659,11 +659,7 @@ fn update_stillness_and_trim(
         static LAST_STILL_DIAG_MS: AtomicU32 = AtomicU32::new(0);
 
         let now_ms_u64 = Instant::now().as_millis();
-        let now_ms = if now_ms_u64 > u64::from(u32::MAX) {
-            u32::MAX
-        } else {
-            now_ms_u64 as u32
-        };
+        let now_ms = u32::try_from(now_ms_u64).unwrap_or(u32::MAX);
 
         let last = LAST_STILL_DIAG_MS.load(Ordering::Relaxed);
         if now_ms.wrapping_sub(last) >= STILLNESS_DIAG_LOG_INTERVAL_MS {

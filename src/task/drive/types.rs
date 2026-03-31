@@ -301,7 +301,7 @@ pub const ROTATION_SPEED_MAX: u8 = 50;
 pub const ROTATION_SPEED_MIN: u8 = 40;
 /// Acceptable angle error in degrees
 ///
-/// Target: ~1° for higher-precision turns-in-place.
+/// Target: ~1° for a moderately strict turns-in-place tolerance.
 pub const ROTATION_TOLERANCE_DEG: f32 = 1.0;
 /// Overshoot deadband before applying corrective reverse (degrees).
 pub const ROTATION_CORRECTION_DEADBAND_DEG: f32 = 0.5;

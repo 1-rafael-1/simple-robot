@@ -416,7 +416,6 @@ fn handle_show_sweep(
             let _ = points.push(point); // This should succeed now, but ignore if it still fails
         }
     }
-    //}
 
     // Draw all points
     for point in points.iter() {

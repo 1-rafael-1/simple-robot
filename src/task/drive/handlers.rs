@@ -198,9 +198,11 @@ impl DriveLoop {
 
     /// Handle a `RotateExact` command.
     ///
-    /// Starts IMU streaming, initialises [`RotationState`], applies the initial
-    /// motor speeds, and stores the intent as the active intent so the poll loop
-    /// can drive it to completion.
+    /// Starts IMU streaming, clears stale IMU samples, initialises
+    /// [`RotationState`], and stores the intent as the active intent so the poll
+    /// loop can drive it to completion. Motors are held at zero until the first
+    /// IMU sample arrives, at which point the rotation tick begins applying
+    /// computed speeds.
     async fn handle_rotate_exact(
         &mut self,
         degrees: f32,
