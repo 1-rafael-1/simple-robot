@@ -60,7 +60,10 @@ pub async fn start_testing_sequence() {
 
 /// Spawn the test sequence task via the controller.
 pub(super) fn spawn(spawner: Spawner) {
-    spawner.must_spawn(testing_sequence_task());
+    match testing_sequence_task() {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn testing sequence task"),
+    }
 }
 
 #[embassy_executor::task]

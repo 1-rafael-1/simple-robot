@@ -46,7 +46,10 @@ pub fn stop_imu_test_mode() {
 
 /// Spawn the IMU test task via the controller.
 pub(super) fn spawn(spawner: Spawner) {
-    spawner.must_spawn(imu_test_task());
+    match imu_test_task() {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn imu_9axis test task"),
+    }
 }
 
 /// IMU test mode runner (updates display at 50Hz while active).

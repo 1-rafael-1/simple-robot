@@ -43,7 +43,10 @@ pub fn stop_basic_motor_test_mode() {
 
 /// Spawn the basic motor test task via the controller.
 pub(super) fn spawn(spawner: Spawner) {
-    spawner.must_spawn(basic_motor_test_task());
+    match basic_motor_test_task() {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn basic motor test task"),
+    }
 }
 
 #[derive(Clone, Copy)]

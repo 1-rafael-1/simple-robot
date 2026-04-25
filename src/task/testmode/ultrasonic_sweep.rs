@@ -40,7 +40,10 @@ pub fn stop_ultrasonic_sweep_test_mode() {
 
 /// Spawn the ultrasonic sweep test task via the controller.
 pub(super) fn spawn(spawner: Spawner) {
-    spawner.must_spawn(ultrasonic_sweep_test_task());
+    match ultrasonic_sweep_test_task() {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn ultrasonic sweep test task"),
+    }
 }
 
 /// Ultrasonic sweep test mode runner.

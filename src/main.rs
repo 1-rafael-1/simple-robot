@@ -45,6 +45,7 @@ bind_interrupts!(pub struct Irqs {
     ADC_IRQ_FIFO => AdcInterruptHandler;
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
     PIO1_IRQ_0 => PioInterruptHandler<PIO1>;
+    DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<embassy_rp::peripherals::DMA_CH0>;
 });
 
 /// Motor driver peripheral pins (for new architecture with PCA9555)
@@ -261,7 +262,10 @@ async fn main(spawner: Spawner) {
     task::testmode::init_testing(spawner);
 
     // Initialize autonomous drive mode tasks
-    spawner.must_spawn(task::autonomous_mode::coast_obstacle_avoid::coast_obstacle_avoid_task());
+    match task::autonomous_mode::coast_obstacle_avoid::coast_obstacle_avoid_task() {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn coast_obstacle_avoid task"),
+    }
 
     // Trigger system initialization (loads calibration data + shows UI when ready)
     crate::system::event::raise_event(crate::system::event::Events::Initialize).await;
@@ -271,7 +275,10 @@ async fn main(spawner: Spawner) {
 
 /// Initialize orchestrator task
 fn init_orchestrate(spawner: Spawner) {
-    spawner.must_spawn(task::orchestrate::orchestrate());
+    match task::orchestrate::orchestrate() {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn orchestrate task"),
+    }
 }
 
 /// Initialize battery monitoring task with ADC
@@ -282,7 +289,10 @@ fn init_battery_monitoring(
 ) {
     let adc = Adc::new(adc, Irqs, AdcConfig::default());
     let battery_channel = Channel::new_pin(adc_pin, Pull::None);
-    spawner.must_spawn(task::battery_charge_read::battery_charge_read(adc, battery_channel));
+    match task::battery_charge_read::battery_charge_read(adc, battery_channel) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn battery_charge_read task"),
+    }
 }
 
 /// Initialize RGB LED indicator with PIO PWM outputs
@@ -299,9 +309,10 @@ fn init_rgb_led(
     let pwm_green = PioPwm::new(common, sm1, pins.green, &rgb_program);
     let pwm_blue = PioPwm::new(common, sm2, pins.blue, &rgb_program);
 
-    spawner.must_spawn(task::indicators::rgb_led_indicate::rgb_led_indicate(
-        pwm_red, pwm_green, pwm_blue,
-    ));
+    match task::indicators::rgb_led_indicate::rgb_led_indicate(pwm_red, pwm_green, pwm_blue) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn rgb_led_indicate task"),
+    }
 }
 
 /// Initialize EC11 rotary encoder (PIO quadrature + button input)
@@ -314,35 +325,41 @@ fn init_rotary_encoder(
     let encoder_program = PioEncoderProgram::new(common);
     let encoder = PioEncoder::new(common, sm3, pins.a, pins.b, &encoder_program);
 
-    spawner.must_spawn(task::control::rotary_encoder::rotary_encoder_turns(encoder));
-    spawner.must_spawn(task::control::rotary_encoder::rotary_encoder_button());
+    match task::control::rotary_encoder::rotary_encoder_turns(encoder) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn rotary_encoder_turns task"),
+    }
+    match task::control::rotary_encoder::rotary_encoder_button() {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn rotary_encoder_button task"),
+    }
 }
 
 /// Initialize all four RC button inputs
 fn init_rc_buttons(spawner: Spawner, pins: RCButtonPins) {
     let btn_a = Input::new(pins.a, Pull::Down);
-    spawner.must_spawn(task::control::rc_control::rc_button_handle(
-        btn_a,
-        system::event::RCButtonId::A,
-    ));
+    match task::control::rc_control::rc_button_handle(btn_a, system::event::RCButtonId::A) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn rc_button_handle A task"),
+    }
 
     let btn_b = Input::new(pins.b, Pull::Down);
-    spawner.must_spawn(task::control::rc_control::rc_button_handle(
-        btn_b,
-        system::event::RCButtonId::B,
-    ));
+    match task::control::rc_control::rc_button_handle(btn_b, system::event::RCButtonId::B) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn rc_button_handle B task"),
+    }
 
     let btn_c = Input::new(pins.c, Pull::Down);
-    spawner.must_spawn(task::control::rc_control::rc_button_handle(
-        btn_c,
-        system::event::RCButtonId::C,
-    ));
+    match task::control::rc_control::rc_button_handle(btn_c, system::event::RCButtonId::C) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn rc_button_handle C task"),
+    }
 
     let btn_d = Input::new(pins.d, Pull::Down);
-    spawner.must_spawn(task::control::rc_control::rc_button_handle(
-        btn_d,
-        system::event::RCButtonId::D,
-    ));
+    match task::control::rc_control::rc_button_handle(btn_d, system::event::RCButtonId::D) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn rc_button_handle D task"),
+    }
 }
 
 /// Initialize motor driver with PWM channels and encoders
@@ -417,26 +434,41 @@ fn init_motor_driver(spawner: Spawner, pins: MotorDriverPins) {
     );
 
     // Spawn motor driver task (handles PWM + coordinates with port expander)
-    spawner.must_spawn(task::motor_driver::motor_driver(pwm_driver_left, pwm_driver_right));
+    match task::motor_driver::motor_driver(pwm_driver_left, pwm_driver_right) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn motor_driver task"),
+    }
 
     // Spawn encoder read task (handles encoder sensing)
-    spawner.must_spawn(task::sensors::encoders::encoder_read(
+    match task::sensors::encoders::encoder_read(
         encoder_left_front,
         encoder_left_rear,
         encoder_right_front,
         encoder_right_rear,
-    ));
+    ) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn encoder_read task"),
+    }
 
     // Spawn drive queue executor task (queue-level completion)
-    spawner.must_spawn(task::drive::drive_queue_executor());
+    match task::drive::drive_queue_executor() {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn drive_queue_executor task"),
+    }
 
     // Spawn drive task (high-level drive control)
-    spawner.must_spawn(task::drive::drive());
+    match task::drive::drive() {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn drive task"),
+    }
 }
 
 /// Initialize IR obstacle detection (signaled by port expander)
 fn init_ir_obstacle_detect(spawner: Spawner) {
-    spawner.must_spawn(task::sensors::ir_obstacle::ir_obstacle_detect());
+    match task::sensors::ir_obstacle::ir_obstacle_detect() {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn ir_obstacle_detect task"),
+    }
 }
 
 /// Initialize ultrasonic sensor sweep with servo
@@ -452,7 +484,10 @@ fn init_ultrasonic_sweep(
     let us_pwm_program = PioPwmProgram::new(us_common);
     let us_pwm = PioPwm::new(us_common, us_sm0, pins.servo, &us_pwm_program);
 
-    spawner.must_spawn(task::sensors::ultrasonic::ultrasonic_sweep(us_pwm, us_trigger, us_echo));
+    match task::sensors::ultrasonic::ultrasonic_sweep(us_pwm, us_trigger, us_echo) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn ultrasonic_sweep task"),
+    }
 }
 
 /// Initialize shared I2C bus for display and IMU
@@ -473,12 +508,18 @@ fn init_i2c_bus(
 
 /// Initialize display task with I2C bus
 fn init_display(spawner: Spawner, i2c_bus: &'static I2cBusShared) {
-    spawner.must_spawn(task::io::display::display(i2c_bus));
+    match task::io::display::display(i2c_bus) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn display task"),
+    }
 }
 
 /// Initialize IMU task with I2C bus and interrupt input
 fn init_imu_read(spawner: Spawner, i2c_bus: &'static I2cBusShared) {
-    spawner.must_spawn(task::sensors::imu::inertial_measurement_read(i2c_bus));
+    match task::sensors::imu::inertial_measurement_read(i2c_bus) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn inertial_measurement_read task"),
+    }
 }
 
 /// Initialize port expander task with I2C bus and interrupt pin
@@ -488,7 +529,10 @@ fn init_port_expander(
     int: Peri<'static, embassy_rp::peripherals::PIN_20>,
 ) {
     let interrupt = embassy_rp::gpio::Input::new(int, Pull::Up);
-    spawner.must_spawn(task::io::port_expander::port_expander(i2c_bus, interrupt));
+    match task::io::port_expander::port_expander(i2c_bus, interrupt) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn port_expander task"),
+    }
 }
 
 /// Initialize flash storage task for persistent calibration data
@@ -497,6 +541,9 @@ fn init_flash_storage(
     flash_peripheral: Peri<'static, embassy_rp::peripherals::FLASH>,
     dma_ch0: Peri<'static, embassy_rp::peripherals::DMA_CH0>,
 ) {
-    let flash = Flash::<_, Async, { 2048 * 1024 }>::new(flash_peripheral, dma_ch0);
-    spawner.must_spawn(task::io::flash_storage::flash_storage(flash));
+    let flash = Flash::<_, Async, { 2048 * 1024 }>::new(flash_peripheral, dma_ch0, Irqs);
+    match task::io::flash_storage::flash_storage(flash) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn flash_storage task"),
+    }
 }

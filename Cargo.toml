@@ -51,17 +51,17 @@ future_not_send = "allow" # embassy tasks are not Send
 multiple_crate_versions = "allow" # not worth the effort, we get a minimal binary size increase that does not matter here
 
 [dependencies]
-embassy-rp = { version = "0.9.0", features = [
+embassy-rp = { version = "0.10.0", features = [
     "defmt",
     "unstable-pac",
     "time-driver",
     "critical-section-impl",
     "rp235xa",
 ] }
-embassy-embedded-hal = { version = "0.5.0", features = ["defmt"] }
-embassy-sync = { version = "0.7.2", features = ["defmt"] }
-embassy-executor = { version = "0.9.1", features = [
-    "arch-cortex-m",
+embassy-embedded-hal = { version = "0.6.0", features = ["defmt"] }
+embassy-sync = { version = "0.8.0", features = ["defmt"] }
+embassy-executor = { version = "0.10.0", features = [
+    "platform-cortex-m",
     "executor-thread",
     "executor-interrupt",
     "defmt",
@@ -79,20 +79,20 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 nanorand = { version = "0.8.0", features = [
     "wyrand",
 ], default-features = false }
-hcsr04_async = { version = "^0.5.0", features = ["blocking_trigger"] }
+hcsr04_async = { version = "0.5.0", features = ["blocking_trigger"] }
 moving_median = "0.3.0"
 ssd1306-async = { git = "https://github.com/kalkyl/ssd1306-async" }
-embedded-graphics = "0.8.1"
+embedded-graphics = "0.8.2"
 static_cell = { version = "2.1.1", features = [] }
 heapless = "0.9.2"
 micromath = "2.1.0"
 libm = "0.2"
-icm20948-rs = { version = "0.1.1", features = ["async", "defmt"] }
+icm20948-rs = { version = "0.2.0", features = ["async", "defmt"] }
 ahrs = { version = "0.8", default-features = false }
 nalgebra = { version = "0.34", default-features = false, features = ["libm"] }
-port-expander = "0.6.5"
+
 embedded-hal-async = "1.0.0"
-sequential-storage = "7.1.0"
+sequential-storage = "7.2.0"
 embedded-storage-async = "0.4.1"
 
 # [patch.crates-io]

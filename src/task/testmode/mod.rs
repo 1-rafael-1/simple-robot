@@ -46,7 +46,10 @@ static TESTMODE_COMMAND: Channel<CriticalSectionRawMutex, TestCommand, 4> = Chan
 
 /// Initialize testmode support (spawns the controller task).
 pub fn init_testing(spawner: Spawner) {
-    spawner.must_spawn(testmode_controller(spawner));
+    match testmode_controller(spawner) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => panic!("Failed to spawn testmode controller"),
+    }
 }
 
 /// Request that a test be spawned on demand.
