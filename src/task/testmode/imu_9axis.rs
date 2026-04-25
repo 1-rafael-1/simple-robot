@@ -48,7 +48,7 @@ pub fn stop_imu_test_mode() {
 pub(super) fn spawn(spawner: Spawner) {
     match imu_test_task() {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn imu_9axis test task"),
+        Err(err) => defmt::warn!("Failed to spawn imu_9axis test task: {:?}", err),
     }
 }
 

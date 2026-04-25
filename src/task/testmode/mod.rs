@@ -48,7 +48,9 @@ static TESTMODE_COMMAND: Channel<CriticalSectionRawMutex, TestCommand, 4> = Chan
 pub fn init_testing(spawner: Spawner) {
     match testmode_controller(spawner) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn testmode controller"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn testmode controller: {:?}", err);
+        }
     }
 }
 

@@ -264,7 +264,9 @@ async fn main(spawner: Spawner) {
     // Initialize autonomous drive mode tasks
     match task::autonomous_mode::coast_obstacle_avoid::coast_obstacle_avoid_task() {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn coast_obstacle_avoid task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn coast_obstacle_avoid task: {:?}", err);
+        }
     }
 
     // Trigger system initialization (loads calibration data + shows UI when ready)
@@ -277,7 +279,9 @@ async fn main(spawner: Spawner) {
 fn init_orchestrate(spawner: Spawner) {
     match task::orchestrate::orchestrate() {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn orchestrate task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn orchestrate task: {:?}", err);
+        }
     }
 }
 
@@ -291,7 +295,9 @@ fn init_battery_monitoring(
     let battery_channel = Channel::new_pin(adc_pin, Pull::None);
     match task::battery_charge_read::battery_charge_read(adc, battery_channel) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn battery_charge_read task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn battery_charge_read task: {:?}", err);
+        }
     }
 }
 
@@ -311,7 +317,9 @@ fn init_rgb_led(
 
     match task::indicators::rgb_led_indicate::rgb_led_indicate(pwm_red, pwm_green, pwm_blue) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn rgb_led_indicate task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn rgb_led_indicate task: {:?}", err);
+        }
     }
 }
 
@@ -327,11 +335,15 @@ fn init_rotary_encoder(
 
     match task::control::rotary_encoder::rotary_encoder_turns(encoder) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn rotary_encoder_turns task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn rotary_encoder_turns task: {:?}", err);
+        }
     }
     match task::control::rotary_encoder::rotary_encoder_button() {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn rotary_encoder_button task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn rotary_encoder_button task: {:?}", err);
+        }
     }
 }
 
@@ -340,25 +352,33 @@ fn init_rc_buttons(spawner: Spawner, pins: RCButtonPins) {
     let btn_a = Input::new(pins.a, Pull::Down);
     match task::control::rc_control::rc_button_handle(btn_a, system::event::RCButtonId::A) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn rc_button_handle A task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn rc_button_handle A task: {:?}", err);
+        }
     }
 
     let btn_b = Input::new(pins.b, Pull::Down);
     match task::control::rc_control::rc_button_handle(btn_b, system::event::RCButtonId::B) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn rc_button_handle B task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn rc_button_handle B task: {:?}", err);
+        }
     }
 
     let btn_c = Input::new(pins.c, Pull::Down);
     match task::control::rc_control::rc_button_handle(btn_c, system::event::RCButtonId::C) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn rc_button_handle C task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn rc_button_handle C task: {:?}", err);
+        }
     }
 
     let btn_d = Input::new(pins.d, Pull::Down);
     match task::control::rc_control::rc_button_handle(btn_d, system::event::RCButtonId::D) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn rc_button_handle D task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn rc_button_handle D task: {:?}", err);
+        }
     }
 }
 
@@ -436,7 +456,9 @@ fn init_motor_driver(spawner: Spawner, pins: MotorDriverPins) {
     // Spawn motor driver task (handles PWM + coordinates with port expander)
     match task::motor_driver::motor_driver(pwm_driver_left, pwm_driver_right) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn motor_driver task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn motor_driver task: {:?}", err);
+        }
     }
 
     // Spawn encoder read task (handles encoder sensing)
@@ -447,19 +469,25 @@ fn init_motor_driver(spawner: Spawner, pins: MotorDriverPins) {
         encoder_right_rear,
     ) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn encoder_read task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn encoder_read task: {:?}", err);
+        }
     }
 
     // Spawn drive queue executor task (queue-level completion)
     match task::drive::drive_queue_executor() {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn drive_queue_executor task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn drive_queue_executor task: {:?}", err);
+        }
     }
 
     // Spawn drive task (high-level drive control)
     match task::drive::drive() {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn drive task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn drive task: {:?}", err);
+        }
     }
 }
 
@@ -467,7 +495,9 @@ fn init_motor_driver(spawner: Spawner, pins: MotorDriverPins) {
 fn init_ir_obstacle_detect(spawner: Spawner) {
     match task::sensors::ir_obstacle::ir_obstacle_detect() {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn ir_obstacle_detect task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn ir_obstacle_detect task: {:?}", err);
+        }
     }
 }
 
@@ -486,7 +516,9 @@ fn init_ultrasonic_sweep(
 
     match task::sensors::ultrasonic::ultrasonic_sweep(us_pwm, us_trigger, us_echo) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn ultrasonic_sweep task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn ultrasonic_sweep task: {:?}", err);
+        }
     }
 }
 
@@ -510,7 +542,9 @@ fn init_i2c_bus(
 fn init_display(spawner: Spawner, i2c_bus: &'static I2cBusShared) {
     match task::io::display::display(i2c_bus) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn display task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn display task: {:?}", err);
+        }
     }
 }
 
@@ -518,7 +552,9 @@ fn init_display(spawner: Spawner, i2c_bus: &'static I2cBusShared) {
 fn init_imu_read(spawner: Spawner, i2c_bus: &'static I2cBusShared) {
     match task::sensors::imu::inertial_measurement_read(i2c_bus) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn inertial_measurement_read task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn inertial_measurement_read task: {:?}", err);
+        }
     }
 }
 
@@ -531,7 +567,9 @@ fn init_port_expander(
     let interrupt = embassy_rp::gpio::Input::new(int, Pull::Up);
     match task::io::port_expander::port_expander(i2c_bus, interrupt) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn port_expander task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn port_expander task: {:?}", err);
+        }
     }
 }
 
@@ -544,6 +582,8 @@ fn init_flash_storage(
     let flash = Flash::<_, Async, { 2048 * 1024 }>::new(flash_peripheral, dma_ch0, Irqs);
     match task::io::flash_storage::flash_storage(flash) {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn flash_storage task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn flash_storage task: {:?}", err);
+        }
     }
 }

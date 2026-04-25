@@ -41,10 +41,14 @@ pub fn stop_ir_ultrasonic_test_mode() {
 
 /// Spawn the IR + ultrasonic test task via the controller.
 pub(super) fn spawn(spawner: Spawner) {
-    match ir_ultrasonic_test_task() {
-        Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn ir_ultrasonic_test_task"),
-    }
+    let token = match ir_ultrasonic_test_task() {
+        Ok(token) => token,
+        Err(err) => {
+            defmt::warn!("Failed to spawn ir_ultrasonic_test_task: {:?}", err);
+            return;
+        }
+    };
+    spawner.spawn(token);
 }
 
 /// IR + ultrasonic test mode runner (updates display at 10Hz while active).

@@ -62,7 +62,7 @@ const AFFIRM_BLINK_INTERVAL: Duration = Duration::from_millis(30);
 const OBSTACLE_BLINK_INTERVAL: Duration = Duration::from_millis(60);
 
 /// PWM period for the PIO-driven RGB LED (100 Hz).
-const PWM_PERIOD: CoreDuration = CoreDuration::from_micros(10_000);
+const PWM_PERIOD: CoreDuration = CoreDuration::from_millis(10);
 
 /// Sets a PIO PWM channel to a duty cycle percentage.
 #[allow(clippy::cast_possible_truncation)]

@@ -62,7 +62,9 @@ pub async fn start_testing_sequence() {
 pub(super) fn spawn(spawner: Spawner) {
     match testing_sequence_task() {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn testing sequence task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn testing sequence task: {:?}", err);
+        }
     }
 }
 

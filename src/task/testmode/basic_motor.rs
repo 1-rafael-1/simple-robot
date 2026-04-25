@@ -45,7 +45,9 @@ pub fn stop_basic_motor_test_mode() {
 pub(super) fn spawn(spawner: Spawner) {
     match basic_motor_test_task() {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn basic motor test task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn basic motor test task: {:?}", err);
+        }
     }
 }
 

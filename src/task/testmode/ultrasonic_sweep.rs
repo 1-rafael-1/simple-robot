@@ -42,7 +42,9 @@ pub fn stop_ultrasonic_sweep_test_mode() {
 pub(super) fn spawn(spawner: Spawner) {
     match ultrasonic_sweep_test_task() {
         Ok(token) => spawner.spawn(token),
-        Err(_) => panic!("Failed to spawn ultrasonic sweep test task"),
+        Err(err) => {
+            defmt::warn!("Failed to spawn ultrasonic sweep test task: {:?}", err);
+        }
     }
 }
 
