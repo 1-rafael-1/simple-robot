@@ -263,12 +263,20 @@ pub async fn get_latest_raw_mag() -> Option<Vector3<f32>> {
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 /// Convert a DMP quaternion to [`Orientation`] (Euler angles in degrees).
+///
+/// The ICM-20948 is mounted with its sensor X-axis aligned with the robot's
+/// lateral (side-to-side) axis and its sensor Y-axis aligned with the robot's
+/// forward axis.  The DMP therefore emits:
+///   - `roll`  (rotation around sensor X) → robot **pitch** (nose-up/down)
+///   - `pitch` (rotation around sensor Y) → robot **roll**  (lean left/right)
+///   - `yaw`   (rotation around sensor Z) → robot **yaw**   (heading) — unchanged
 fn dmp_quat_to_orientation(quat: &icm20948::dmp::Quaternion) -> Orientation {
     let angles = quat.to_euler_angles();
     let (roll_deg, pitch_deg, yaw_deg) = angles.to_degrees();
     Orientation {
-        roll: roll_deg,
-        pitch: pitch_deg,
+        // Swap sensor roll↔pitch to match the robot body frame.
+        roll: pitch_deg,
+        pitch: roll_deg,
         yaw: yaw_deg,
     }
 }

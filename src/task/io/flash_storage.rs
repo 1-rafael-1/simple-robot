@@ -175,12 +175,18 @@ pub struct CalibrationData {
 #[repr(u8)]
 enum StorageKey {
     MotorCalibration = 0,
-    /// Key 1 was the pre-DMP-migration `ImuCalibration` schema (120 bytes, 30 floats).
-    /// It has been abandoned to prevent silent deserialization of legacy records
-    /// into the current 96-byte layout (24 floats).  Any existing flash written
-    /// under key 1 will simply never match and will be ignored.
-    ImuCalibration = 3,
+    /// Pre-DMP-migration `ImuCalibration` schema (120 bytes / 30 floats).
+    /// This variant is kept solely so that `sequential_storage`'s flash scanner
+    /// can successfully deserialize the key byte and step over any legacy record
+    /// still sitting in flash, without returning `InvalidFormat` and aborting the
+    /// scan of unrelated records (e.g. `MotorCalibration`).  The variant is never
+    /// passed to `fetch_item` / `store_item` in application code, so legacy data
+    /// is effectively invisible to the rest of the system.
+    LegacyImuCalibration = 1,
     ImuFlags = 2,
+    /// Current `ImuCalibration` schema (96 bytes / 24 floats, post-DMP-migration).
+    /// Uses key 3 (not 1) so any legacy record in flash is never matched.
+    ImuCalibration = 3,
 }
 
 impl Key for StorageKey {
@@ -201,6 +207,7 @@ impl Key for StorageKey {
         }
         match buffer[0] {
             0 => Ok((Self::MotorCalibration, 1)),
+            1 => Ok((Self::LegacyImuCalibration, 1)),
             2 => Ok((Self::ImuFlags, 1)),
             3 => Ok((Self::ImuCalibration, 1)),
             _ => Err(SerializationError::InvalidFormat),
