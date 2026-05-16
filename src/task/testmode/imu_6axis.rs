@@ -14,8 +14,8 @@ use super::{TestCommand, release_testmode, request_start};
 use crate::task::{
     io::display::{DisplayAction, display_update},
     sensors::imu::{
-        AhrsFusionMode, Orientation, get_latest_calibrated_accel, get_latest_calibrated_gyro, get_latest_orientation,
-        get_latest_raw_accel, get_latest_raw_gyro, set_ahrs_fusion_mode, start_imu_readings, stop_imu_readings,
+        DmpFusionMode, Orientation, get_latest_calibrated_accel, get_latest_calibrated_gyro, get_latest_orientation,
+        get_latest_raw_accel, get_latest_raw_gyro, set_dmp_fusion_mode, start_imu_readings, stop_imu_readings,
     },
 };
 
@@ -54,7 +54,7 @@ pub(super) fn spawn(spawner: Spawner) {
 async fn imu6_test_task() {
     start_imu_readings();
     Timer::after(Duration::from_millis(30)).await;
-    set_ahrs_fusion_mode(AhrsFusionMode::Axis6);
+    set_dmp_fusion_mode(DmpFusionMode::Axis6);
     display_update(DisplayAction::Clear).await;
 
     let mut tick: u32 = 0;

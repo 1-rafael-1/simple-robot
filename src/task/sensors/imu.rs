@@ -21,7 +21,7 @@
 //!
 //! # Mode switching
 //!
-//! Runtime mode switches signal the task via `set_ahrs_fusion_mode`. The running DMP
+//! Runtime mode switches signal the task via `set_dmp_fusion_mode`. The running DMP
 //! is stopped (`dmp_enable(false)`), reconfigured, and restarted without reloading
 //! firmware. The magnetometer is always initialized at start-up so that switching to
 //! `Axis9` later is possible without a full re-init.
@@ -143,7 +143,7 @@ pub struct Orientation {
 
 /// DMP fusion-mode selection.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, defmt::Format)]
-pub enum AhrsFusionMode {
+pub enum DmpFusionMode {
     /// 6-axis fusion (gyro + accel). Yaw is relative; no magnetometer dependency.
     Axis6,
     /// 9-axis fusion (gyro + accel + mag). Yaw is absolute; degrades gracefully to
@@ -152,7 +152,7 @@ pub enum AhrsFusionMode {
 }
 
 /// System-wide default fusion mode used at start-up.
-pub const DEFAULT_FUSION_MODE: AhrsFusionMode = AhrsFusionMode::Axis6;
+pub const DEFAULT_FUSION_MODE: DmpFusionMode = DmpFusionMode::Axis6;
 
 // ── Internal command type ─────────────────────────────────────────────────────
 
@@ -165,7 +165,7 @@ enum ImuCommand {
     /// Replace the active calibration data (mag hard/soft-iron + interference).
     LoadCalibration(flash_storage::ImuCalibration),
     /// Switch DMP fusion mode at runtime.
-    SetFusionMode(AhrsFusionMode),
+    SetFusionMode(DmpFusionMode),
 }
 
 // ── Shared statics ────────────────────────────────────────────────────────────
@@ -214,7 +214,7 @@ pub fn stop_imu_readings() {
 /// `Axis9` is silently downgraded to `Axis6` if the magnetometer was not
 /// available at start-up, preserving the same behaviour as the previous
 /// software-fusion implementation.
-pub fn set_ahrs_fusion_mode(mode: AhrsFusionMode) {
+pub fn set_dmp_fusion_mode(mode: DmpFusionMode) {
     IMU_CONTROL.signal(ImuCommand::SetFusionMode(mode));
 }
 
@@ -486,16 +486,16 @@ async fn init_dmp(sensor: &mut ImuSensor) -> bool {
 }
 
 /// Build a [`DmpConfig`] for the given fusion mode.
-const fn build_dmp_config(mode: AhrsFusionMode) -> DmpConfig {
+const fn build_dmp_config(mode: DmpFusionMode) -> DmpConfig {
     match mode {
-        AhrsFusionMode::Axis6 => DmpConfig::new()
+        DmpFusionMode::Axis6 => DmpConfig::new()
             .with_quaternion_6axis(true)
             .with_host_calibrated_accel(true)
             .with_raw_accel(true)
             .with_raw_gyro(true)
             .with_calibrated_gyro(true)
             .with_sample_rate(DMP_SAMPLE_RATE_HZ),
-        AhrsFusionMode::Axis9 => DmpConfig::new()
+        DmpFusionMode::Axis9 => DmpConfig::new()
             .with_quaternion_9axis(true)
             .with_host_calibrated_accel(true)
             .with_raw_accel(true)
@@ -526,10 +526,10 @@ async fn apply_dmp_config(sensor: &mut ImuSensor, config: &DmpConfig) -> bool {
 }
 
 /// Resolve the effective mode: downgrade `Axis9` to `Axis6` if mag is unavailable.
-fn effective_mode(requested: AhrsFusionMode) -> AhrsFusionMode {
-    if requested == AhrsFusionMode::Axis9 && !MAG_AVAILABLE.load(Ordering::Relaxed) {
+fn effective_mode(requested: DmpFusionMode) -> DmpFusionMode {
+    if requested == DmpFusionMode::Axis9 && !MAG_AVAILABLE.load(Ordering::Relaxed) {
         info!("Axis9 requested but magnetometer unavailable — using Axis6");
-        AhrsFusionMode::Axis6
+        DmpFusionMode::Axis6
     } else {
         requested
     }

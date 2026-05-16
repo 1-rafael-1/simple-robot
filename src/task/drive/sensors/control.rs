@@ -46,7 +46,7 @@ pub async fn stop_rotation_imu() {
 /// to correct heading drift during curved motion.
 pub async fn start_curve_imu(kind: &types::DriveDistanceKind) {
     if matches!(kind, types::DriveDistanceKind::CurveArc { .. }) {
-        imu::set_ahrs_fusion_mode(DEFAULT_FUSION_MODE);
+        imu::set_dmp_fusion_mode(DEFAULT_FUSION_MODE);
         raise_event(Events::StartStopMotionDataCollection(true)).await;
     }
 }

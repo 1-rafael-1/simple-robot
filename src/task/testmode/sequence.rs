@@ -40,7 +40,7 @@ use crate::{
             types::{DriveQueueBuildError, RotationDirection, RotationMotion},
         },
         io::display::{DisplayAction, display_update},
-        sensors::imu::{AhrsFusionMode, set_ahrs_fusion_mode},
+        sensors::imu::{DmpFusionMode, set_dmp_fusion_mode},
     },
 };
 
@@ -174,8 +174,8 @@ async fn run_testing_sequence() {
 
     // Force 6-axis fusion (gyro + accel) for turn testing.
     // This avoids magnetometer-related yaw issues while validating the control flow.
-    defmt::info!("🧪 TEST: Setting IMU AHRS fusion mode to Axis6");
-    set_ahrs_fusion_mode(AhrsFusionMode::Axis6);
+    defmt::info!("🧪 TEST: Setting IMU DMP fusion mode to Axis6");
+    set_dmp_fusion_mode(DmpFusionMode::Axis6);
     show_line(1, "Fusion: Axis6").await;
     Timer::after(Duration::from_millis(250)).await;
 

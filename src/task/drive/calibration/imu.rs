@@ -61,17 +61,17 @@ const MAG_CALIBRATION_CONFIG: MagCalibrationConfig = MagCalibrationConfig {
 /// Ensures IMU readings are stopped (and fusion mode restored) after calibration completes.
 struct ImuReadingsGuard {
     /// Fusion mode to restore after calibration (if any).
-    restore_fusion_mode: Option<crate::task::sensors::imu::AhrsFusionMode>,
+    restore_fusion_mode: Option<crate::task::sensors::imu::DmpFusionMode>,
 }
 
 impl ImuReadingsGuard {
     /// Start IMU readings and set a temporary fusion mode.
     fn start_with_fusion_mode(
-        target_mode: crate::task::sensors::imu::AhrsFusionMode,
-        restore_mode: crate::task::sensors::imu::AhrsFusionMode,
+        target_mode: crate::task::sensors::imu::DmpFusionMode,
+        restore_mode: crate::task::sensors::imu::DmpFusionMode,
     ) -> Self {
         crate::task::sensors::imu::start_imu_readings();
-        crate::task::sensors::imu::set_ahrs_fusion_mode(target_mode);
+        crate::task::sensors::imu::set_dmp_fusion_mode(target_mode);
         Self {
             restore_fusion_mode: Some(restore_mode),
         }
@@ -81,7 +81,7 @@ impl ImuReadingsGuard {
 impl Drop for ImuReadingsGuard {
     fn drop(&mut self) {
         if let Some(mode) = self.restore_fusion_mode {
-            crate::task::sensors::imu::set_ahrs_fusion_mode(mode);
+            crate::task::sensors::imu::set_dmp_fusion_mode(mode);
         }
         crate::task::sensors::imu::stop_imu_readings();
     }
@@ -896,7 +896,7 @@ async fn run_mag_calibration() {
     .await;
 
     let _imu_guard =
-        ImuReadingsGuard::start_with_fusion_mode(imu_read::AhrsFusionMode::Axis9, imu_read::DEFAULT_FUSION_MODE);
+        ImuReadingsGuard::start_with_fusion_mode(imu_read::DmpFusionMode::Axis9, imu_read::DEFAULT_FUSION_MODE);
     Timer::after(Duration::from_millis(500)).await;
 
     let cached_calibration = flash_storage::get_cached_imu_calibration().await.unwrap_or_default();
