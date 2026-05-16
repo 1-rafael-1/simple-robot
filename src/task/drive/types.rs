@@ -15,10 +15,6 @@ pub const DRIFT_COMPENSATION_MAX: i8 = 5;
 /// IMU calibration target selection.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ImuCalibrationKind {
-    /// Calibrate gyroscope (stationary).
-    Gyro,
-    /// Calibrate accelerometer (stationary).
-    Accel,
     /// Calibrate magnetometer (manual rotation).
     Mag,
 }

@@ -30,8 +30,6 @@ pub const fn calibration_selection_from_index(index: usize) -> Option<Calibratio
     match index {
         0 => Some(CalibrationSelection::Motor),
         1 => Some(CalibrationSelection::Mag),
-        2 => Some(CalibrationSelection::Accel),
-        3 => Some(CalibrationSelection::Gyro),
         _ => None,
     }
 }
@@ -55,8 +53,6 @@ pub const fn calibration_label(kind: CalibrationSelection) -> &'static str {
     match kind {
         CalibrationSelection::Motor => "Motor",
         CalibrationSelection::Mag => "Mag",
-        CalibrationSelection::Accel => "Accel",
-        CalibrationSelection::Gyro => "Gyro",
     }
 }
 

@@ -72,10 +72,6 @@ pub enum CalibrationSelection {
     Motor,
     /// Magnetometer calibration
     Mag,
-    /// Accelerometer calibration
-    Accel,
-    /// Gyroscope calibration
-    Gyro,
 }
 
 // Motion state helpers moved to the `motion` module.

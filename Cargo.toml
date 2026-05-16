@@ -87,8 +87,7 @@ static_cell = { version = "2.1.1", features = [] }
 heapless = "0.9.2"
 micromath = "2.1.0"
 libm = "0.2"
-icm20948-rs = { version = "0.1.1", features = ["async", "defmt"] }
-ahrs = { version = "0.8", default-features = false }
+icm20948-rs = { version = "0.2.1", features = ["async", "defmt", "dmp"] }
 nalgebra = { version = "0.34", default-features = false, features = ["libm"] }
 port-expander = "0.6.5"
 embedded-hal-async = "1.0.0"

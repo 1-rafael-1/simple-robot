@@ -17,8 +17,6 @@ pub static CALIBRATION_STATE: Mutex<CriticalSectionRawMutex, CalibrationState> =
     motor_calibration_status: CalibrationStatus::NotLoaded,
     imu_calibration_status: CalibrationStatus::NotLoaded,
     mag_calibration_status: CalibrationStatus::NotLoaded,
-    accel_calibration_status: CalibrationStatus::NotLoaded,
-    gyro_calibration_status: CalibrationStatus::NotLoaded,
 });
 
 /// Calibration state shared across the system.
@@ -30,10 +28,6 @@ pub struct CalibrationState {
     pub imu_calibration_status: CalibrationStatus,
     /// Magnetometer calibration status.
     pub mag_calibration_status: CalibrationStatus,
-    /// Accelerometer calibration status.
-    pub accel_calibration_status: CalibrationStatus,
-    /// Gyroscope calibration status.
-    pub gyro_calibration_status: CalibrationStatus,
 }
 
 impl CalibrationState {

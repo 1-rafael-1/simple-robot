@@ -56,18 +56,6 @@ pub static IMU_FEEDBACK_CHANNEL: Channel<CriticalSectionRawMutex, ImuMeasurement
 /// calibration routine to measure motor-interference effects.
 pub static LATEST_MAG_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
 
-/// Latest raw gyroscope measurement.
-///
-/// Written by the IMU task before bias correction is applied. Read by the
-/// IMU calibration routine to measure gyroscope bias.
-pub static LATEST_GYRO_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
-
-/// Latest raw accelerometer measurement.
-///
-/// Written by the IMU task before any correction is applied. Read by the
-/// IMU calibration routine to measure accelerometer bias.
-pub static LATEST_ACCEL_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
-
 // ── Public write functions (called by orchestrator / IMU task) ────────────────
 
 /// Try to update the latest encoder measurement without blocking.
@@ -114,24 +102,6 @@ pub async fn send_mag_measurement(mag: Vector3<f32>) {
     *latest = Some(mag);
 }
 
-/// Update the latest raw gyroscope measurement.
-///
-/// Called by the IMU task to provide uncorrected gyroscope readings for
-/// calibration. Only used during the IMU calibration procedure.
-pub async fn send_gyro_measurement(gyro: Vector3<f32>) {
-    let mut latest = LATEST_GYRO_MEASUREMENT.lock().await;
-    *latest = Some(gyro);
-}
-
-/// Update the latest raw accelerometer measurement.
-///
-/// Called by the IMU task to provide uncorrected accelerometer readings for
-/// calibration. Only used during the IMU calibration procedure.
-pub async fn send_accel_measurement(accel: Vector3<f32>) {
-    let mut latest = LATEST_ACCEL_MEASUREMENT.lock().await;
-    *latest = Some(accel);
-}
-
 // ── Internal read / clear functions (used by drive submodules) ────────────────
 
 /// Get the latest encoder measurement.
@@ -160,21 +130,7 @@ pub async fn get_latest_mag_measurement() -> Option<Vector3<f32>> {
     *latest
 }
 
-/// Get the latest raw gyroscope measurement.
-///
-/// Returns the most recent raw reading, or `None` if none has arrived yet.
-pub async fn get_latest_gyro_measurement() -> Option<Vector3<f32>> {
-    let latest = LATEST_GYRO_MEASUREMENT.lock().await;
-    *latest
-}
-
-/// Get the latest raw accelerometer measurement.
-///
-/// Returns the most recent raw reading, or `None` if none has arrived yet.
-pub async fn get_latest_accel_measurement() -> Option<Vector3<f32>> {
-    let latest = LATEST_ACCEL_MEASUREMENT.lock().await;
-    *latest
-}
+// ── Calibration helpers ───────────────────────────────────────────────────────
 
 /// Clear the latest magnetometer measurement.
 ///
@@ -184,26 +140,6 @@ pub async fn clear_mag_measurement() {
     let mut latest = LATEST_MAG_MEASUREMENT.lock().await;
     *latest = None;
 }
-
-/// Clear the latest gyroscope measurement.
-///
-/// Called before each calibration measurement step to ensure the next read
-/// returns a fresh sample.
-pub async fn clear_gyro_measurement() {
-    let mut latest = LATEST_GYRO_MEASUREMENT.lock().await;
-    *latest = None;
-}
-
-/// Clear the latest accelerometer measurement.
-///
-/// Called before each calibration measurement step to ensure the next read
-/// returns a fresh sample.
-pub async fn clear_accel_measurement() {
-    let mut latest = LATEST_ACCEL_MEASUREMENT.lock().await;
-    *latest = None;
-}
-
-// ── Calibration helpers ───────────────────────────────────────────────────────
 
 /// Measure the average magnetometer reading over `samples` samples.
 ///

@@ -261,14 +261,6 @@ async fn handle_calibrate_menu_press(index: usize) {
             CalibrationSelection::Mag => {
                 drive::send_drive_command(drive::DriveCommand::RunImuCalibration(drive::ImuCalibrationKind::Mag)).await;
             }
-            CalibrationSelection::Accel => {
-                drive::send_drive_command(drive::DriveCommand::RunImuCalibration(drive::ImuCalibrationKind::Accel))
-                    .await;
-            }
-            CalibrationSelection::Gyro => {
-                drive::send_drive_command(drive::DriveCommand::RunImuCalibration(drive::ImuCalibrationKind::Gyro))
-                    .await;
-            }
         }
     } else {
         show_main_menu().await;
