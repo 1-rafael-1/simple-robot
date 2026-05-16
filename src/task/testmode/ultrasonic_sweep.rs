@@ -39,8 +39,9 @@ pub fn stop_ultrasonic_sweep_test_mode() {
 }
 
 /// Spawn the ultrasonic sweep test task via the controller.
+#[allow(clippy::unwrap_used)]
 pub(super) fn spawn(spawner: Spawner) {
-    spawner.must_spawn(ultrasonic_sweep_test_task());
+    spawner.spawn(ultrasonic_sweep_test_task().unwrap());
 }
 
 /// Ultrasonic sweep test mode runner.

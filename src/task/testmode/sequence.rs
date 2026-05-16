@@ -59,8 +59,9 @@ pub async fn start_testing_sequence() {
 }
 
 /// Spawn the test sequence task via the controller.
+#[allow(clippy::unwrap_used)]
 pub(super) fn spawn(spawner: Spawner) {
-    spawner.must_spawn(testing_sequence_task());
+    spawner.spawn(testing_sequence_task().unwrap());
 }
 
 #[embassy_executor::task]

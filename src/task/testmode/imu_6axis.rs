@@ -43,8 +43,9 @@ pub fn stop_imu6_test_mode() {
 }
 
 /// Spawn the IMU 6-axis test task via the controller.
+#[allow(clippy::unwrap_used)]
 pub(super) fn spawn(spawner: Spawner) {
-    spawner.must_spawn(imu6_test_task());
+    spawner.spawn(imu6_test_task().unwrap());
 }
 
 /// IMU test mode runner (updates display at 50Hz while active).

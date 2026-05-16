@@ -40,8 +40,9 @@ pub fn stop_ir_ultrasonic_test_mode() {
 }
 
 /// Spawn the IR + ultrasonic test task via the controller.
+#[allow(clippy::unwrap_used)]
 pub(super) fn spawn(spawner: Spawner) {
-    spawner.must_spawn(ir_ultrasonic_test_task());
+    spawner.spawn(ir_ultrasonic_test_task().unwrap());
 }
 
 /// IR + ultrasonic test mode runner (updates display at 10Hz while active).

@@ -51,17 +51,17 @@ future_not_send = "allow" # embassy tasks are not Send
 multiple_crate_versions = "allow" # not worth the effort, we get a minimal binary size increase that does not matter here
 
 [dependencies]
-embassy-rp = { version = "0.9.0", features = [
+embassy-rp = { version = "0.10.0", features = [
     "defmt",
     "unstable-pac",
     "time-driver",
     "critical-section-impl",
     "rp235xa",
 ] }
-embassy-embedded-hal = { version = "0.5.0", features = ["defmt"] }
-embassy-sync = { version = "0.7.2", features = ["defmt"] }
-embassy-executor = { version = "0.9.1", features = [
-    "arch-cortex-m",
+embassy-embedded-hal = { version = "0.6.0", features = ["defmt"] }
+embassy-sync = { version = "0.8.0", features = ["defmt"] }
+embassy-executor = { version = "0.10.0", features = [
+    "platform-cortex-m",
     "executor-thread",
     "executor-interrupt",
     "defmt",
@@ -79,7 +79,7 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 nanorand = { version = "0.8.0", features = [
     "wyrand",
 ], default-features = false }
-hcsr04_async = { version = "^0.5.0", features = ["blocking_trigger"] }
+hcsr04_async = { version = "0.5.0", features = ["blocking_trigger"] }
 moving_median = "0.3.0"
 ssd1306-async = { git = "https://github.com/kalkyl/ssd1306-async" }
 embedded-graphics = "0.8.1"

@@ -42,8 +42,9 @@ pub fn stop_basic_motor_test_mode() {
 }
 
 /// Spawn the basic motor test task via the controller.
+#[allow(clippy::unwrap_used)]
 pub(super) fn spawn(spawner: Spawner) {
-    spawner.must_spawn(basic_motor_test_task());
+    spawner.spawn(basic_motor_test_task().unwrap());
 }
 
 #[derive(Clone, Copy)]

@@ -292,7 +292,7 @@ async fn handle_drive_mode_menu_press(index: usize) {
 
         match mode {
             DriveMode::CoastAndAvoid => {
-                autonomous_mode::coast_obstacle_avoid::start();
+                autonomous_mode::coast_obstacle_avoid::start().await;
             }
         }
     } else {

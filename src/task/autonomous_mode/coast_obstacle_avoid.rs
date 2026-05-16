@@ -35,6 +35,7 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::info;
+use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
 use nanorand::{Rng, WyRand};
@@ -45,6 +46,7 @@ use crate::{
         state::perception,
     },
     task::{
+        autonomous_mode::{self, AutonomousCommand},
         drive::{
             CompletionStatus, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, DriveQueueBuilder,
             DriveQueueSubmitError, InterruptKind, send_drive_command, send_drive_interrupt,
@@ -96,6 +98,12 @@ const TURN_ANGLE_MAX: u8 = 180;
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/// Spawn the coast-and-avoid autonomous task.
+#[allow(clippy::unwrap_used)]
+pub(super) fn spawn(spawner: Spawner) {
+    spawner.spawn(coast_obstacle_avoid_task().unwrap());
+}
+
 /// Returns `true` while the coast-and-avoid loop is running.
 pub fn is_active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
@@ -108,12 +116,17 @@ pub fn is_forward_phase() -> bool {
 
 /// Activate the coast-and-avoid autonomous mode.
 ///
-/// Sets the active flag and wakes the task that is waiting on [`START_SIGNAL`].
-pub fn start() {
+/// Requests mode start through the autonomous mode controller.
+pub async fn start() -> bool {
+    if !autonomous_mode::request_start(AutonomousCommand::CoastObstacleAvoid).await {
+        return false;
+    }
+
     ACTIVE.store(true, Ordering::Relaxed);
     FORWARD_PHASE.store(false, Ordering::Relaxed);
     start_ultrasonic_centered_obstacle_detect();
     START_SIGNAL.signal(());
+    true
 }
 
 /// Request a graceful stop of the coast-and-avoid mode.
@@ -163,6 +176,7 @@ pub async fn coast_obstacle_avoid_task() {
         // Come to a clean stop before waiting for the next start signal.
         send_drive_command(DriveCommand::Drive(DriveAction::Brake)).await;
         Timer::after(Duration::from_millis(200)).await;
+        autonomous_mode::release_autonomous_mode();
         info!("coast-avoid: deactivated");
     }
 }
