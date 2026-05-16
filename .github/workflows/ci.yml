@@ -27,5 +27,8 @@ jobs:
       - name: Run clippy (default features)
         run: cargo clippy --target thumbv8m.main-none-eabihf -- -D warnings --no-deps
 
+      - name: Run clippy (all features)
+        run: cargo clippy --target thumbv8m.main-none-eabihf --all-features -- -D warnings --no-deps
+
       - name: Build
         run: cargo build --release --verbose --target thumbv8m.main-none-eabihf

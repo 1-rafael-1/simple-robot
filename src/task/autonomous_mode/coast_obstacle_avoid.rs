@@ -36,7 +36,6 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
 use nanorand::{Rng, WyRand};
 
@@ -66,9 +65,6 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Set while the forward-drive phase is active (used to gate obstacle interrupts).
 static FORWARD_PHASE: AtomicBool = AtomicBool::new(false);
-
-/// Signals the task to begin its loop (sent by [`start`]).
-static START_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 // ── Tuning constants ──────────────────────────────────────────────────────────
 
@@ -125,7 +121,6 @@ pub async fn start() -> bool {
     ACTIVE.store(true, Ordering::Relaxed);
     FORWARD_PHASE.store(false, Ordering::Relaxed);
     start_ultrasonic_centered_obstacle_detect();
-    START_SIGNAL.signal(());
     true
 }
 
@@ -145,40 +140,37 @@ pub fn stop() {
 
 /// Coast-and-avoid autonomous drive task.
 ///
-/// Spawned once at startup and waits indefinitely between activations.
-/// Call [`start`] to begin and [`stop`] to end a run.
+/// Spawned on demand by the autonomous mode controller each time the mode is
+/// activated. Runs until deactivated, then returns so the task slot is freed
+/// for the next activation. Call [`start`] to begin and [`stop`] to end a run.
 #[embassy_executor::task]
 pub async fn coast_obstacle_avoid_task() {
-    loop {
-        // Block until start() fires the signal.
-        START_SIGNAL.wait().await;
-        info!("coast-avoid: activated");
+    info!("coast-avoid: activated");
 
-        // Ensure a clean starting state.
-        send_drive_command(DriveCommand::Drive(DriveAction::Brake)).await;
-        Timer::after(Duration::from_millis(200)).await;
+    // Ensure a clean starting state.
+    send_drive_command(DriveCommand::Drive(DriveAction::Brake)).await;
+    Timer::after(Duration::from_millis(200)).await;
 
-        // Main loop: drive forward until interrupted, then avoid, repeat.
-        while ACTIVE.load(Ordering::Relaxed) {
-            let status = drive_forward().await;
+    // Main loop: drive forward until interrupted, then avoid, repeat.
+    while ACTIVE.load(Ordering::Relaxed) {
+        let status = drive_forward().await;
 
-            if !ACTIVE.load(Ordering::Relaxed) {
-                // stop() was called; exit without running avoidance.
-                break;
-            }
-
-            // Only run avoidance if the forward drive was actually cancelled.
-            if matches!(status, CompletionStatus::Cancelled) {
-                avoid_obstacle().await;
-            }
+        if !ACTIVE.load(Ordering::Relaxed) {
+            // stop() was called; exit without running avoidance.
+            break;
         }
 
-        // Come to a clean stop before waiting for the next start signal.
-        send_drive_command(DriveCommand::Drive(DriveAction::Brake)).await;
-        Timer::after(Duration::from_millis(200)).await;
-        autonomous_mode::release_autonomous_mode();
-        info!("coast-avoid: deactivated");
+        // Only run avoidance if the forward drive was actually cancelled.
+        if matches!(status, CompletionStatus::Cancelled) {
+            avoid_obstacle().await;
+        }
     }
+
+    // Come to a clean stop before returning so the task slot is freed.
+    send_drive_command(DriveCommand::Drive(DriveAction::Brake)).await;
+    Timer::after(Duration::from_millis(200)).await;
+    autonomous_mode::release_autonomous_mode();
+    info!("coast-avoid: deactivated");
 }
 
 /// Helper guard to mark the forward-drive phase for obstacle gating.
