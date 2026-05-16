@@ -14,10 +14,7 @@ use crate::{
     system::helper::string_helper::status_text,
     task::{
         drive::{
-            sensors::data::{
-                clear_accel_measurement, clear_gyro_measurement, clear_mag_measurement, get_latest_accel_measurement,
-                get_latest_gyro_measurement, measure_mag_average, subtract_mag, wait_for_mag_event_timeout,
-            },
+            sensors::data::{clear_mag_measurement, measure_mag_average, subtract_mag, wait_for_mag_event_timeout},
             types::ImuCalibrationKind,
         },
         motor_driver::{self, MotorCommand, Track},
@@ -61,32 +58,20 @@ const MAG_CALIBRATION_CONFIG: MagCalibrationConfig = MagCalibrationConfig {
     status_interval_secs: 2,
 };
 
-/// Maximum time to wait for a fresh gyro/accel sample during calibration.
-/// Must be comfortably above the IMU sampling period (~20.4 ms at 48.9 Hz).
-const GYRO_ACCEL_SAMPLE_TIMEOUT: Duration = Duration::from_millis(30);
-
 /// Ensures IMU readings are stopped (and fusion mode restored) after calibration completes.
 struct ImuReadingsGuard {
     /// Fusion mode to restore after calibration (if any).
-    restore_fusion_mode: Option<crate::task::sensors::imu::AhrsFusionMode>,
+    restore_fusion_mode: Option<crate::task::sensors::imu::DmpFusionMode>,
 }
 
 impl ImuReadingsGuard {
-    /// Start IMU readings without changing fusion mode.
-    fn start() -> Self {
-        crate::task::sensors::imu::start_imu_readings();
-        Self {
-            restore_fusion_mode: None,
-        }
-    }
-
     /// Start IMU readings and set a temporary fusion mode.
     fn start_with_fusion_mode(
-        target_mode: crate::task::sensors::imu::AhrsFusionMode,
-        restore_mode: crate::task::sensors::imu::AhrsFusionMode,
+        target_mode: crate::task::sensors::imu::DmpFusionMode,
+        restore_mode: crate::task::sensors::imu::DmpFusionMode,
     ) -> Self {
         crate::task::sensors::imu::start_imu_readings();
-        crate::task::sensors::imu::set_ahrs_fusion_mode(target_mode);
+        crate::task::sensors::imu::set_dmp_fusion_mode(target_mode);
         Self {
             restore_fusion_mode: Some(restore_mode),
         }
@@ -96,7 +81,7 @@ impl ImuReadingsGuard {
 impl Drop for ImuReadingsGuard {
     fn drop(&mut self) {
         if let Some(mode) = self.restore_fusion_mode {
-            crate::task::sensors::imu::set_ahrs_fusion_mode(mode);
+            crate::task::sensors::imu::set_dmp_fusion_mode(mode);
         }
         crate::task::sensors::imu::stop_imu_readings();
     }
@@ -382,127 +367,6 @@ struct MagCalibrationResult {
     scale: Vector3<f32>,
     /// Motor interference measurements.
     interference: InterferenceData,
-}
-
-/// Gyro/accel calibration output with optional biases.
-struct GyroAccelCalibrationResult {
-    /// Gyro bias if enough samples were captured.
-    gyro_bias: Option<Vector3<f32>>,
-    /// Accel bias if enough samples were captured.
-    accel_bias: Option<Vector3<f32>>,
-}
-
-/// Collect stationary samples and compute gyro/accel bias vectors.
-async fn run_gyro_accel_calibration(run_gyro: bool, run_accel: bool) -> GyroAccelCalibrationResult {
-    use crate::system::event;
-
-    let step_label = if run_gyro && run_accel {
-        "Gyro+Accel cal"
-    } else if run_gyro {
-        "Gyro calibration"
-    } else {
-        "Accel calibration"
-    };
-    info!("Step 1: {=str}", step_label);
-    let (line1, line2, line3) = (status_text(step_label), status_text("Keep still 10s"), None);
-    event::raise_event(event::Events::CalibrationStatus {
-        header: None,
-        line1,
-        line2,
-        line3,
-    })
-    .await;
-
-    info!("  Collecting calibration samples (stationary)...");
-    let mut gyro_sum = Vector3::new(0.0f32, 0.0f32, 0.0f32);
-    let mut accel_sum = Vector3::new(0.0f32, 0.0f32, 0.0f32);
-    let mut gyro_samples: u16 = 0;
-    let mut accel_samples: u16 = 0;
-    let num_samples: u16 = 500; // 500 samples at 50Hz = 10 seconds
-    let min_samples = (num_samples * 8) / 10;
-
-    Timer::after(Duration::from_millis(100)).await;
-
-    for i in 0..num_samples {
-        if run_gyro {
-            clear_gyro_measurement().await;
-            let deadline = embassy_time::Instant::now() + GYRO_ACCEL_SAMPLE_TIMEOUT;
-            while embassy_time::Instant::now() < deadline {
-                if let Some(gyro_data) = get_latest_gyro_measurement().await {
-                    gyro_sum += gyro_data;
-                    gyro_samples += 1;
-                    break;
-                }
-                Timer::after(Duration::from_millis(1)).await;
-            }
-        }
-
-        if run_accel {
-            clear_accel_measurement().await;
-            let deadline = embassy_time::Instant::now() + GYRO_ACCEL_SAMPLE_TIMEOUT;
-            while embassy_time::Instant::now() < deadline {
-                if let Some(accel_data) = get_latest_accel_measurement().await {
-                    accel_sum += accel_data;
-                    accel_samples += 1;
-                    break;
-                }
-                Timer::after(Duration::from_millis(1)).await;
-            }
-        }
-
-        if i % 50 == 0 {
-            let progress = (u32::from(i) * 100) / u32::from(num_samples);
-            let mut line = String::new();
-            let _ = write!(line, "Progress: {progress}%");
-            event::raise_event(event::Events::CalibrationStatus {
-                header: None,
-                line1: None,
-                line2: None,
-                line3: Some(line),
-            })
-            .await;
-        }
-    }
-
-    if (run_gyro && gyro_samples < min_samples) || (run_accel && accel_samples < min_samples) {
-        info!(
-            "Calibration sample shortfall (gyro={}/{} accel={}/{})",
-            gyro_samples, num_samples, accel_samples, num_samples
-        );
-    }
-
-    let gyro_bias = if run_gyro && gyro_samples >= min_samples && gyro_samples > 0 {
-        Some(gyro_sum / f32::from(gyro_samples))
-    } else {
-        None
-    };
-    let accel_bias = if run_accel && accel_samples >= min_samples && accel_samples > 0 {
-        let mut bias = accel_sum / f32::from(accel_samples);
-        bias.z -= 1.0;
-        Some(bias)
-    } else {
-        None
-    };
-
-    if let Some(bias) = gyro_bias {
-        info!("  ✓ Gyro bias calculated:");
-        info!("    X: {} deg/s", bias.x);
-        info!("    Y: {} deg/s", bias.y);
-        info!("    Z: {} deg/s", bias.z);
-    } else if run_gyro {
-        info!("  ! Gyro calibration failed (insufficient samples)");
-    }
-
-    if let Some(bias) = accel_bias {
-        info!("  ✓ Accel bias calculated:");
-        info!("    X: {} g", bias.x);
-        info!("    Y: {} g", bias.y);
-        info!("    Z: {} g (gravity removed)", bias.z);
-    } else if run_accel {
-        info!("  ! Accel calibration failed (insufficient samples)");
-    }
-
-    GyroAccelCalibrationResult { gyro_bias, accel_bias }
 }
 
 /// Emit a phase transition log and update OLED with phase progress.
@@ -1011,215 +875,6 @@ async fn run_mag_calibration_steps(config: MagCalibrationConfig) -> Option<MagCa
     })
 }
 
-/// Run the IMU calibration procedure
-///
-/// Measures gyroscope, accelerometer, and magnetometer biases, plus motor interference.
-///
-/// # Why IMU Calibration Uses Calibrated Motor Commands
-///
-/// Unlike motor calibration (which must use raw commands), IMU calibration CORRECTLY
-/// uses calibrated motor commands (`SetTrack`, `SetTracks`). Here's why:
-///
-/// **Goal**: Measure magnetic interference at *actual operational speeds*
-/// - We want to know the interference when motors run at 50% and 100% *actual* speed
-/// - During normal operation, motor calibration is applied
-/// - So we need interference measurements with calibration applied
-///
-/// **Example**:
-/// - If `left_front` has calibration factor 0.8
-/// - Command "100%" becomes 80% actual (due to calibration)
-/// - IMU needs to know interference at 80% actual, not 100% raw
-/// - This way, interference compensation matches real-world operation
-///
-/// **Ordering requirement**:
-/// - Motor calibration MUST run before IMU calibration
-/// - This ensures IMU measures interference at correctly calibrated speeds
-/// - If motor calibration changes later, IMU calibration should be re-run
-#[allow(clippy::too_many_lines)]
-#[allow(clippy::similar_names)]
-#[allow(clippy::cast_precision_loss)]
-async fn run_gyro_calibration() {
-    use crate::{
-        system::event,
-        task::{io::flash_storage, sensors::imu as imu_read},
-    };
-
-    info!("=== Starting IMU Gyro Calibration ===");
-
-    event::raise_event(event::Events::CalibrationStatus {
-        header: status_text("IMU Calibration"),
-        line1: status_text("Initializing"),
-        line2: None,
-        line3: None,
-    })
-    .await;
-
-    let _imu_guard = ImuReadingsGuard::start();
-    Timer::after(Duration::from_millis(500)).await;
-
-    let cached_calibration = flash_storage::get_cached_imu_calibration().await.unwrap_or_default();
-    let mut imu_calibration = cached_calibration;
-    let mut imu_flags = flash_storage::get_cached_imu_flags().await.unwrap_or_default();
-
-    let result = run_gyro_accel_calibration(true, false).await;
-    let Some(gyro_bias) = result.gyro_bias else {
-        info!("Gyro calibration failed; keeping previous values");
-        event::raise_event(event::Events::CalibrationStatus {
-            header: None,
-            line1: status_text("GYRO FAILED"),
-            line2: status_text("Not saved"),
-            line3: None,
-        })
-        .await;
-        event::raise_event(event::Events::CalibrationCompleted).await;
-        Timer::after(Duration::from_secs(2)).await;
-
-        info!("=== IMU Gyro Calibration Complete ===");
-        return;
-    };
-
-    imu_calibration.gyro_x_bias = gyro_bias.x;
-    imu_calibration.gyro_y_bias = gyro_bias.y;
-    imu_calibration.gyro_z_bias = gyro_bias.z;
-    imu_flags.gyro = true;
-
-    info!("Saving gyro calibration to flash");
-    info!("╔═══════════════════════════════════════════════════╗");
-    info!("║     FINAL CALIBRATION SUMMARY (GYRO)             ║");
-    info!("╠═══════════════════════════════════════════════════╣");
-    info!("║  Gyro bias (deg/s):                              ║");
-    info!(
-        "║    X: {} Y: {} Z: {}",
-        imu_calibration.gyro_x_bias, imu_calibration.gyro_y_bias, imu_calibration.gyro_z_bias
-    );
-    info!("╚═══════════════════════════════════════════════════╝");
-
-    event::raise_event(event::Events::CalibrationStatus {
-        header: None,
-        line1: status_text("Complete!"),
-        line2: status_text("Saving to flash"),
-        line3: status_text("Please wait"),
-    })
-    .await;
-
-    flash_storage::send_flash_command(flash_storage::FlashCommand::SaveData(
-        flash_storage::CalibrationDataKind::Imu(imu_calibration),
-    ))
-    .await;
-    flash_storage::send_flash_command(flash_storage::FlashCommand::SaveImuFlags(imu_flags)).await;
-
-    Timer::after(Duration::from_millis(500)).await;
-
-    info!("Applying gyro calibration to IMU task");
-    imu_read::load_imu_calibration(imu_calibration);
-
-    event::raise_event(event::Events::CalibrationStatus {
-        header: None,
-        line1: status_text("Complete!"),
-        line2: status_text("Calibration saved"),
-        line3: None,
-    })
-    .await;
-
-    event::raise_event(event::Events::CalibrationCompleted).await;
-    Timer::after(Duration::from_secs(2)).await;
-
-    info!("=== IMU Gyro Calibration Complete ===");
-}
-
-#[allow(clippy::too_many_lines)]
-#[allow(clippy::similar_names)]
-#[allow(clippy::cast_precision_loss)]
-/// Calibrate the accelerometer and persist results.
-async fn run_accel_calibration() {
-    use crate::{
-        system::event,
-        task::{io::flash_storage, sensors::imu as imu_read},
-    };
-
-    info!("=== Starting IMU Accel Calibration ===");
-
-    event::raise_event(event::Events::CalibrationStatus {
-        header: status_text("IMU Calibration"),
-        line1: status_text("Initializing"),
-        line2: None,
-        line3: None,
-    })
-    .await;
-
-    let _imu_guard = ImuReadingsGuard::start();
-    Timer::after(Duration::from_millis(500)).await;
-
-    let cached_calibration = flash_storage::get_cached_imu_calibration().await.unwrap_or_default();
-    let mut imu_calibration = cached_calibration;
-    let mut imu_flags = flash_storage::get_cached_imu_flags().await.unwrap_or_default();
-
-    let result = run_gyro_accel_calibration(false, true).await;
-    let Some(accel_bias) = result.accel_bias else {
-        info!("Accel calibration failed; keeping previous values");
-        event::raise_event(event::Events::CalibrationStatus {
-            header: None,
-            line1: status_text("ACCEL FAILED"),
-            line2: status_text("Not saved"),
-            line3: None,
-        })
-        .await;
-        event::raise_event(event::Events::CalibrationCompleted).await;
-        Timer::after(Duration::from_secs(2)).await;
-
-        info!("=== IMU Accel Calibration Complete ===");
-        return;
-    };
-
-    imu_calibration.accel_x_bias = accel_bias.x;
-    imu_calibration.accel_y_bias = accel_bias.y;
-    imu_calibration.accel_z_bias = accel_bias.z;
-    imu_flags.accel = true;
-
-    info!("Saving accel calibration to flash");
-    info!("╔═══════════════════════════════════════════════════╗");
-    info!("║    FINAL CALIBRATION SUMMARY (ACCEL)             ║");
-    info!("╠═══════════════════════════════════════════════════╣");
-    info!("║  Accel bias (g):                                 ║");
-    info!(
-        "║    X: {} Y: {} Z: {}",
-        imu_calibration.accel_x_bias, imu_calibration.accel_y_bias, imu_calibration.accel_z_bias
-    );
-    info!("╚═══════════════════════════════════════════════════╝");
-
-    event::raise_event(event::Events::CalibrationStatus {
-        header: None,
-        line1: status_text("Complete!"),
-        line2: status_text("Saving to flash"),
-        line3: status_text("Please wait"),
-    })
-    .await;
-
-    flash_storage::send_flash_command(flash_storage::FlashCommand::SaveData(
-        flash_storage::CalibrationDataKind::Imu(imu_calibration),
-    ))
-    .await;
-    flash_storage::send_flash_command(flash_storage::FlashCommand::SaveImuFlags(imu_flags)).await;
-
-    Timer::after(Duration::from_millis(500)).await;
-
-    info!("Applying accel calibration to IMU task");
-    imu_read::load_imu_calibration(imu_calibration);
-
-    event::raise_event(event::Events::CalibrationStatus {
-        header: None,
-        line1: status_text("Complete!"),
-        line2: status_text("Calibration saved"),
-        line3: None,
-    })
-    .await;
-
-    event::raise_event(event::Events::CalibrationCompleted).await;
-    Timer::after(Duration::from_secs(2)).await;
-
-    info!("=== IMU Accel Calibration Complete ===");
-}
-
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::similar_names)]
 #[allow(clippy::cast_precision_loss)]
@@ -1241,7 +896,7 @@ async fn run_mag_calibration() {
     .await;
 
     let _imu_guard =
-        ImuReadingsGuard::start_with_fusion_mode(imu_read::AhrsFusionMode::Axis9, imu_read::DEFAULT_FUSION_MODE);
+        ImuReadingsGuard::start_with_fusion_mode(imu_read::DmpFusionMode::Axis9, imu_read::DEFAULT_FUSION_MODE);
     Timer::after(Duration::from_millis(500)).await;
 
     let cached_calibration = flash_storage::get_cached_imu_calibration().await.unwrap_or_default();
@@ -1331,8 +986,6 @@ async fn run_mag_calibration() {
 /// Dispatch the requested IMU calibration routine.
 pub async fn run_imu_calibration(kind: ImuCalibrationKind) {
     match kind {
-        ImuCalibrationKind::Gyro => run_gyro_calibration().await,
-        ImuCalibrationKind::Accel => run_accel_calibration().await,
         ImuCalibrationKind::Mag => run_mag_calibration().await,
     }
 }

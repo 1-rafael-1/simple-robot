@@ -178,7 +178,5 @@ pub async fn build_system_info_data() -> screens::SystemInfoData {
         battery_voltage: power_state.battery_voltage,
         motor_calibration_status: calibration_state.motor_calibration_status,
         mag_calibration_status: calibration_state.mag_calibration_status,
-        accel_calibration_status: calibration_state.accel_calibration_status,
-        gyro_calibration_status: calibration_state.gyro_calibration_status,
     }
 }

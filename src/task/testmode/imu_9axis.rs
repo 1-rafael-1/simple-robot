@@ -15,9 +15,9 @@ use super::{TestCommand, release_testmode, request_start};
 use crate::task::{
     io::display::{DisplayAction, display_update},
     sensors::imu::{
-        AhrsFusionMode, Orientation, get_latest_calibrated_accel, get_latest_calibrated_gyro,
-        get_latest_calibrated_mag, get_latest_orientation, get_latest_raw_accel, get_latest_raw_gyro,
-        get_latest_raw_mag, set_ahrs_fusion_mode, start_imu_readings, stop_imu_readings,
+        DmpFusionMode, Orientation, get_latest_calibrated_accel, get_latest_calibrated_gyro, get_latest_calibrated_mag,
+        get_latest_orientation, get_latest_raw_accel, get_latest_raw_gyro, get_latest_raw_mag, set_dmp_fusion_mode,
+        start_imu_readings, stop_imu_readings,
     },
 };
 
@@ -56,7 +56,7 @@ pub(super) fn spawn(spawner: Spawner) {
 async fn imu_test_task() {
     start_imu_readings();
     Timer::after(Duration::from_millis(30)).await;
-    set_ahrs_fusion_mode(AhrsFusionMode::Axis9);
+    set_dmp_fusion_mode(DmpFusionMode::Axis9);
     display_update(DisplayAction::Clear).await;
 
     let mut tick: u32 = 0;
@@ -239,17 +239,13 @@ fn log_mag_diagnostics(
 
     if let Some(ori) = orientation {
         defmt::debug!(
-            "IMU heading: raw={=f32} tilt={=f32} ahrs_yaw={=f32}",
+            "IMU heading: raw={=f32} tilt={=f32} dmp_yaw={=f32}",
             raw_heading,
             tilt_heading,
             ori.yaw
         );
     } else {
-        defmt::debug!(
-            "IMU heading: raw={=f32} tilt={=f32} ahrs_yaw=n/a",
-            raw_heading,
-            tilt_heading
-        );
+        defmt::debug!("IMU heading: raw={=f32} tilt={=f32} dmp=n/a", raw_heading, tilt_heading);
     }
 }
 

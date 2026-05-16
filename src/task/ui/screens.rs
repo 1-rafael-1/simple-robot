@@ -36,7 +36,7 @@ pub const TEST_MENU_ITEMS: [&str; 7] = [
 ];
 
 /// Calibration submenu entries.
-pub const CALIBRATE_MENU_ITEMS: [&str; 5] = ["Motor", "Mag", "Accel", "Gyro", "Back"];
+pub const CALIBRATE_MENU_ITEMS: [&str; 3] = ["Motor", "Mag", "Back"];
 
 /// Snapshot of the system info values needed for display.
 #[derive(Clone, Copy)]
@@ -49,10 +49,6 @@ pub struct SystemInfoData {
     pub motor_calibration_status: CalibrationStatus,
     /// Magnetometer calibration status
     pub mag_calibration_status: CalibrationStatus,
-    /// Accelerometer calibration status
-    pub accel_calibration_status: CalibrationStatus,
-    /// Gyroscope calibration status
-    pub gyro_calibration_status: CalibrationStatus,
 }
 
 /// Render the main menu with the given selected index.
@@ -132,8 +128,6 @@ fn build_system_info_lines(info: &SystemInfoData) -> Vec<String<MAX_LINE_LEN>, 8
     let _ = lines.push(format_battery_voltage_line(info.battery_voltage));
     let _ = lines.push(format_cal_line("Motor", info.motor_calibration_status));
     let _ = lines.push(format_cal_line("Mag", info.mag_calibration_status));
-    let _ = lines.push(format_cal_line("Accel", info.accel_calibration_status));
-    let _ = lines.push(format_cal_line("Gyro", info.gyro_calibration_status));
 
     lines
 }

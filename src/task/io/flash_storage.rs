@@ -102,21 +102,8 @@ pub enum FlashCommand {
 
 /// IMU calibration data structure
 #[derive(Debug, Clone, Copy, Format)]
+#[allow(clippy::struct_field_names)] // all fields are mag-related; prefix aids clarity
 pub struct ImuCalibration {
-    /// Gyroscope X-axis bias (deg/s)
-    pub gyro_x_bias: f32,
-    /// Gyroscope Y-axis bias (deg/s)
-    pub gyro_y_bias: f32,
-    /// Gyroscope Z-axis bias (deg/s)
-    pub gyro_z_bias: f32,
-
-    /// Accelerometer X-axis bias (g)
-    pub accel_x_bias: f32,
-    /// Accelerometer Y-axis bias (g)
-    pub accel_y_bias: f32,
-    /// Accelerometer Z-axis bias (g)
-    pub accel_z_bias: f32,
-
     /// Magnetometer X-axis bias (μT)
     pub mag_x_bias: f32,
     /// Magnetometer Y-axis bias (μT)
@@ -149,10 +136,6 @@ pub struct ImuCalibration {
 /// IMU calibration completion flags persisted separately from calibration values.
 #[derive(Debug, Clone, Copy, Format, Default, PartialEq, Eq)]
 pub struct ImuCalibrationFlags {
-    /// Gyroscope calibration completed.
-    pub gyro: bool,
-    /// Accelerometer calibration completed.
-    pub accel: bool,
     /// Magnetometer calibration completed.
     pub mag: bool,
 }
@@ -160,12 +143,6 @@ pub struct ImuCalibrationFlags {
 impl Default for ImuCalibration {
     fn default() -> Self {
         Self {
-            gyro_x_bias: 0.0,
-            gyro_y_bias: 0.0,
-            gyro_z_bias: 0.0,
-            accel_x_bias: 0.0,
-            accel_y_bias: 0.0,
-            accel_z_bias: 0.0,
             mag_x_bias: 0.0,
             mag_y_bias: 0.0,
             mag_z_bias: 0.0,
@@ -198,8 +175,18 @@ pub struct CalibrationData {
 #[repr(u8)]
 enum StorageKey {
     MotorCalibration = 0,
-    ImuCalibration = 1,
+    /// Pre-DMP-migration `ImuCalibration` schema (120 bytes / 30 floats).
+    /// This variant is kept solely so that `sequential_storage`'s flash scanner
+    /// can successfully deserialize the key byte and step over any legacy record
+    /// still sitting in flash, without returning `InvalidFormat` and aborting the
+    /// scan of unrelated records (e.g. `MotorCalibration`).  The variant is never
+    /// passed to `fetch_item` / `store_item` in application code, so legacy data
+    /// is effectively invisible to the rest of the system.
+    LegacyImuCalibration = 1,
     ImuFlags = 2,
+    /// Current `ImuCalibration` schema (96 bytes / 24 floats, post-DMP-migration).
+    /// Uses key 3 (not 1) so any legacy record in flash is never matched.
+    ImuCalibration = 3,
 }
 
 impl Key for StorageKey {
@@ -220,8 +207,9 @@ impl Key for StorageKey {
         }
         match buffer[0] {
             0 => Ok((Self::MotorCalibration, 1)),
-            1 => Ok((Self::ImuCalibration, 1)),
+            1 => Ok((Self::LegacyImuCalibration, 1)),
             2 => Ok((Self::ImuFlags, 1)),
+            3 => Ok((Self::ImuCalibration, 1)),
             _ => Err(SerializationError::InvalidFormat),
         }
     }
@@ -262,26 +250,14 @@ impl Value<'_> for MotorCalibration {
 /// Serialize IMU calibration to bytes
 impl Value<'_> for ImuCalibration {
     fn serialize_into(&self, buffer: &mut [u8]) -> Result<usize, SerializationError> {
-        const REQUIRED_SIZE: usize = 120; // 30 floats * 4 bytes
+        const REQUIRED_SIZE: usize = 96; // 24 floats * 4 bytes
         if buffer.len() < REQUIRED_SIZE {
             return Err(SerializationError::BufferTooSmall);
         }
 
         let mut offset = 0;
 
-        // Base calibration (9 floats)
-        buffer[offset..offset + 4].copy_from_slice(&self.gyro_x_bias.to_le_bytes());
-        offset += 4;
-        buffer[offset..offset + 4].copy_from_slice(&self.gyro_y_bias.to_le_bytes());
-        offset += 4;
-        buffer[offset..offset + 4].copy_from_slice(&self.gyro_z_bias.to_le_bytes());
-        offset += 4;
-        buffer[offset..offset + 4].copy_from_slice(&self.accel_x_bias.to_le_bytes());
-        offset += 4;
-        buffer[offset..offset + 4].copy_from_slice(&self.accel_y_bias.to_le_bytes());
-        offset += 4;
-        buffer[offset..offset + 4].copy_from_slice(&self.accel_z_bias.to_le_bytes());
-        offset += 4;
+        // Hard-iron bias (3 floats)
         buffer[offset..offset + 4].copy_from_slice(&self.mag_x_bias.to_le_bytes());
         offset += 4;
         buffer[offset..offset + 4].copy_from_slice(&self.mag_y_bias.to_le_bytes());
@@ -334,57 +310,14 @@ impl Value<'_> for ImuCalibration {
     where
         Self: Sized,
     {
-        const MIN_SIZE: usize = 108; // 27 floats * 4 bytes (legacy)
-        const SCALE_SIZE: usize = 12; // 3 floats * 4 bytes (soft-iron scale)
+        const MIN_SIZE: usize = 96; // 24 floats * 4 bytes
         if buffer.len() < MIN_SIZE {
             return Err(SerializationError::BufferTooSmall);
         }
 
         let mut offset = 0;
 
-        // Base calibration (9 floats)
-        let gyro_x_bias = f32::from_le_bytes([
-            buffer[offset],
-            buffer[offset + 1],
-            buffer[offset + 2],
-            buffer[offset + 3],
-        ]);
-        offset += 4;
-        let gyro_y_bias = f32::from_le_bytes([
-            buffer[offset],
-            buffer[offset + 1],
-            buffer[offset + 2],
-            buffer[offset + 3],
-        ]);
-        offset += 4;
-        let gyro_z_bias = f32::from_le_bytes([
-            buffer[offset],
-            buffer[offset + 1],
-            buffer[offset + 2],
-            buffer[offset + 3],
-        ]);
-        offset += 4;
-        let accel_x_bias = f32::from_le_bytes([
-            buffer[offset],
-            buffer[offset + 1],
-            buffer[offset + 2],
-            buffer[offset + 3],
-        ]);
-        offset += 4;
-        let accel_y_bias = f32::from_le_bytes([
-            buffer[offset],
-            buffer[offset + 1],
-            buffer[offset + 2],
-            buffer[offset + 3],
-        ]);
-        offset += 4;
-        let accel_z_bias = f32::from_le_bytes([
-            buffer[offset],
-            buffer[offset + 1],
-            buffer[offset + 2],
-            buffer[offset + 3],
-        ]);
-        offset += 4;
+        // Hard-iron bias (3 floats)
         let mag_x_bias = f32::from_le_bytes([
             buffer[offset],
             buffer[offset + 1],
@@ -471,43 +404,32 @@ impl Value<'_> for ImuCalibration {
             offset += 4;
         }
 
-        let (mag_x_scale, mag_y_scale, mag_z_scale) = if buffer.len() >= MIN_SIZE + SCALE_SIZE {
-            let mag_x_scale = f32::from_le_bytes([
-                buffer[offset],
-                buffer[offset + 1],
-                buffer[offset + 2],
-                buffer[offset + 3],
-            ]);
-            offset += 4;
-            let mag_y_scale = f32::from_le_bytes([
-                buffer[offset],
-                buffer[offset + 1],
-                buffer[offset + 2],
-                buffer[offset + 3],
-            ]);
-            offset += 4;
-            let mag_z_scale = f32::from_le_bytes([
-                buffer[offset],
-                buffer[offset + 1],
-                buffer[offset + 2],
-                buffer[offset + 3],
-            ]);
-            offset += 4;
-            (mag_x_scale, mag_y_scale, mag_z_scale)
-        } else {
-            (1.0, 1.0, 1.0)
-        };
+        let mag_x_scale = f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]);
+        offset += 4;
+        let mag_y_scale = f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]);
+        offset += 4;
+        let mag_z_scale = f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]);
+        offset += 4;
 
         let consumed = offset;
 
         Ok((
             Self {
-                gyro_x_bias,
-                gyro_y_bias,
-                gyro_z_bias,
-                accel_x_bias,
-                accel_y_bias,
-                accel_z_bias,
                 mag_x_bias,
                 mag_y_bias,
                 mag_z_bias,
@@ -529,33 +451,24 @@ impl Value<'_> for ImuCalibration {
 /// Serialize IMU calibration flags to bytes
 impl Value<'_> for ImuCalibrationFlags {
     fn serialize_into(&self, buffer: &mut [u8]) -> Result<usize, SerializationError> {
-        if buffer.len() < 3 {
+        if buffer.is_empty() {
             return Err(SerializationError::BufferTooSmall);
         }
 
-        buffer[0] = u8::from(self.gyro);
-        buffer[1] = u8::from(self.accel);
-        buffer[2] = u8::from(self.mag);
+        buffer[0] = u8::from(self.mag);
 
-        Ok(3)
+        Ok(1)
     }
 
     fn deserialize_from(buffer: &[u8]) -> Result<(Self, usize), SerializationError>
     where
         Self: Sized,
     {
-        if buffer.len() < 3 {
+        if buffer.is_empty() {
             return Err(SerializationError::BufferTooSmall);
         }
 
-        Ok((
-            Self {
-                gyro: buffer[0] != 0,
-                accel: buffer[1] != 0,
-                mag: buffer[2] != 0,
-            },
-            3,
-        ))
+        Ok((Self { mag: buffer[0] != 0 }, 1))
     }
 }
 
@@ -577,7 +490,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
     let mut storage = MapStorage::<StorageKey, _, _>::new(flash, MapConfig::new(flash_range.clone()), NoCache::new());
 
     // Create scratch buffer for serialization/deserialization
-    // Motor calibration needs 16 bytes, IMU calibration needs 120 bytes
+    // Motor calibration needs 16 bytes, IMU calibration needs 96 bytes
     // Using 128 bytes to be safe and align with common practice
     let mut data_buffer: [u8; 128] = [0; 128];
 
@@ -591,6 +504,8 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                 CalibrationKind::Motor => {
                     info!("Loading motor calibration from flash...");
 
+                    #[allow(unreachable_patterns)]
+                    // sequential_storage::Error is #[non_exhaustive]; _ arm silences false rust-analyzer diagnostic
                     match storage
                         .fetch_item::<MotorCalibration>(&mut data_buffer, &StorageKey::MotorCalibration)
                         .await
@@ -631,11 +546,15 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                             // Send event with None to indicate failure
                             raise_event(Events::CalibrationDataLoaded(CalibrationKind::Motor, None)).await;
                         }
+                        // nominally unreachable, but rust-analyzer kept flagging this as an error without the wildcard arm
+                        _ => {}
                     }
                 }
                 CalibrationKind::Imu => {
                     info!("Loading IMU calibration from flash...");
 
+                    #[allow(unreachable_patterns)]
+                    // sequential_storage::Error is #[non_exhaustive]; _ arm silences false rust-analyzer diagnostic
                     match storage
                         .fetch_item::<ImuCalibration>(&mut data_buffer, &StorageKey::ImuCalibration)
                         .await
@@ -673,6 +592,8 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                             // Send event with None to indicate failure
                             raise_event(Events::CalibrationDataLoaded(CalibrationKind::Imu, None)).await;
                         }
+                        // nominally unreachable, but rust-analyzer kept flagging this as an error without the wildcard arm
+                        _ => {}
                     }
                 }
             },
@@ -680,15 +601,14 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
             FlashCommand::GetImuFlags => {
                 info!("Loading IMU calibration flags from flash...");
 
+                #[allow(unreachable_patterns)]
+                // sequential_storage::Error is #[non_exhaustive]; _ arm silences false rust-analyzer diagnostic
                 match storage
                     .fetch_item::<ImuCalibrationFlags>(&mut data_buffer, &StorageKey::ImuFlags)
                     .await
                 {
                     Ok(Some(flags)) => {
-                        info!(
-                            "IMU calibration flags loaded: gyro={} accel={} mag={}",
-                            flags.gyro, flags.accel, flags.mag
-                        );
+                        info!("IMU calibration flags loaded: mag={}", flags.mag);
 
                         let mut data = CALIBRATION_DATA.lock().await;
                         if let Some(ref mut cal) = *data {
@@ -712,6 +632,8 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                         error!("Failed to load IMU calibration flags: {}", defmt::Debug2Format(&e));
                         raise_event(Events::ImuCalibrationFlagsLoaded(None)).await;
                     }
+                    // nominally unreachable, but rust-analyzer kept flagging this as an error without the wildcard arm
+                    _ => {}
                 }
             }
 
@@ -730,6 +652,8 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                 }
                 drop(data);
 
+                #[allow(unreachable_patterns)]
+                // sequential_storage::Error is #[non_exhaustive]; _ arm silences false rust-analyzer diagnostic
                 match storage
                     .store_item(&mut data_buffer, &StorageKey::ImuFlags, &flags)
                     .await
@@ -742,6 +666,8 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                         error!("Failed to save IMU calibration flags: {}", defmt::Debug2Format(&e));
                         raise_event(Events::ImuCalibrationFlagsLoaded(None)).await;
                     }
+                    // nominally unreachable, but rust-analyzer kept flagging this as an error without the wildcard arm
+                    _ => {}
                 }
             }
 
@@ -763,6 +689,8 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                         }
                         drop(data);
 
+                        #[allow(unreachable_patterns)]
+                        // sequential_storage::Error is #[non_exhaustive]; _ arm silences false rust-analyzer diagnostic
                         match storage
                             .store_item(&mut data_buffer, &StorageKey::MotorCalibration, &motor_cal)
                             .await
@@ -778,6 +706,8 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                             Err(e) => {
                                 error!("Failed to save motor calibration: {}", defmt::Debug2Format(&e));
                             }
+                            // nominally unreachable, but rust-analyzer kept flagging this as an error without the wildcard arm
+                            _ => {}
                         }
                     }
                     CalibrationDataKind::Imu(imu_cal) => {
@@ -796,6 +726,8 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                         }
                         drop(data);
 
+                        #[allow(unreachable_patterns)]
+                        // sequential_storage::Error is #[non_exhaustive]; _ arm silences false rust-analyzer diagnostic
                         match storage
                             .store_item(&mut data_buffer, &StorageKey::ImuCalibration, &imu_cal)
                             .await
@@ -811,6 +743,8 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                             Err(e) => {
                                 error!("Failed to save IMU calibration: {}", defmt::Debug2Format(&e));
                             }
+                            // nominally unreachable, but rust-analyzer kept flagging this as an error without the wildcard arm
+                            _ => {}
                         }
                     }
                 }

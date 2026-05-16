@@ -107,8 +107,6 @@ pub async fn handle_calibration_data_loaded(
                     let mut state = calibration::CALIBRATION_STATE.lock().await;
                     state.imu_calibration_status = CalibrationStatus::NotAvailable;
                     state.mag_calibration_status = CalibrationStatus::NotAvailable;
-                    state.accel_calibration_status = CalibrationStatus::NotAvailable;
-                    state.gyro_calibration_status = CalibrationStatus::NotAvailable;
                 }
 
                 let mut txt: String<20> = String::new();
@@ -125,33 +123,13 @@ pub async fn handle_calibration_data_loaded(
 pub async fn handle_imu_calibration_flags_loaded(flags: Option<flash_storage::ImuCalibrationFlags>) {
     {
         let mut state = calibration::CALIBRATION_STATE.lock().await;
-        if let Some(flags) = flags {
-            state.gyro_calibration_status = if flags.gyro {
-                CalibrationStatus::Loaded
-            } else {
-                CalibrationStatus::NotAvailable
-            };
-            state.accel_calibration_status = if flags.accel {
-                CalibrationStatus::Loaded
-            } else {
-                CalibrationStatus::NotAvailable
-            };
-            state.mag_calibration_status = if flags.mag {
-                CalibrationStatus::Loaded
-            } else {
-                CalibrationStatus::NotAvailable
-            };
-            state.imu_calibration_status = if flags.gyro && flags.accel && flags.mag {
-                CalibrationStatus::Loaded
-            } else {
-                CalibrationStatus::NotAvailable
-            };
+        state.mag_calibration_status = if flags.is_some_and(|f| f.mag) {
+            CalibrationStatus::Loaded
         } else {
-            state.imu_calibration_status = CalibrationStatus::NotAvailable;
-            state.mag_calibration_status = CalibrationStatus::NotAvailable;
-            state.accel_calibration_status = CalibrationStatus::NotAvailable;
-            state.gyro_calibration_status = CalibrationStatus::NotAvailable;
-        }
+            CalibrationStatus::NotAvailable
+        };
+        // imu_calibration_status is managed by handle_calibration_data_loaded
+        // to avoid overriding the data-load result.
     }
 
     if ui::ui_initialized().await {
