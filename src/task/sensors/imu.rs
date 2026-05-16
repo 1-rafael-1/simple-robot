@@ -102,7 +102,9 @@ const MAX_FIFO_FAILURES: u32 = 10;
 const ACCEL_SCALE_G: f32 = 1.0 / 8192.0;
 
 /// Gyroscope LSB → deg/s for ±2000 dps full-scale (16.384 LSB/dps).
-/// Adjust if DMP firmware uses a different gyro full-scale internally.
+/// The icm20948-rs DMP initialisation explicitly programs `GYRO_FS_SEL = 0b11`
+/// (±2000 dps) in its DMP-enable sequence (see `device.rs`, `dmp_enable`).
+/// Exact conversion: 32768 LSB / 2000 dps = 16.384 LSB/dps.
 const GYRO_SCALE_DPS: f32 = 1.0 / 16.384;
 
 /// AK09916 magnetometer sensitivity: 0.15 µT per LSB.

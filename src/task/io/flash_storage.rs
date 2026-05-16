@@ -175,7 +175,11 @@ pub struct CalibrationData {
 #[repr(u8)]
 enum StorageKey {
     MotorCalibration = 0,
-    ImuCalibration = 1,
+    /// Key 1 was the pre-DMP-migration `ImuCalibration` schema (120 bytes, 30 floats).
+    /// It has been abandoned to prevent silent deserialization of legacy records
+    /// into the current 96-byte layout (24 floats).  Any existing flash written
+    /// under key 1 will simply never match and will be ignored.
+    ImuCalibration = 3,
     ImuFlags = 2,
 }
 
@@ -197,8 +201,8 @@ impl Key for StorageKey {
         }
         match buffer[0] {
             0 => Ok((Self::MotorCalibration, 1)),
-            1 => Ok((Self::ImuCalibration, 1)),
             2 => Ok((Self::ImuFlags, 1)),
+            3 => Ok((Self::ImuCalibration, 1)),
             _ => Err(SerializationError::InvalidFormat),
         }
     }
@@ -479,7 +483,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
     let mut storage = MapStorage::<StorageKey, _, _>::new(flash, MapConfig::new(flash_range.clone()), NoCache::new());
 
     // Create scratch buffer for serialization/deserialization
-    // Motor calibration needs 16 bytes, IMU calibration needs 120 bytes
+    // Motor calibration needs 16 bytes, IMU calibration needs 96 bytes
     // Using 128 bytes to be safe and align with common practice
     let mut data_buffer: [u8; 128] = [0; 128];
 
@@ -535,7 +539,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                             // Send event with None to indicate failure
                             raise_event(Events::CalibrationDataLoaded(CalibrationKind::Motor, None)).await;
                         }
-                        // nominally unreachable, but rust-analyzer kept flagging this as error without
+                        // nominally unreachable, but rust-analyzer kept flagging this as an error without the wildcard arm
                         _ => {}
                     }
                 }
@@ -581,7 +585,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                             // Send event with None to indicate failure
                             raise_event(Events::CalibrationDataLoaded(CalibrationKind::Imu, None)).await;
                         }
-                        // nominally unreachable, but rust-analyzer kept flagging this as error without
+                        // nominally unreachable, but rust-analyzer kept flagging this as an error without the wildcard arm
                         _ => {}
                     }
                 }
@@ -621,7 +625,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                         error!("Failed to load IMU calibration flags: {}", defmt::Debug2Format(&e));
                         raise_event(Events::ImuCalibrationFlagsLoaded(None)).await;
                     }
-                    // nominally unreachable, but rust-analyzer kept flagging this as error without
+                    // nominally unreachable, but rust-analyzer kept flagging this as an error without the wildcard arm
                     _ => {}
                 }
             }
@@ -655,7 +659,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                         error!("Failed to save IMU calibration flags: {}", defmt::Debug2Format(&e));
                         raise_event(Events::ImuCalibrationFlagsLoaded(None)).await;
                     }
-                    // nominally unreachable, but rust-analyzer kept flagging this as error without
+                    // nominally unreachable, but rust-analyzer kept flagging this as an error without the wildcard arm
                     _ => {}
                 }
             }
@@ -695,7 +699,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                             Err(e) => {
                                 error!("Failed to save motor calibration: {}", defmt::Debug2Format(&e));
                             }
-                            // nominally unreachable, but rust-analyzer kept flagging this as error without
+                            // nominally unreachable, but rust-analyzer kept flagging this as an error without the wildcard arm
                             _ => {}
                         }
                     }
@@ -732,7 +736,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                             Err(e) => {
                                 error!("Failed to save IMU calibration: {}", defmt::Debug2Format(&e));
                             }
-                            // nominally unreachable, but rust-analyzer kept flagging this as error without
+                            // nominally unreachable, but rust-analyzer kept flagging this as an error without the wildcard arm
                             _ => {}
                         }
                     }
