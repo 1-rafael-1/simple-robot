@@ -14,10 +14,11 @@ use embassy_rp::{
     bind_interrupts,
     block::ImageDef,
     config::Config,
+    dma::InterruptHandler as DmaInterruptHandler,
     flash::{Async, Flash},
     gpio::{Input, Level, Output, Pull},
     i2c::{Config as I2cConfig, I2c, InterruptHandler as I2cInterruptHandler},
-    peripherals::{I2C0, PIO0, PIO1},
+    peripherals::{DMA_CH0, I2C0, PIO0, PIO1},
     pio::{InterruptHandler as PioInterruptHandler, Pio},
     pio_programs::{
         pwm::{PioPwm, PioPwmProgram},
@@ -45,6 +46,7 @@ bind_interrupts!(pub struct Irqs {
     ADC_IRQ_FIFO => AdcInterruptHandler;
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
     PIO1_IRQ_0 => PioInterruptHandler<PIO1>;
+    DMA_IRQ_0 => DmaInterruptHandler<DMA_CH0>;
 });
 
 /// Motor driver peripheral pins (for new architecture with PCA9555)
@@ -260,8 +262,8 @@ async fn main(spawner: Spawner) {
     // Initialize testing task for development
     task::testmode::init_testing(spawner);
 
-    // Initialize autonomous drive mode tasks
-    spawner.must_spawn(task::autonomous_mode::coast_obstacle_avoid::coast_obstacle_avoid_task());
+    // Initialize autonomous mode controller
+    task::autonomous_mode::init_autonomous_mode(spawner);
 
     // Trigger system initialization (loads calibration data + shows UI when ready)
     crate::system::event::raise_event(crate::system::event::Events::Initialize).await;
@@ -270,11 +272,13 @@ async fn main(spawner: Spawner) {
 }
 
 /// Initialize orchestrator task
+#[allow(clippy::unwrap_used)]
 fn init_orchestrate(spawner: Spawner) {
-    spawner.must_spawn(task::orchestrate::orchestrate());
+    spawner.spawn(task::orchestrate::orchestrate().unwrap());
 }
 
 /// Initialize battery monitoring task with ADC
+#[allow(clippy::unwrap_used)]
 fn init_battery_monitoring(
     spawner: Spawner,
     adc: Peri<'static, embassy_rp::peripherals::ADC>,
@@ -282,10 +286,11 @@ fn init_battery_monitoring(
 ) {
     let adc = Adc::new(adc, Irqs, AdcConfig::default());
     let battery_channel = Channel::new_pin(adc_pin, Pull::None);
-    spawner.must_spawn(task::battery_charge_read::battery_charge_read(adc, battery_channel));
+    spawner.spawn(task::battery_charge_read::battery_charge_read(adc, battery_channel).unwrap());
 }
 
 /// Initialize RGB LED indicator with PIO PWM outputs
+#[allow(clippy::unwrap_used)]
 fn init_rgb_led(
     spawner: Spawner,
     common: &mut embassy_rp::pio::Common<'static, PIO1>,
@@ -299,12 +304,11 @@ fn init_rgb_led(
     let pwm_green = PioPwm::new(common, sm1, pins.green, &rgb_program);
     let pwm_blue = PioPwm::new(common, sm2, pins.blue, &rgb_program);
 
-    spawner.must_spawn(task::indicators::rgb_led_indicate::rgb_led_indicate(
-        pwm_red, pwm_green, pwm_blue,
-    ));
+    spawner.spawn(task::indicators::rgb_led_indicate::rgb_led_indicate(pwm_red, pwm_green, pwm_blue).unwrap());
 }
 
 /// Initialize EC11 rotary encoder (PIO quadrature + button input)
+#[allow(clippy::unwrap_used)]
 fn init_rotary_encoder(
     spawner: Spawner,
     common: &mut embassy_rp::pio::Common<'static, PIO1>,
@@ -314,41 +318,31 @@ fn init_rotary_encoder(
     let encoder_program = PioEncoderProgram::new(common);
     let encoder = PioEncoder::new(common, sm3, pins.a, pins.b, &encoder_program);
 
-    spawner.must_spawn(task::control::rotary_encoder::rotary_encoder_turns(encoder));
-    spawner.must_spawn(task::control::rotary_encoder::rotary_encoder_button());
+    spawner.spawn(task::control::rotary_encoder::rotary_encoder_turns(encoder).unwrap());
+    spawner.spawn(task::control::rotary_encoder::rotary_encoder_button().unwrap());
 }
 
 /// Initialize all four RC button inputs
+#[allow(clippy::unwrap_used)]
 fn init_rc_buttons(spawner: Spawner, pins: RCButtonPins) {
     let btn_a = Input::new(pins.a, Pull::Down);
-    spawner.must_spawn(task::control::rc_control::rc_button_handle(
-        btn_a,
-        system::event::RCButtonId::A,
-    ));
+    spawner.spawn(task::control::rc_control::rc_button_handle(btn_a, system::event::RCButtonId::A).unwrap());
 
     let btn_b = Input::new(pins.b, Pull::Down);
-    spawner.must_spawn(task::control::rc_control::rc_button_handle(
-        btn_b,
-        system::event::RCButtonId::B,
-    ));
+    spawner.spawn(task::control::rc_control::rc_button_handle(btn_b, system::event::RCButtonId::B).unwrap());
 
     let btn_c = Input::new(pins.c, Pull::Down);
-    spawner.must_spawn(task::control::rc_control::rc_button_handle(
-        btn_c,
-        system::event::RCButtonId::C,
-    ));
+    spawner.spawn(task::control::rc_control::rc_button_handle(btn_c, system::event::RCButtonId::C).unwrap());
 
     let btn_d = Input::new(pins.d, Pull::Down);
-    spawner.must_spawn(task::control::rc_control::rc_button_handle(
-        btn_d,
-        system::event::RCButtonId::D,
-    ));
+    spawner.spawn(task::control::rc_control::rc_button_handle(btn_d, system::event::RCButtonId::D).unwrap());
 }
 
 /// Initialize motor driver with PWM channels and encoders
 /// Direction and standby control are handled via PCA9555 port expander
 /// Encoders are passed to the `sensors::encoders` task for sensing
 #[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::unwrap_used)]
 fn init_motor_driver(spawner: Spawner, pins: MotorDriverPins) {
     let desired_freq_hz = 20_000u32;
     let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
@@ -417,29 +411,34 @@ fn init_motor_driver(spawner: Spawner, pins: MotorDriverPins) {
     );
 
     // Spawn motor driver task (handles PWM + coordinates with port expander)
-    spawner.must_spawn(task::motor_driver::motor_driver(pwm_driver_left, pwm_driver_right));
+    spawner.spawn(task::motor_driver::motor_driver(pwm_driver_left, pwm_driver_right).unwrap());
 
     // Spawn encoder read task (handles encoder sensing)
-    spawner.must_spawn(task::sensors::encoders::encoder_read(
-        encoder_left_front,
-        encoder_left_rear,
-        encoder_right_front,
-        encoder_right_rear,
-    ));
+    spawner.spawn(
+        task::sensors::encoders::encoder_read(
+            encoder_left_front,
+            encoder_left_rear,
+            encoder_right_front,
+            encoder_right_rear,
+        )
+        .unwrap(),
+    );
 
     // Spawn drive queue executor task (queue-level completion)
-    spawner.must_spawn(task::drive::drive_queue_executor());
+    spawner.spawn(task::drive::drive_queue_executor().unwrap());
 
     // Spawn drive task (high-level drive control)
-    spawner.must_spawn(task::drive::drive());
+    spawner.spawn(task::drive::drive().unwrap());
 }
 
 /// Initialize IR obstacle detection (signaled by port expander)
+#[allow(clippy::unwrap_used)]
 fn init_ir_obstacle_detect(spawner: Spawner) {
-    spawner.must_spawn(task::sensors::ir_obstacle::ir_obstacle_detect());
+    spawner.spawn(task::sensors::ir_obstacle::ir_obstacle_detect().unwrap());
 }
 
 /// Initialize ultrasonic sensor sweep with servo
+#[allow(clippy::unwrap_used)]
 fn init_ultrasonic_sweep(
     spawner: Spawner,
     us_common: &mut embassy_rp::pio::Common<'static, PIO0>,
@@ -452,7 +451,7 @@ fn init_ultrasonic_sweep(
     let us_pwm_program = PioPwmProgram::new(us_common);
     let us_pwm = PioPwm::new(us_common, us_sm0, pins.servo, &us_pwm_program);
 
-    spawner.must_spawn(task::sensors::ultrasonic::ultrasonic_sweep(us_pwm, us_trigger, us_echo));
+    spawner.spawn(task::sensors::ultrasonic::ultrasonic_sweep(us_pwm, us_trigger, us_echo).unwrap());
 }
 
 /// Initialize shared I2C bus for display and IMU
@@ -472,31 +471,35 @@ fn init_i2c_bus(
 }
 
 /// Initialize display task with I2C bus
+#[allow(clippy::unwrap_used)]
 fn init_display(spawner: Spawner, i2c_bus: &'static I2cBusShared) {
-    spawner.must_spawn(task::io::display::display(i2c_bus));
+    spawner.spawn(task::io::display::display(i2c_bus).unwrap());
 }
 
 /// Initialize IMU task with I2C bus and interrupt input
+#[allow(clippy::unwrap_used)]
 fn init_imu_read(spawner: Spawner, i2c_bus: &'static I2cBusShared) {
-    spawner.must_spawn(task::sensors::imu::inertial_measurement_read(i2c_bus));
+    spawner.spawn(task::sensors::imu::inertial_measurement_read(i2c_bus).unwrap());
 }
 
 /// Initialize port expander task with I2C bus and interrupt pin
+#[allow(clippy::unwrap_used)]
 fn init_port_expander(
     spawner: Spawner,
     i2c_bus: &'static I2cBusShared,
     int: Peri<'static, embassy_rp::peripherals::PIN_20>,
 ) {
     let interrupt = embassy_rp::gpio::Input::new(int, Pull::Up);
-    spawner.must_spawn(task::io::port_expander::port_expander(i2c_bus, interrupt));
+    spawner.spawn(task::io::port_expander::port_expander(i2c_bus, interrupt).unwrap());
 }
 
 /// Initialize flash storage task for persistent calibration data
+#[allow(clippy::unwrap_used)]
 fn init_flash_storage(
     spawner: Spawner,
     flash_peripheral: Peri<'static, embassy_rp::peripherals::FLASH>,
     dma_ch0: Peri<'static, embassy_rp::peripherals::DMA_CH0>,
 ) {
-    let flash = Flash::<_, Async, { 2048 * 1024 }>::new(flash_peripheral, dma_ch0);
-    spawner.must_spawn(task::io::flash_storage::flash_storage(flash));
+    let flash = Flash::<_, Async, { 2048 * 1024 }>::new(flash_peripheral, dma_ch0, Irqs);
+    spawner.spawn(task::io::flash_storage::flash_storage(flash).unwrap());
 }

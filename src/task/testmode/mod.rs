@@ -45,8 +45,9 @@ static TESTMODE_ACTIVE: AtomicBool = AtomicBool::new(false);
 static TESTMODE_COMMAND: Channel<CriticalSectionRawMutex, TestCommand, 4> = Channel::new();
 
 /// Initialize testmode support (spawns the controller task).
+#[allow(clippy::unwrap_used)]
 pub fn init_testing(spawner: Spawner) {
-    spawner.must_spawn(testmode_controller(spawner));
+    spawner.spawn(testmode_controller(spawner).unwrap());
 }
 
 /// Request that a test be spawned on demand.
