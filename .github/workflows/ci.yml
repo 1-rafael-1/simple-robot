@@ -16,39 +16,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: thumbv8m.main-none-eabihf
-          override: true
-          profile: minimal
-          components: clippy
+      - name: Install Rust toolchain from rust-toolchain.toml
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install nightly for rustfmt
-        uses: actions-rs/toolchain@v1
+      - name: Install latest nightly rustfmt
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
-          profile: minimal
           components: rustfmt
 
       - name: Check formatting
         run: cargo +nightly fmt --all -- --check
 
       - name: Run clippy (default features)
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --target thumbv8m.main-none-eabihf -- -D warnings --no-deps
-
-      - name: Run clippy (all features)
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --target thumbv8m.main-none-eabihf --all-features -- -D warnings --no-deps
+        run: cargo clippy --target thumbv8m.main-none-eabihf -- -D warnings --no-deps
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --verbose --target thumbv8m.main-none-eabihf
+        run: cargo build --release --verbose --target thumbv8m.main-none-eabihf
