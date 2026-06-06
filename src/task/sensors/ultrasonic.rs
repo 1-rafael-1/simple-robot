@@ -410,8 +410,11 @@ pub async fn ultrasonic_sweep(
                 match with_timeout(embassy_time::Duration::from_millis(20), sensor_fut).await {
                     Ok(Ok(distance_cm)) => {
                         if distance_cm <= ULTRASONIC_MAX_DISTANCE_CM {
-                            median_filter.add_value(distance_cm);
-                            had_success = true;
+                            if median_filter.add_value(distance_cm).is_err() {
+                                saw_error = true; // at this point can only happen if adding NaN, which shouldn't happen
+                            } else {
+                                had_success = true;
+                            }
                         }
                     }
                     Ok(Err(e)) => {
@@ -425,7 +428,9 @@ pub async fn ultrasonic_sweep(
             }
 
             reading = if had_success {
-                UltrasonicReading::Distance(median_filter.median())
+                median_filter
+                    .median()
+                    .map_or(UltrasonicReading::Error, UltrasonicReading::Distance)
             } else if saw_error {
                 UltrasonicReading::Error
             } else {
