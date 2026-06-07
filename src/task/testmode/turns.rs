@@ -102,15 +102,15 @@ async fn run_turns_test() {
         let mut queue = DriveQueueBuilder::new();
 
         for speed in test_speeds {
-            queue.push(DriveCommand::Drive(DriveAction::RotateExact {
+            queue.push_abort_on_fail(DriveCommand::Drive(DriveAction::RotateExact {
                 degrees: target_deg,
                 direction: RotationDirection::Clockwise,
                 motion: RotationMotion::Stationary { speed: *speed },
             }))?;
-            queue.push(DriveCommand::Drive(DriveAction::Coast))?;
+            queue.push_abort_on_fail(DriveCommand::Drive(DriveAction::Coast))?;
         }
 
-        queue.push(DriveCommand::Drive(DriveAction::Idle { duration_ms: 1000 }))?;
+        queue.push_abort_on_fail(DriveCommand::Drive(DriveAction::Idle { duration_ms: 1000 }))?;
 
         Ok(queue)
     }
