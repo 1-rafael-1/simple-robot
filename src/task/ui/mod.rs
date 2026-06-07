@@ -87,7 +87,9 @@ pub async fn handle_rotary_turned(direction: RotaryDirection) {
             drop(ui);
             render_current_ui(&snapshot).await;
         }
-        UiMode::RunningTest
+        UiMode::RunningTurnsTest
+        | UiMode::RunningStraightDriveTest
+        | UiMode::RunningArcDriveTest
         | UiMode::RunningImuTest
         | UiMode::RunningImu6Test
         | UiMode::RunningBasicMotorTest
@@ -126,7 +128,7 @@ pub async fn handle_rotary_button_pressed() {
         UiMode::RunningIrUltrasonicTest => handle_running_ir_ultrasonic_test_press().await,
         UiMode::RunningUltrasonicSweepTest => handle_running_ultrasonic_sweep_test_press().await,
         UiMode::RunningAutonomous { .. } => handle_ui_back().await,
-        UiMode::RunningTest => {}
+        UiMode::RunningTurnsTest | UiMode::RunningStraightDriveTest | UiMode::RunningArcDriveTest => {}
     }
 }
 
@@ -295,13 +297,29 @@ async fn handle_drive_mode_menu_press(index: usize) {
 /// Handle a button press while the test menu is active.
 async fn handle_test_menu_press(index: usize) {
     match test_selection_from_index(index) {
-        Some(TestSelection::Combined) => {
+        Some(TestSelection::Turns) => {
             let mut ui = UI_STATE.lock().await;
-            ui.mode = UiMode::RunningTest;
+            ui.mode = UiMode::RunningTurnsTest;
             let snapshot = *ui;
             drop(ui);
             render_current_ui(&snapshot).await;
-            testmode::start_testing_sequence().await;
+            testmode::start_turns_test().await;
+        }
+        Some(TestSelection::StraightDrive) => {
+            let mut ui = UI_STATE.lock().await;
+            ui.mode = UiMode::RunningStraightDriveTest;
+            let snapshot = *ui;
+            drop(ui);
+            render_current_ui(&snapshot).await;
+            testmode::start_straight_drive_test().await;
+        }
+        Some(TestSelection::ArcDrive) => {
+            let mut ui = UI_STATE.lock().await;
+            ui.mode = UiMode::RunningArcDriveTest;
+            let snapshot = *ui;
+            drop(ui);
+            render_current_ui(&snapshot).await;
+            testmode::start_arc_drive_test().await;
         }
         Some(TestSelection::Imu) => {
             let mut ui = UI_STATE.lock().await;

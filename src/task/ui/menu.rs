@@ -38,12 +38,14 @@ pub const fn calibration_selection_from_index(index: usize) -> Option<Calibratio
 /// Returns `None` when the selection is the Back entry.
 pub const fn test_selection_from_index(index: usize) -> Option<TestSelection> {
     match index {
-        0 => Some(TestSelection::Combined),
-        1 => Some(TestSelection::Imu),
-        2 => Some(TestSelection::Imu6),
-        3 => Some(TestSelection::BasicMotor),
-        4 => Some(TestSelection::IrUltrasonic),
-        5 => Some(TestSelection::UltrasonicSweep),
+        0 => Some(TestSelection::Turns),
+        1 => Some(TestSelection::StraightDrive),
+        2 => Some(TestSelection::ArcDrive),
+        3 => Some(TestSelection::Imu),
+        4 => Some(TestSelection::Imu6),
+        5 => Some(TestSelection::BasicMotor),
+        6 => Some(TestSelection::IrUltrasonic),
+        7 => Some(TestSelection::UltrasonicSweep),
         _ => None,
     }
 }

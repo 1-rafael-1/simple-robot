@@ -304,74 +304,136 @@ async fn read_rotation_measurement(started_at_ms: u64) -> Option<ImuMeasurement>
     drain_latest_imu_since(started_at_ms)
 }
 
-/// Capture post-stop settling and optional correction pulse; returns final IMU measurement.
-async fn capture_post_stop_measurement(
+/// Post-stop multi-iteration correction loop for stationary turns.
+///
+/// Applies correction pulses with adaptive duration until within tolerance
+/// or the iteration budget is exhausted.
+async fn run_correction_phase(
     rotation_state: &mut RotationState,
     started_at_ms: u64,
-    measurement: ImuMeasurement,
-) -> ImuMeasurement {
-    let settled = wait_for_latest_imu_since(started_at_ms, types::ROTATION_POST_STOP_SETTLE_MS)
+    initial_measurement: ImuMeasurement,
+) -> RotationStepResult {
+    // Step 1: anchor state on the pre-stop measurement.
+    rotation_state.update(&initial_measurement);
+
+    // Step 2: wait for initial settle and capture a fresh IMU sample.
+    let mut latest_measurement = wait_for_latest_imu_since(started_at_ms, types::ROTATION_CORRECTION_SETTLE_MS)
         .await
-        .map_or(measurement, |settle| {
-            rotation_state.update(&settle);
-
-            #[cfg(feature = "telemetry_logs")]
-            {
-                let error_deg = rotation_state.target_angle - rotation_state.accumulated_angle;
-                defmt::info!(
-                    "rotate_exact: post_stop yaw={=f32}°, acc={=f32}°, err={=f32}°",
-                    settle.orientation.yaw,
-                    rotation_state.accumulated_angle.abs(),
-                    error_deg
-                );
-            }
-
-            settle
+        .map_or(initial_measurement, |settled| {
+            rotation_state.update(&settled);
+            settled
         });
 
-    let error_deg = rotation_state.target_angle - rotation_state.accumulated_angle;
-    let needs_correction = error_deg.abs() > types::ROTATION_TOLERANCE_DEG;
-    let can_pulse = matches!(rotation_state.motion, types::RotationMotion::Stationary { .. });
+    // Local correction state — independent of rotation_state.correction_flips.
+    let mut overshoot_count: u8 = 0;
+    let mut last_error_sign: i8 = 0;
+    let mut iteration: u8 = 0;
 
-    if !needs_correction || !can_pulse {
-        return settled;
-    }
+    while iteration < types::ROTATION_CORRECTION_MAX_ITERATIONS {
+        // Compute remaining error.
+        let error_deg = rotation_state.target_angle - rotation_state.accumulated_angle;
 
-    #[cfg(feature = "telemetry_logs")]
-    {
-        defmt::info!("rotate_exact: post_stop correction pulse err={=f32}°", error_deg);
-    }
+        // Within tolerance → success.
+        if error_deg.abs() <= types::ROTATION_TOLERANCE_DEG {
+            defmt::info!("correction converged at iter={=u8} err={=f32}°", iteration, error_deg,);
+            return rotation_success(&latest_measurement, rotation_state, started_at_ms);
+        }
 
-    let (left_speed, right_speed) = rotation_state.calculate_motor_speeds();
-    motor_driver::send_motor_command(MotorCommand::SetTracks {
-        left_speed,
-        right_speed,
-    })
-    .await;
+        // Detect overshoot: sign flip relative to previous iteration.
+        let current_sign: i8 = if error_deg > 0.0 { 1 } else { -1 };
+        if last_error_sign != 0 && current_sign != last_error_sign {
+            overshoot_count = overshoot_count.saturating_add(1);
+        }
+        last_error_sign = current_sign;
 
-    motion::set_track_speeds(left_speed, right_speed).await;
-    Timer::after(Duration::from_millis(types::ROTATION_POST_STOP_CORRECTION_PULSE_MS)).await;
+        // Select pulse duration based on local overshoot count.
+        let pulse_duration_ms = if overshoot_count < types::ROTATION_CORRECTION_OVERSHOOT_MID_THRESHOLD {
+            types::ROTATION_CORRECTION_PULSE_LONG_MS
+        } else if overshoot_count < types::ROTATION_CORRECTION_OVERSHOOT_SHORT_THRESHOLD {
+            types::ROTATION_CORRECTION_PULSE_MID_MS
+        } else {
+            types::ROTATION_CORRECTION_PULSE_SHORT_MS
+        };
 
-    stop_rotation_motors().await;
+        defmt::info!(
+            "correction iter={=u8} err={=f32}° overshoot={=u8} pulse_ms={=u64}",
+            iteration,
+            error_deg,
+            overshoot_count,
+            pulse_duration_ms,
+        );
 
-    if let Some(settle) = wait_for_latest_imu_since(started_at_ms, types::ROTATION_POST_STOP_SETTLE_MS).await {
-        rotation_state.update(&settle);
+        // Determine effective direction: positive error → same as turn direction, non-positive → opposite.
+        let effective_direction = if error_deg > 0.0 {
+            rotation_state.direction
+        } else {
+            match rotation_state.direction {
+                types::RotationDirection::Clockwise => types::RotationDirection::CounterClockwise,
+                types::RotationDirection::CounterClockwise => types::RotationDirection::Clockwise,
+            }
+        };
+
+        // Fixed-speed stationary tank turn — do NOT use calculate_motor_speeds().
+        let speed = i8::try_from(types::ROTATION_SPEED_MIN).unwrap_or(i8::MAX);
+        let (left_speed, right_speed) = match effective_direction {
+            types::RotationDirection::Clockwise => (speed, -speed),
+            types::RotationDirection::CounterClockwise => (-speed, speed),
+        };
+
+        motor_driver::send_motor_command(MotorCommand::SetTracks {
+            left_speed,
+            right_speed,
+        })
+        .await;
+        motion::set_track_speeds(left_speed, right_speed).await;
+
+        Timer::after(Duration::from_millis(pulse_duration_ms)).await;
+
+        stop_rotation_motors().await;
+
+        // Settle and capture updated IMU sample.
+        if let Some(settled) = wait_for_latest_imu_since(started_at_ms, types::ROTATION_CORRECTION_SETTLE_MS).await {
+            rotation_state.update(&settled);
+            latest_measurement = settled;
+        }
+
+        let new_error_deg = rotation_state.target_angle - rotation_state.accumulated_angle;
+        defmt::info!(
+            "correction post-pulse iter={=u8} new_err={=f32}° delta={=f32}°",
+            iteration,
+            new_error_deg,
+            error_deg - new_error_deg,
+        );
 
         #[cfg(feature = "telemetry_logs")]
         {
-            let error_deg = rotation_state.target_angle - rotation_state.accumulated_angle;
             defmt::info!(
-                "rotate_exact: post_pulse yaw={=f32}°, acc={=f32}°, err={=f32}°",
-                settle.orientation.yaw,
-                rotation_state.accumulated_angle.abs(),
-                error_deg
+                "rotate_exact: correction iter={=u8} err={=f32}° pulse={=u64}ms overshoots={=u8}",
+                iteration,
+                error_deg,
+                pulse_duration_ms,
+                overshoot_count,
             );
         }
 
-        return settle;
+        iteration = iteration.saturating_add(1);
     }
 
-    settled
+    // Exhausted all correction iterations without reaching tolerance.
+    let error_deg = rotation_state.target_angle - rotation_state.accumulated_angle;
+    defmt::warn!(
+        "correction exhausted after {=u8} iters, final_err={=f32}°",
+        iteration,
+        error_deg,
+    );
+    RotationStepResult::Failed {
+        reason: "CorrectionExhausted",
+        telemetry: types::CompletionTelemetry::RotateExact {
+            final_yaw_deg: latest_measurement.orientation.yaw,
+            angle_error_deg: rotation_state.accumulated_angle.abs() - rotation_state.target_angle.abs(),
+            duration_ms: Instant::now().as_millis() - started_at_ms,
+        },
+    }
 }
 
 /// Run a single step of the rotation control loop.
@@ -410,10 +472,10 @@ pub(super) async fn run_rotation_control_step(
     let done = rotation_state.update(&measurement);
     if done {
         stop_rotation_motors().await;
-
-        let final_measurement = capture_post_stop_measurement(rotation_state, started_at_ms, measurement).await;
-
-        return rotation_success(&final_measurement, rotation_state, started_at_ms);
+        if matches!(rotation_state.motion, types::RotationMotion::Stationary { .. }) {
+            return run_correction_phase(rotation_state, started_at_ms, measurement).await;
+        }
+        return rotation_success(&measurement, rotation_state, started_at_ms);
     }
 
     if rotation_state.correction_flips >= types::ROTATION_CORRECTION_MAX_FLIPS {

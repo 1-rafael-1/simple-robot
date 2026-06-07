@@ -27,8 +27,14 @@ pub async fn render_current_ui(state: &UiState) {
             let info = build_system_info_data().await;
             screens::render_system_info(scroll_offset as usize, &info).await;
         }
-        UiMode::RunningTest => {
-            render_test_running().await;
+        UiMode::RunningTurnsTest => {
+            render_turns_test_running().await;
+        }
+        UiMode::RunningStraightDriveTest => {
+            render_straight_drive_test_running().await;
+        }
+        UiMode::RunningArcDriveTest => {
+            render_arc_drive_test_running().await;
         }
         UiMode::RunningImuTest => {
             render_imu_test_running().await;
@@ -54,11 +60,29 @@ pub async fn render_current_ui(state: &UiState) {
     }
 }
 
-/// Render the "test running" status screen.
-pub async fn render_test_running() {
+/// Render the turns test initial status screen.
+pub async fn render_turns_test_running() {
     display::display_update(DisplayAction::Clear).await;
-    show_line(0, "Test Mode").await;
-    show_line(1, "Running...").await;
+    show_line(0, "TURN TEST").await;
+    show_line(1, "Starting...").await;
+    show_line(2, "").await;
+    show_line(3, "").await;
+}
+
+/// Render the straight drive test initial status screen.
+pub async fn render_straight_drive_test_running() {
+    display::display_update(DisplayAction::Clear).await;
+    show_line(0, "DIST TEST").await;
+    show_line(1, "Starting...").await;
+    show_line(2, "").await;
+    show_line(3, "").await;
+}
+
+/// Render the arc drive test initial status screen.
+pub async fn render_arc_drive_test_running() {
+    display::display_update(DisplayAction::Clear).await;
+    show_line(0, "ARC TEST").await;
+    show_line(1, "Starting...").await;
     show_line(2, "").await;
     show_line(3, "").await;
 }
