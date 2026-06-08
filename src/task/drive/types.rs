@@ -318,19 +318,21 @@ pub const ROTATION_TIMEOUT_MS: u64 = 8_000;
 /// Maximum time to wait for a fresh IMU sample per tick (milliseconds).
 pub const ROTATION_IMU_WAIT_TIMEOUT_MS: u64 = 20;
 /// Maximum correction iterations after the initial turn stops.
-pub const ROTATION_CORRECTION_MAX_ITERATIONS: u8 = 7;
+pub const ROTATION_CORRECTION_MAX_ITERATIONS: u8 = 15;
 /// Settle wait after each correction pulse (ms).
 pub const ROTATION_CORRECTION_SETTLE_MS: u64 = 100;
-/// Correction pulse duration — 0 or 1 local overshoots (ms).
-pub const ROTATION_CORRECTION_PULSE_LONG_MS: u64 = 100;
-/// Correction pulse duration — 2 or 3 local overshoots (ms).
-pub const ROTATION_CORRECTION_PULSE_MID_MS: u64 = 60;
-/// Correction pulse duration — 4+ local overshoots (ms).
-pub const ROTATION_CORRECTION_PULSE_SHORT_MS: u64 = 30;
-/// Local overshoot count at which pulse duration steps down to mid.
-pub const ROTATION_CORRECTION_OVERSHOOT_MID_THRESHOLD: u8 = 2;
-/// Local overshoot count at which pulse duration steps down to short.
-pub const ROTATION_CORRECTION_OVERSHOOT_SHORT_THRESHOLD: u8 = 4;
+/// Starting speed for the first correction pulse.
+/// Lower starting speed reduces overshoot on the first correction pulse.
+pub const ROTATION_CORRECTION_SPEED_START: u8 = 45;
+/// Speed reduction per correction iteration.
+/// Each iteration lowers speed by this amount, trading force for precision.
+pub const ROTATION_CORRECTION_SPEED_STEP: u8 = 2;
+/// Minimum speed floor for correction pulses.
+/// Pulses below this will barely move the bot and are not useful.
+pub const ROTATION_CORRECTION_SPEED_MIN: u8 = 25;
+/// Maximum time for a single correction iteration before giving up and moving on (ms).
+/// Guards against the bot being physically stuck or very slow at low speed.
+pub const ROTATION_CORRECTION_ITER_TIMEOUT_MS: u64 = 400;
 /// Maximum speed differential during combined motion
 pub const SPEED_DIFF_MAX: i8 = 30;
 

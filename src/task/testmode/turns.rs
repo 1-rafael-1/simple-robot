@@ -128,10 +128,6 @@ async fn run_turns_test() {
         raise_event(Events::Initialize).await;
     }
 
-    // Wait for system to stabilize and calibration to load.
-    defmt::info!("🧪 TURNS: Waiting for system initialization and calibration loading...");
-    Timer::after(Duration::from_secs(3)).await;
-
     // Force 6-axis fusion (gyro + accel) to avoid magnetometer yaw issues.
     defmt::info!("🧪 TURNS: Setting IMU DMP fusion mode to Axis6");
     set_dmp_fusion_mode(DmpFusionMode::Axis6);
@@ -140,8 +136,8 @@ async fn run_turns_test() {
 
     // Countdown before driving.
     defmt::info!("🧪 TURNS: Waiting 10 seconds before driving...");
-    show_line(1, "Starting in 10s").await;
-    Timer::after(Duration::from_secs(10)).await;
+    show_line(1, "Starting in 5s").await;
+    Timer::after(Duration::from_secs(5)).await;
 
     // Turn in place: 90°, varying rotation speeds.
     let target_deg: f32 = 90.0;

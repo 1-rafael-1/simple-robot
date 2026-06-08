@@ -447,8 +447,6 @@ impl DriveLoop {
                     completion_requested,
                     started_at_ms,
                 } => {
-                    let accumulated = state.accumulated_angle.abs();
-                    let target = state.target_angle.abs();
                     let last_yaw_deg = state.last_yaw.unwrap_or(0.0);
                     let duration_ms = Instant::now().as_millis() - started_at_ms;
 
@@ -459,7 +457,7 @@ impl DriveLoop {
                             status: CompletionStatus::Cancelled,
                             telemetry: types::CompletionTelemetry::RotateExact {
                                 final_yaw_deg: last_yaw_deg,
-                                angle_error_deg: accumulated - target,
+                                angle_error_deg: -state.remaining(),
                                 duration_ms,
                             },
                         },

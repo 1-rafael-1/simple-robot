@@ -36,6 +36,18 @@ use crate::{
 
 // ── Pure state / math ────────────────────────────────────────────────────────
 
+/// Normalize an angle in degrees to the range (−180, +180].
+fn normalize_angle(deg: f32) -> f32 {
+    let d = deg % 360.0;
+    if d > 180.0 {
+        d - 360.0
+    } else if d < -180.0 {
+        d + 360.0
+    } else {
+        d
+    }
+}
+
 /// State tracking for precise rotation maneuvers.
 ///
 /// Maintains rotation progress and calculates differential motor speeds
@@ -44,10 +56,12 @@ use crate::{
 pub struct RotationState {
     /// Target rotation angle in degrees.
     pub(crate) target_angle: f32,
-    /// Accumulated rotation so far (in degrees).
-    pub(crate) accumulated_angle: f32,
     /// Last measured yaw angle (in degrees).
     pub(crate) last_yaw: Option<f32>,
+    /// Absolute euler yaw at the start of the maneuver (degrees). Set on first IMU sample.
+    pub(crate) start_yaw: Option<f32>,
+    /// Absolute target euler yaw (degrees). Computed from `start_yaw` + direction × `target_angle`.
+    pub(crate) target_yaw: Option<f32>,
     /// Last update timestamp (ms since boot).
     last_update_ms: u64,
     /// Direction of rotation.
@@ -74,8 +88,9 @@ impl RotationState {
 
         Self {
             target_angle,
-            accumulated_angle: 0.0,
             last_yaw: None,
+            start_yaw: None,
+            target_yaw: None,
             last_update_ms: 0,
             direction,
             motion,
@@ -90,28 +105,23 @@ impl RotationState {
     ///
     /// Returns `true` if the target angle has been reached within tolerance.
     pub fn update(&mut self, measurement: &ImuMeasurement) -> bool {
-        if let Some(last_yaw) = self.last_yaw {
-            let mut yaw_change = measurement.orientation.yaw - last_yaw;
+        let current_yaw = measurement.orientation.yaw;
 
-            // Handle wraparound at ±180 degrees.
-            if yaw_change > 180.0 {
-                yaw_change -= 360.0;
-            } else if yaw_change < -180.0 {
-                yaw_change += 360.0;
-            }
-
-            self.accumulated_angle += match self.direction {
-                types::RotationDirection::Clockwise => -yaw_change,
-                types::RotationDirection::CounterClockwise => yaw_change,
-            };
+        // On the very first sample: anchor start_yaw and compute the absolute target.
+        if self.start_yaw.is_none() {
+            self.start_yaw = Some(current_yaw);
+            self.target_yaw = Some(match self.direction {
+                types::RotationDirection::Clockwise => normalize_angle(current_yaw - self.target_angle),
+                types::RotationDirection::CounterClockwise => normalize_angle(current_yaw + self.target_angle),
+            });
         }
 
-        self.last_yaw = Some(measurement.orientation.yaw);
+        self.last_yaw = Some(current_yaw);
         self.last_update_ms = measurement.timestamp_ms;
 
-        let error_deg = self.target_angle - self.accumulated_angle;
-        let error_sign = if error_deg >= 0.0 { 1 } else { -1 };
-        if error_deg.abs() > types::ROTATION_CORRECTION_DEADBAND_DEG {
+        let remaining = self.remaining();
+        let error_sign: i8 = if remaining >= 0.0 { 1 } else { -1 };
+        if remaining.abs() > types::ROTATION_CORRECTION_DEADBAND_DEG {
             if self.last_error_sign != 0 && error_sign != self.last_error_sign {
                 self.correction_flips = self.correction_flips.saturating_add(1);
                 if self.correction_started_at_ms.is_none() {
@@ -121,7 +131,28 @@ impl RotationState {
             self.last_error_sign = error_sign;
         }
 
-        error_deg.abs() <= types::ROTATION_TOLERANCE_DEG
+        remaining.abs() <= types::ROTATION_TOLERANCE_DEG
+    }
+
+    /// Remaining signed angle to target (degrees).
+    ///
+    /// Positive  → still needs to turn in the commanded direction (undershoot).
+    /// Negative  → has gone past the target (overshoot).
+    /// Returns `target_angle` when no IMU sample has been received yet.
+    pub fn remaining(&self) -> f32 {
+        let current_yaw = match self.last_yaw {
+            Some(y) => y,
+            None => return self.target_angle,
+        };
+        let target_yaw = match self.target_yaw {
+            Some(y) => y,
+            None => return self.target_angle,
+        };
+        let diff = normalize_angle(current_yaw - target_yaw);
+        match self.direction {
+            types::RotationDirection::Clockwise => diff,
+            types::RotationDirection::CounterClockwise => -diff,
+        }
     }
 
     /// Calculates appropriate motor speeds for the current rotation state.
@@ -129,7 +160,7 @@ impl RotationState {
     /// Returns `(left_speed, right_speed)`.
     pub fn calculate_motor_speeds(&self) -> (i8, i8) {
         // Signed error: positive => undershoot, negative => overshoot.
-        let error_deg = self.target_angle - self.accumulated_angle;
+        let error_deg = self.remaining();
         let remaining_degrees = error_deg.abs();
 
         // If we overshot beyond the deadband, reverse effective direction to hunt back toward the setpoint.
@@ -239,8 +270,6 @@ fn rotation_failure(
     now_ms: u64,
     reason: &'static str,
 ) -> RotationStepResult {
-    let accumulated = rotation_state.accumulated_angle.abs();
-    let target = rotation_state.target_angle.abs();
     let last_yaw_deg = rotation_state.last_yaw.unwrap_or(0.0);
     let duration_ms = now_ms - started_at_ms;
 
@@ -248,7 +277,7 @@ fn rotation_failure(
         reason,
         telemetry: types::CompletionTelemetry::RotateExact {
             final_yaw_deg: last_yaw_deg,
-            angle_error_deg: accumulated - target,
+            angle_error_deg: -rotation_state.remaining(),
             duration_ms,
         },
     }
@@ -260,14 +289,12 @@ fn rotation_success(
     rotation_state: &RotationState,
     started_at_ms: u64,
 ) -> RotationStepResult {
-    let accumulated = rotation_state.accumulated_angle.abs();
-    let target = rotation_state.target_angle.abs();
     let duration_ms = Instant::now().as_millis() - started_at_ms;
 
     RotationStepResult::Completed {
         telemetry: types::CompletionTelemetry::RotateExact {
             final_yaw_deg: measurement.orientation.yaw,
-            angle_error_deg: accumulated - target,
+            angle_error_deg: -rotation_state.remaining(),
             duration_ms,
         },
     }
@@ -306,8 +333,16 @@ async fn read_rotation_measurement(started_at_ms: u64) -> Option<ImuMeasurement>
 
 /// Post-stop multi-iteration correction loop for stationary turns.
 ///
-/// Applies correction pulses with adaptive duration until within tolerance
-/// or the iteration budget is exhausted.
+/// Uses a torque-ladder strategy: pulse duration is fixed at
+/// `ROTATION_CORRECTION_PULSE_MS` and motor speed is stepped down by
+/// `ROTATION_CORRECTION_SPEED_STEP` each iteration, starting at
+/// `ROTATION_CORRECTION_SPEED_START` and floored at
+/// `ROTATION_CORRECTION_SPEED_MIN`.
+///
+/// The high starting speed reliably breaks static friction; subsequent
+/// iterations trade torque for precision as the remaining error shrinks.
+/// Up to `ROTATION_CORRECTION_MAX_ITERATIONS` attempts are made before
+/// the correction is declared exhausted.
 async fn run_correction_phase(
     rotation_state: &mut RotationState,
     started_at_ms: u64,
@@ -324,46 +359,46 @@ async fn run_correction_phase(
             settled
         });
 
-    // Local correction state — independent of rotation_state.correction_flips.
     let mut overshoot_count: u8 = 0;
     let mut last_error_sign: i8 = 0;
     let mut iteration: u8 = 0;
 
     while iteration < types::ROTATION_CORRECTION_MAX_ITERATIONS {
-        // Compute remaining error.
-        let error_deg = rotation_state.target_angle - rotation_state.accumulated_angle;
+        let error_deg = rotation_state.remaining();
+        let current_yaw = rotation_state.last_yaw.unwrap_or(latest_measurement.orientation.yaw);
 
         // Within tolerance → success.
         if error_deg.abs() <= types::ROTATION_TOLERANCE_DEG {
-            defmt::info!("correction converged at iter={=u8} err={=f32}°", iteration, error_deg,);
+            defmt::info!(
+                "correction converged iter={=u8} yaw={=f32}° err={=f32}°",
+                iteration,
+                current_yaw,
+                error_deg,
+            );
             return rotation_success(&latest_measurement, rotation_state, started_at_ms);
         }
 
-        // Detect overshoot: sign flip relative to previous iteration.
+        // Track overshoots between iterations.
         let current_sign: i8 = if error_deg > 0.0 { 1 } else { -1 };
         if last_error_sign != 0 && current_sign != last_error_sign {
             overshoot_count = overshoot_count.saturating_add(1);
         }
         last_error_sign = current_sign;
 
-        // Select pulse duration based on local overshoot count.
-        let pulse_duration_ms = if overshoot_count < types::ROTATION_CORRECTION_OVERSHOOT_MID_THRESHOLD {
-            types::ROTATION_CORRECTION_PULSE_LONG_MS
-        } else if overshoot_count < types::ROTATION_CORRECTION_OVERSHOOT_SHORT_THRESHOLD {
-            types::ROTATION_CORRECTION_PULSE_MID_MS
-        } else {
-            types::ROTATION_CORRECTION_PULSE_SHORT_MS
-        };
+        // Torque ladder: start at SPEED_START, step down by SPEED_STEP each iteration.
+        let correction_speed: u8 = types::ROTATION_CORRECTION_SPEED_START
+            .saturating_sub(iteration.saturating_mul(types::ROTATION_CORRECTION_SPEED_STEP))
+            .max(types::ROTATION_CORRECTION_SPEED_MIN);
 
         defmt::info!(
-            "correction iter={=u8} err={=f32}° overshoot={=u8} pulse_ms={=u64}",
+            "correction iter={=u8} yaw={=f32}° err={=f32}° speed={=u8}",
             iteration,
+            current_yaw,
             error_deg,
-            overshoot_count,
-            pulse_duration_ms,
+            correction_speed,
         );
 
-        // Determine effective direction: positive error → same as turn direction, non-positive → opposite.
+        // Determine correction direction.
         let effective_direction = if error_deg > 0.0 {
             rotation_state.direction
         } else {
@@ -373,8 +408,7 @@ async fn run_correction_phase(
             }
         };
 
-        // Fixed-speed stationary tank turn — do NOT use calculate_motor_speeds().
-        let speed = i8::try_from(types::ROTATION_SPEED_MIN).unwrap_or(i8::MAX);
+        let speed = i8::try_from(correction_speed).unwrap_or(i8::MAX);
         let (left_speed, right_speed) = match effective_direction {
             types::RotationDirection::Clockwise => (speed, -speed),
             types::RotationDirection::CounterClockwise => (-speed, speed),
@@ -387,40 +421,87 @@ async fn run_correction_phase(
         .await;
         motion::set_track_speeds(left_speed, right_speed).await;
 
-        Timer::after(Duration::from_millis(pulse_duration_ms)).await;
+        // Poll IMU continuously while the motors run.
+        let iter_start_ms = Instant::now().as_millis();
+        let iter_sign = current_sign; // sign at start of this iteration
+        let mut timed_out = false;
 
-        stop_rotation_motors().await;
+        loop {
+            if Instant::now().as_millis() - iter_start_ms > types::ROTATION_CORRECTION_ITER_TIMEOUT_MS {
+                stop_rotation_motors().await;
+                let yaw = rotation_state.last_yaw.unwrap_or(latest_measurement.orientation.yaw);
+                let err = rotation_state.remaining();
+                defmt::info!(
+                    "correction iter={=u8} timeout yaw={=f32}° err={=f32}°",
+                    iteration,
+                    yaw,
+                    err,
+                );
+                timed_out = true;
+                break;
+            }
 
-        // Settle and capture updated IMU sample.
+            if let Some(m) = drain_latest_imu_since(started_at_ms) {
+                rotation_state.update(&m);
+                latest_measurement = m;
+                let new_error = rotation_state.remaining();
+                let yaw = rotation_state.last_yaw.unwrap_or(latest_measurement.orientation.yaw);
+
+                if new_error.abs() <= types::ROTATION_TOLERANCE_DEG {
+                    stop_rotation_motors().await;
+                    defmt::info!(
+                        "correction converged iter={=u8} yaw={=f32}° err={=f32}°",
+                        iteration,
+                        yaw,
+                        new_error,
+                    );
+                    return rotation_success(&latest_measurement, rotation_state, started_at_ms);
+                }
+
+                let new_sign: i8 = if new_error > 0.0 { 1 } else { -1 };
+                if new_sign != iter_sign {
+                    // Crossed the target — stop and start the next iteration in reverse.
+                    stop_rotation_motors().await;
+                    overshoot_count = overshoot_count.saturating_add(1);
+                    defmt::info!(
+                        "correction overshoot iter={=u8} yaw={=f32}° err={=f32}° total_overshoots={=u8}",
+                        iteration,
+                        yaw,
+                        new_error,
+                        overshoot_count,
+                    );
+                    break;
+                }
+            } else {
+                Timer::after(Duration::from_millis(5)).await;
+            }
+        }
+
+        // After stopping (overshoot or timeout): settle and re-read before next iteration.
         if let Some(settled) = wait_for_latest_imu_since(started_at_ms, types::ROTATION_CORRECTION_SETTLE_MS).await {
             rotation_state.update(&settled);
             latest_measurement = settled;
         }
 
-        let new_error_deg = rotation_state.target_angle - rotation_state.accumulated_angle;
-        defmt::info!(
-            "correction post-pulse iter={=u8} new_err={=f32}° delta={=f32}°",
-            iteration,
-            new_error_deg,
-            error_deg - new_error_deg,
-        );
-
-        #[cfg(feature = "telemetry_logs")]
-        {
+        // Check convergence after settling (handles coast landing in tolerance).
+        let post_error = rotation_state.remaining();
+        let post_yaw = rotation_state.last_yaw.unwrap_or(latest_measurement.orientation.yaw);
+        if post_error.abs() <= types::ROTATION_TOLERANCE_DEG {
             defmt::info!(
-                "rotate_exact: correction iter={=u8} err={=f32}° pulse={=u64}ms overshoots={=u8}",
+                "correction converged iter={=u8} yaw={=f32}° err={=f32}°",
                 iteration,
-                error_deg,
-                pulse_duration_ms,
-                overshoot_count,
+                post_yaw,
+                post_error,
             );
+            return rotation_success(&latest_measurement, rotation_state, started_at_ms);
         }
 
+        let _ = timed_out; // suppress unused warning if any
         iteration = iteration.saturating_add(1);
     }
 
     // Exhausted all correction iterations without reaching tolerance.
-    let error_deg = rotation_state.target_angle - rotation_state.accumulated_angle;
+    let error_deg = rotation_state.remaining();
     defmt::warn!(
         "correction exhausted after {=u8} iters, final_err={=f32}°",
         iteration,
@@ -430,7 +511,7 @@ async fn run_correction_phase(
         reason: "CorrectionExhausted",
         telemetry: types::CompletionTelemetry::RotateExact {
             final_yaw_deg: latest_measurement.orientation.yaw,
-            angle_error_deg: rotation_state.accumulated_angle.abs() - rotation_state.target_angle.abs(),
+            angle_error_deg: -rotation_state.remaining(),
             duration_ms: Instant::now().as_millis() - started_at_ms,
         },
     }
@@ -455,21 +536,33 @@ pub(super) async fn run_rotation_control_step(
         return RotationStepResult::InProgress;
     };
 
+    let is_first_sample = rotation_state.start_yaw.is_none();
+
+    // Advance the state machine. If the target is reached, stop motors and report completion.
+    let done = rotation_state.update(&measurement);
+
+    // Log start yaw on the very first sample (after update so target_yaw is populated).
+    if is_first_sample {
+        defmt::info!(
+            "rotate_exact start: yaw={=f32}° target_yaw={=f32}° target_deg={=f32}°",
+            measurement.orientation.yaw,
+            rotation_state.target_yaw.unwrap_or(0.0),
+            rotation_state.target_angle,
+        );
+    }
+
     // Rate-limited debug logging (compiled out when feature is absent).
     #[cfg(feature = "telemetry_logs")]
     {
         if (measurement.timestamp_ms % 100) < 25 {
             defmt::info!(
-                "rotate_exact: yaw={=f32}°, acc={=f32}°, target={=f32}°",
+                "rotate_exact: yaw={=f32}° target_yaw={=f32}° remaining={=f32}°",
                 measurement.orientation.yaw,
-                rotation_state.accumulated_angle.abs(),
-                rotation_state.target_angle.abs()
+                rotation_state.target_yaw.unwrap_or(0.0),
+                rotation_state.remaining(),
             );
         }
     }
-
-    // Advance the state machine. If the target is reached, stop motors and report completion.
-    let done = rotation_state.update(&measurement);
     if done {
         stop_rotation_motors().await;
         if matches!(rotation_state.motion, types::RotationMotion::Stationary { .. }) {
