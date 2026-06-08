@@ -140,13 +140,11 @@ impl RotationState {
     /// Negative  → has gone past the target (overshoot).
     /// Returns `target_angle` when no IMU sample has been received yet.
     pub fn remaining(&self) -> f32 {
-        let current_yaw = match self.last_yaw {
-            Some(y) => y,
-            None => return self.target_angle,
+        let Some(current_yaw) = self.last_yaw else {
+            return self.target_angle;
         };
-        let target_yaw = match self.target_yaw {
-            Some(y) => y,
-            None => return self.target_angle,
+        let Some(target_yaw) = self.target_yaw else {
+            return self.target_angle;
         };
         let diff = normalize_angle(current_yaw - target_yaw);
         match self.direction {
@@ -343,6 +341,7 @@ async fn read_rotation_measurement(started_at_ms: u64) -> Option<ImuMeasurement>
 /// iterations trade torque for precision as the remaining error shrinks.
 /// Up to `ROTATION_CORRECTION_MAX_ITERATIONS` attempts are made before
 /// the correction is declared exhausted.
+#[allow(clippy::too_many_lines)]
 async fn run_correction_phase(
     rotation_state: &mut RotationState,
     started_at_ms: u64,
