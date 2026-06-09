@@ -71,17 +71,27 @@ async fn run_straight_drive_test() {
     fn build_straight_queue() -> Result<DriveQueueBuilder, DriveQueueBuildError> {
         let mut queue = DriveQueueBuilder::new();
 
-        queue.push(DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
+        queue.push_abort_on_fail(DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::Straight { distance_cm: 150.0 },
             direction: DriveDirection::Forward,
             speed: 70,
         }))?;
 
-        queue.push(DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::Straight { distance_cm: 50.0 },
+        queue.push_abort_on_fail(DriveCommand::Drive(DriveAction::Brake))?;
+
+        queue.push_abort_on_fail(DriveCommand::Drive(DriveAction::Idle { duration_ms: 500 }))?;
+
+        queue.push_abort_on_fail(DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::Straight { distance_cm: 150.0 },
             direction: DriveDirection::Backward,
             speed: 70,
         }))?;
+
+        queue.push_abort_on_fail(DriveCommand::Drive(DriveAction::Brake))?;
+
+        queue.push_abort_on_fail(DriveCommand::Drive(DriveAction::Idle { duration_ms: 500 }))?;
+
+        queue.push_abort_on_fail(DriveCommand::Drive(DriveAction::Coast))?;
 
         Ok(queue)
     }
@@ -110,9 +120,10 @@ async fn run_straight_drive_test() {
     Timer::after(Duration::from_millis(250)).await;
 
     // Countdown before driving.
-    defmt::info!("🧪 DIST: Waiting 10 seconds before driving...");
-    show_line(1, "Starting in 10s").await;
-    Timer::after(Duration::from_secs(10)).await;
+    let wait_s = 5u64;
+    defmt::info!("🧪 DIST: Waiting {} seconds before driving...", wait_s);
+    show_line(1, "Starting in a few s").await;
+    Timer::after(Duration::from_secs(wait_s)).await;
 
     // Queue forward + backward 50 cm.
     show_line(0, "DIST TEST").await;
