@@ -330,6 +330,130 @@ async fn read_rotation_measurement(started_at_ms: u64) -> Option<ImuMeasurement>
     drain_latest_imu_since(started_at_ms)
 }
 
+// ── Correction phase helpers ──────────────────────────────────────────────
+
+/// Compute track speeds for a single correction pulse using the torque ladder.
+///
+/// Base speed scales proportionally with error magnitude (~6 speed-units per
+/// degree), clamped between [`types::ROTATION_CORRECTION_SPEED_MIN`] and
+/// [`types::ROTATION_CORRECTION_SPEED_START`], then stepped down by
+/// [`types::ROTATION_CORRECTION_SPEED_STEP`] for each prior iteration.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn compute_correction_speeds(error_deg: f32, iteration: u8, direction: types::RotationDirection) -> (i8, i8) {
+    let proportional = (roundf(error_deg.abs() * 6.0) as u8).clamp(
+        types::ROTATION_CORRECTION_SPEED_MIN,
+        types::ROTATION_CORRECTION_SPEED_START,
+    );
+    let correction_speed = proportional
+        .saturating_sub(iteration.saturating_mul(types::ROTATION_CORRECTION_SPEED_STEP))
+        .max(types::ROTATION_CORRECTION_SPEED_MIN);
+
+    let effective_direction = if error_deg > 0.0 {
+        direction
+    } else {
+        match direction {
+            types::RotationDirection::Clockwise => types::RotationDirection::CounterClockwise,
+            types::RotationDirection::CounterClockwise => types::RotationDirection::Clockwise,
+        }
+    };
+
+    let speed = i8::try_from(correction_speed).unwrap_or(i8::MAX);
+    match effective_direction {
+        types::RotationDirection::Clockwise => (speed, -speed),
+        types::RotationDirection::CounterClockwise => (-speed, speed),
+    }
+}
+
+/// Check whether the remaining angle error is within tolerance.
+///
+/// Returns `Some(RotationStepResult::Completed)` if converged, `None` otherwise.
+fn try_correction_convergence(
+    state: &RotationState,
+    measurement: &ImuMeasurement,
+    iteration: u8,
+    started_at_ms: u64,
+) -> Option<RotationStepResult> {
+    let error_deg = state.remaining();
+    if error_deg.abs() <= types::ROTATION_TOLERANCE_DEG {
+        let yaw = state.last_yaw.unwrap_or(measurement.orientation.yaw);
+        defmt::info!(
+            "correction converged iter={=u8} yaw={=f32}° err={=f32}°",
+            iteration,
+            yaw,
+            error_deg,
+        );
+        Some(rotation_success(measurement, state, started_at_ms))
+    } else {
+        None
+    }
+}
+
+/// Outcome of a single correction IMU polling cycle.
+enum PollOutcome {
+    /// Converged to the target within tolerance.
+    Converged(RotationStepResult),
+    /// Overshot the target; contains the updated overshoot count.
+    Overshot(u8),
+    /// Timed out without reaching the target.
+    TimedOut,
+}
+
+/// Poll the IMU while correction motors run.
+///
+/// Stops on convergence (within [`types::ROTATION_TOLERANCE_DEG`]), overshoot
+/// (error sign flips relative to `iter_sign`), or a per-iteration timeout
+/// ([`types::ROTATION_CORRECTION_ITER_TIMEOUT_MS`]).
+async fn poll_correction_imu(
+    rotation_state: &mut RotationState,
+    latest_measurement: &mut ImuMeasurement,
+    started_at_ms: u64,
+    iteration: u8,
+    iter_sign: i8,
+    overshoot_count: u8,
+) -> PollOutcome {
+    let start_ms = Instant::now().as_millis();
+
+    loop {
+        if Instant::now().as_millis() - start_ms > types::ROTATION_CORRECTION_ITER_TIMEOUT_MS {
+            stop_rotation_motors().await;
+            defmt::info!(
+                "correction iter={=u8} timeout yaw={=f32}° err={=f32}°",
+                iteration,
+                rotation_state.last_yaw.unwrap_or(latest_measurement.orientation.yaw),
+                rotation_state.remaining(),
+            );
+            return PollOutcome::TimedOut;
+        }
+
+        if let Some(m) = drain_latest_imu_since(started_at_ms) {
+            rotation_state.update(&m);
+            *latest_measurement = m;
+            let new_error = rotation_state.remaining();
+
+            if new_error.abs() <= types::ROTATION_TOLERANCE_DEG {
+                stop_rotation_motors().await;
+                return PollOutcome::Converged(rotation_success(latest_measurement, rotation_state, started_at_ms));
+            }
+
+            let new_sign: i8 = if new_error > 0.0 { 1 } else { -1 };
+            if new_sign != iter_sign {
+                stop_rotation_motors().await;
+                let count = overshoot_count.saturating_add(1);
+                defmt::info!(
+                    "correction overshoot iter={=u8} yaw={=f32}° err={=f32}° total_overshoots={=u8}",
+                    iteration,
+                    rotation_state.last_yaw.unwrap_or(latest_measurement.orientation.yaw),
+                    new_error,
+                    count,
+                );
+                return PollOutcome::Overshot(count);
+            }
+        } else {
+            Timer::after(Duration::from_millis(5)).await;
+        }
+    }
+}
+
 /// Post-stop multi-iteration correction loop for stationary turns.
 ///
 /// Uses a torque-ladder strategy: pulse duration is fixed at
@@ -340,18 +464,18 @@ async fn read_rotation_measurement(started_at_ms: u64) -> Option<ImuMeasurement>
 ///
 /// The high starting speed reliably breaks static friction; subsequent
 /// iterations trade torque for precision as the remaining error shrinks.
+///
 /// Up to `ROTATION_CORRECTION_MAX_ITERATIONS` attempts are made before
 /// the correction is declared exhausted.
-#[allow(clippy::too_many_lines)]
 async fn run_correction_phase(
     rotation_state: &mut RotationState,
     started_at_ms: u64,
     initial_measurement: ImuMeasurement,
 ) -> RotationStepResult {
-    // Step 1: anchor state on the pre-stop measurement.
+    // Anchor state on the pre-stop measurement.
     rotation_state.update(&initial_measurement);
 
-    // Step 2: wait for initial settle and capture a fresh IMU sample.
+    // Wait for initial settle and capture a fresh IMU sample.
     let mut latest_measurement = wait_for_latest_imu_since(started_at_ms, types::ROTATION_CORRECTION_SETTLE_MS)
         .await
         .map_or(initial_measurement, |settled| {
@@ -364,19 +488,13 @@ async fn run_correction_phase(
     let mut iteration: u8 = 0;
 
     while iteration < types::ROTATION_CORRECTION_MAX_ITERATIONS {
-        let error_deg = rotation_state.remaining();
-        let current_yaw = rotation_state.last_yaw.unwrap_or(latest_measurement.orientation.yaw);
-
-        // Within tolerance → success.
-        if error_deg.abs() <= types::ROTATION_TOLERANCE_DEG {
-            defmt::info!(
-                "correction converged iter={=u8} yaw={=f32}° err={=f32}°",
-                iteration,
-                current_yaw,
-                error_deg,
-            );
-            return rotation_success(&latest_measurement, rotation_state, started_at_ms);
+        // Check convergence at loop entry (from coast between iterations).
+        if let Some(result) = try_correction_convergence(rotation_state, &latest_measurement, iteration, started_at_ms)
+        {
+            return result;
         }
+
+        let error_deg = rotation_state.remaining();
 
         // Track overshoots between iterations.
         let current_sign: i8 = if error_deg > 0.0 { 1 } else { -1 };
@@ -385,41 +503,17 @@ async fn run_correction_phase(
         }
         last_error_sign = current_sign;
 
-        // Proportional torque ladder: base speed scales with error magnitude
-        // (~6 speed-units per degree), clamped between MIN and START, then
-        // stepped down by SPEED_STEP each iteration.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let proportional = (roundf(error_deg.abs() * 6.0) as u8).clamp(
-            types::ROTATION_CORRECTION_SPEED_MIN,
-            types::ROTATION_CORRECTION_SPEED_START,
-        );
-        let correction_speed: u8 = proportional
-            .saturating_sub(iteration.saturating_mul(types::ROTATION_CORRECTION_SPEED_STEP))
-            .max(types::ROTATION_CORRECTION_SPEED_MIN);
+        // Compute and apply correction speeds.
+        let (left_speed, right_speed) = compute_correction_speeds(error_deg, iteration, rotation_state.direction);
 
         defmt::info!(
-            "correction iter={=u8} yaw={=f32}° err={=f32}° speed={=u8}",
+            "correction iter={=u8} yaw={=f32}° err={=f32}° l={=i8} r={=i8}",
             iteration,
-            current_yaw,
+            rotation_state.last_yaw.unwrap_or(latest_measurement.orientation.yaw),
             error_deg,
-            correction_speed,
+            left_speed,
+            right_speed,
         );
-
-        // Determine correction direction.
-        let effective_direction = if error_deg > 0.0 {
-            rotation_state.direction
-        } else {
-            match rotation_state.direction {
-                types::RotationDirection::Clockwise => types::RotationDirection::CounterClockwise,
-                types::RotationDirection::CounterClockwise => types::RotationDirection::Clockwise,
-            }
-        };
-
-        let speed = i8::try_from(correction_speed).unwrap_or(i8::MAX);
-        let (left_speed, right_speed) = match effective_direction {
-            types::RotationDirection::Clockwise => (speed, -speed),
-            types::RotationDirection::CounterClockwise => (-speed, speed),
-        };
 
         motor_driver::send_motor_command(MotorCommand::SetTracks {
             left_speed,
@@ -428,82 +522,33 @@ async fn run_correction_phase(
         .await;
         motion::set_track_speeds(left_speed, right_speed).await;
 
-        // Poll IMU continuously while the motors run.
-        let iter_start_ms = Instant::now().as_millis();
-        let iter_sign = current_sign; // sign at start of this iteration
-        let mut timed_out = false;
-
-        loop {
-            if Instant::now().as_millis() - iter_start_ms > types::ROTATION_CORRECTION_ITER_TIMEOUT_MS {
-                stop_rotation_motors().await;
-                let yaw = rotation_state.last_yaw.unwrap_or(latest_measurement.orientation.yaw);
-                let err = rotation_state.remaining();
-                defmt::info!(
-                    "correction iter={=u8} timeout yaw={=f32}° err={=f32}°",
-                    iteration,
-                    yaw,
-                    err,
-                );
-                timed_out = true;
-                break;
-            }
-
-            if let Some(m) = drain_latest_imu_since(started_at_ms) {
-                rotation_state.update(&m);
-                latest_measurement = m;
-                let new_error = rotation_state.remaining();
-                let yaw = rotation_state.last_yaw.unwrap_or(latest_measurement.orientation.yaw);
-
-                if new_error.abs() <= types::ROTATION_TOLERANCE_DEG {
-                    stop_rotation_motors().await;
-                    defmt::info!(
-                        "correction converged iter={=u8} yaw={=f32}° err={=f32}°",
-                        iteration,
-                        yaw,
-                        new_error,
-                    );
-                    return rotation_success(&latest_measurement, rotation_state, started_at_ms);
-                }
-
-                let new_sign: i8 = if new_error > 0.0 { 1 } else { -1 };
-                if new_sign != iter_sign {
-                    // Crossed the target — stop and start the next iteration in reverse.
-                    stop_rotation_motors().await;
-                    overshoot_count = overshoot_count.saturating_add(1);
-                    defmt::info!(
-                        "correction overshoot iter={=u8} yaw={=f32}° err={=f32}° total_overshoots={=u8}",
-                        iteration,
-                        yaw,
-                        new_error,
-                        overshoot_count,
-                    );
-                    break;
-                }
-            } else {
-                Timer::after(Duration::from_millis(5)).await;
-            }
+        // Poll IMU while motors run.
+        match poll_correction_imu(
+            rotation_state,
+            &mut latest_measurement,
+            started_at_ms,
+            iteration,
+            current_sign,
+            overshoot_count,
+        )
+        .await
+        {
+            PollOutcome::Converged(result) => return result,
+            PollOutcome::Overshot(count) => overshoot_count = count,
+            PollOutcome::TimedOut => {}
         }
 
-        // After stopping (overshoot or timeout): settle and re-read before next iteration.
+        // After stopping: settle and re-check for coast landing in tolerance.
         if let Some(settled) = wait_for_latest_imu_since(started_at_ms, types::ROTATION_CORRECTION_SETTLE_MS).await {
             rotation_state.update(&settled);
             latest_measurement = settled;
         }
 
-        // Check convergence after settling (handles coast landing in tolerance).
-        let post_error = rotation_state.remaining();
-        let post_yaw = rotation_state.last_yaw.unwrap_or(latest_measurement.orientation.yaw);
-        if post_error.abs() <= types::ROTATION_TOLERANCE_DEG {
-            defmt::info!(
-                "correction converged iter={=u8} yaw={=f32}° err={=f32}°",
-                iteration,
-                post_yaw,
-                post_error,
-            );
-            return rotation_success(&latest_measurement, rotation_state, started_at_ms);
+        if let Some(result) = try_correction_convergence(rotation_state, &latest_measurement, iteration, started_at_ms)
+        {
+            return result;
         }
 
-        let _ = timed_out; // suppress unused warning if any
         iteration = iteration.saturating_add(1);
     }
 
