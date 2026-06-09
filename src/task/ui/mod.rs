@@ -7,8 +7,15 @@ use crate::{
         event::RotaryDirection,
         state::{CalibrationSelection, DriveMode, TestSelection, calibration, perception},
     },
-    task::{autonomous_mode, drive, testmode},
+    task::{
+        autonomous_mode, drive,
+        io::display::{DisplayAction, display_update},
+        io::flash_storage,
+        testmode,
+    },
 };
+
+use embassy_time::{Duration, Timer};
 
 pub mod menu;
 pub mod render;
@@ -16,7 +23,7 @@ pub mod screens;
 pub mod state;
 
 use menu::{calibration_selection_from_index, menu_selection_from_index, next_menu_index, test_selection_from_index};
-use render::render_current_ui;
+use render::{render_current_ui, show_line};
 use state::{UI_STATE, UiMode};
 
 /// Returns true once calibration data has been queried.
@@ -97,6 +104,19 @@ pub async fn handle_rotary_turned(direction: RotaryDirection) {
         | UiMode::RunningUltrasonicSweepTest
         | UiMode::RunningAutonomous { .. }
         | UiMode::Calibrating { .. } => {}
+        UiMode::EnteringDistance { value } => {
+            let new_value = match direction {
+                RotaryDirection::Clockwise => value.saturating_sub(1),
+                RotaryDirection::CounterClockwise => (value + 1).min(200),
+            };
+            let mut ui = UI_STATE.lock().await;
+            // Re-read to avoid TOCTOU — value may have changed.
+            if let UiMode::EnteringDistance { value: current } = &mut ui.mode {
+                *current = new_value;
+            }
+            drop(ui);
+            render_entering_distance(new_value).await;
+        }
     }
 }
 
@@ -129,6 +149,7 @@ pub async fn handle_rotary_button_pressed() {
         UiMode::RunningUltrasonicSweepTest => handle_running_ultrasonic_sweep_test_press().await,
         UiMode::RunningAutonomous { .. } => handle_ui_back().await,
         UiMode::RunningTurnsTest | UiMode::RunningStraightDriveTest | UiMode::RunningArcDriveTest => {}
+        UiMode::EnteringDistance { value } => handle_distance_entry_press(value).await,
     }
 }
 
@@ -262,6 +283,9 @@ async fn handle_calibrate_menu_press(index: usize) {
             }
             CalibrationSelection::Mag => {
                 drive::send_drive_command(drive::DriveCommand::RunImuCalibration(drive::ImuCalibrationKind::Mag)).await;
+            }
+            CalibrationSelection::Distance => {
+                run_distance_calibration().await;
             }
         }
     } else {
@@ -427,4 +451,103 @@ pub async fn refresh() {
     let snapshot = *ui;
     drop(ui);
     render_current_ui(&snapshot).await;
+}
+
+// ── Distance calibration flow ────────────────────────────────────────────────────
+
+/// Handle a button press while the distance entry screen is active.
+async fn handle_distance_entry_press(value: u8) {
+    if value == 0 {
+        // Cancel — don't save, return to main menu.
+        show_main_menu().await;
+        return;
+    }
+
+    let factor = (150.0 / f32::from(value)).clamp(
+        flash_storage::DistanceCalibration::MIN_FACTOR,
+        flash_storage::DistanceCalibration::MAX_FACTOR,
+    );
+
+    flash_storage::set_distance_factor(factor).await;
+
+    // Show confirmation.
+    display_update(DisplayAction::Clear).await;
+    show_line(0, "Distance Cal").await;
+    {
+        let mut s: heapless::String<20> = heapless::String::new();
+        let _ = core::fmt::write(&mut s, format_args!("Factor: {factor:.2}"));
+        display_update(DisplayAction::ShowText(s, 1)).await;
+    }
+    show_line(2, "Saved").await;
+    show_line(3, "").await;
+
+    Timer::after(Duration::from_secs(2)).await;
+    show_main_menu().await;
+}
+
+/// Run the distance calibration procedure: countdown → auto-drive → entry screen.
+async fn run_distance_calibration() {
+    use crate::task::drive::{DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, DriveQueueBuilder};
+
+    // Countdown.
+    display_update(DisplayAction::Clear).await;
+    show_line(0, "Distance Cal").await;
+    show_line(1, "Driving 150cm").await;
+    for sec in (1u8..=3).rev() {
+        let mut s: heapless::String<20> = heapless::String::new();
+        let _ = core::fmt::write(&mut s, format_args!("in {sec}..."));
+        show_line(2, &s).await;
+        Timer::after(Duration::from_secs(1)).await;
+    }
+
+    // Drive 150cm forward.
+    show_line(2, "Driving...").await;
+    show_line(3, "").await;
+
+    let mut queue = DriveQueueBuilder::new();
+
+    if queue
+        .push_abort_on_fail(DriveCommand::Drive(DriveAction::DriveDistance {
+            kind: DriveDistanceKind::Straight { distance_cm: 150.0 },
+            direction: DriveDirection::Forward,
+            speed: 70,
+        }))
+        .is_err()
+    {
+        show_line(2, "Queue full").await;
+        Timer::after(Duration::from_secs(2)).await;
+        show_main_menu().await;
+        return;
+    }
+
+    if queue
+        .push_abort_on_fail(DriveCommand::Drive(DriveAction::Brake))
+        .is_err()
+    {
+        show_line(2, "Queue full").await;
+        Timer::after(Duration::from_secs(2)).await;
+        show_main_menu().await;
+        return;
+    }
+
+    let _completion = queue.submit().await;
+
+    // Transition to entry screen.
+    let mut ui = UI_STATE.lock().await;
+    ui.mode = UiMode::EnteringDistance { value: 150 };
+    drop(ui);
+    render_entering_distance(150).await;
+}
+
+/// Render the distance entry screen with the current entered value.
+async fn render_entering_distance(value: u8) {
+    display_update(DisplayAction::Clear).await;
+    show_line(0, "Enter distance:").await;
+    {
+        let mut s: heapless::String<20> = heapless::String::new();
+        let _ = core::fmt::write(&mut s, format_args!("  {value} cm"));
+        display_update(DisplayAction::ShowText(s, 1)).await;
+    }
+    show_line(2, "Turn to adj").await;
+    show_line(3, "Press to save").await;
 }

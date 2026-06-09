@@ -44,9 +44,9 @@
 //!
 //! # IMU lifecycle
 //!
-//! The IMU is only consumed for curve driving; the lifecycle module is expected
-//! to start IMU streaming when a curve intent begins and stop it when the intent
-//! completes or is interrupted. Straight distance drives do not require IMU data.
+//! IMU streaming is started for all distance drive intents (straight and curve)
+//! and stopped when the intent completes or is interrupted. Straight drives use
+//! IMU for heading correction; curve drives use IMU for yaw-based curve correction.
 //!
 //! # Telemetry logging
 //!
@@ -137,10 +137,15 @@ pub(super) struct DistanceDriveState {
 
 impl DistanceDriveState {
     /// Create a new distance drive state and precompute targets/ratios.
-    pub(super) fn new(kind: types::DriveDistanceKind, direction: types::DriveDirection, base_speed: u8) -> Self {
+    pub(super) fn new(
+        kind: types::DriveDistanceKind,
+        direction: types::DriveDirection,
+        base_speed: u8,
+        calibration_factor: f32,
+    ) -> Self {
         let (target_left_revs, target_right_revs, inner_left, target_inner_revs) = match kind {
             types::DriveDistanceKind::Straight { distance_cm } => {
-                let revolutions = distance_cm / types::SPROCKET_CIRCUMFERENCE_CM;
+                let revolutions = (distance_cm / types::SPROCKET_CIRCUMFERENCE_CM) * calibration_factor;
                 (revolutions, revolutions, None, revolutions)
             }
             types::DriveDistanceKind::CurveArc {
@@ -158,8 +163,8 @@ impl DistanceDriveState {
                 let safe_radius = radius_cm.max(0.001);
                 let left_arc_cm = arc_length_cm * (left_radius / safe_radius);
                 let right_arc_cm = arc_length_cm * (right_radius / safe_radius);
-                let left_revs = left_arc_cm / types::SPROCKET_CIRCUMFERENCE_CM;
-                let right_revs = right_arc_cm / types::SPROCKET_CIRCUMFERENCE_CM;
+                let left_revs = (left_arc_cm / types::SPROCKET_CIRCUMFERENCE_CM) * calibration_factor;
+                let right_revs = (right_arc_cm / types::SPROCKET_CIRCUMFERENCE_CM) * calibration_factor;
                 let inner_revs = if inner_left { left_revs } else { right_revs };
                 (left_revs, right_revs, Some(inner_left), inner_revs)
             }

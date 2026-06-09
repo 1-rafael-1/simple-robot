@@ -38,7 +38,7 @@ pub const TEST_MENU_ITEMS: [&str; 9] = [
 ];
 
 /// Calibration submenu entries.
-pub const CALIBRATE_MENU_ITEMS: [&str; 3] = ["Motor", "Mag", "Back"];
+pub const CALIBRATE_MENU_ITEMS: [&str; 4] = ["Motor", "Mag", "Distance", "Back"];
 
 /// Snapshot of the system info values needed for display.
 #[derive(Clone, Copy)]

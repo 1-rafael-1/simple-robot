@@ -145,7 +145,9 @@ async fn run_straight_drive_test() {
         && let CompletionTelemetry::DriveDistance {
             achieved_left_revs,
             achieved_right_revs,
-            ..
+            target_left_revs,
+            target_right_revs,
+            duration_ms,
         } = step.telemetry
     {
         let status_str = match step.status {
@@ -153,12 +155,32 @@ async fn run_straight_drive_test() {
             CompletionStatus::Cancelled => "Cancelled",
             CompletionStatus::Failed(_) => "Failed",
         };
+
+        let left_pct = if target_left_revs > 0.0 {
+            (achieved_left_revs / target_left_revs) * 100.0
+        } else {
+            0.0
+        };
+        let right_pct = if target_right_revs > 0.0 {
+            (achieved_right_revs / target_right_revs) * 100.0
+        } else {
+            0.0
+        };
+
+        defmt::info!("🧪 DIST: complete: status={=str}", status_str,);
         defmt::info!(
-            "🧪 DIST: complete: status={=str} left={=f32} right={=f32}",
-            status_str,
-            achieved_left_revs,
-            achieved_right_revs
+            "🧪 DIST:   target   L={=f32} R={=f32} revs",
+            target_left_revs,
+            target_right_revs,
         );
+        defmt::info!(
+            "🧪 DIST:   achieved L={=f32} ({=f32}%) R={=f32} ({=f32}%)",
+            achieved_left_revs,
+            left_pct,
+            achieved_right_revs,
+            right_pct,
+        );
+        defmt::info!("🧪 DIST:   duration_ms={=u64}", duration_ms,);
     }
 
     defmt::info!("🧪 DIST: Straight drive test complete");

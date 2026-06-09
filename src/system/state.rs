@@ -76,6 +76,8 @@ pub enum CalibrationSelection {
     Motor,
     /// Magnetometer calibration
     Mag,
+    /// Distance calibration
+    Distance,
 }
 
 // Motion state helpers moved to the `motion` module.

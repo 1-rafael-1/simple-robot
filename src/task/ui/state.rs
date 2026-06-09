@@ -47,6 +47,11 @@ pub enum UiMode {
         /// Selected calibration kind
         kind: CalibrationSelection,
     },
+    /// Distance calibration entry — user adjusts measured distance via rotary encoder.
+    EnteringDistance {
+        /// Current entered value in cm (preset to 150, range [0, 200]).
+        value: u8,
+    },
 }
 
 /// UI state owned by the UI controller.

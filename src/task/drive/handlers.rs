@@ -39,6 +39,7 @@ use crate::{
             state::{ActiveIntent, DriveLoop},
             types::{self, CompletionStatus, DriveAction, DriveCommand, DriveCompletion},
         },
+        io::flash_storage,
         motor_driver::{self, MotorCommand},
     },
 };
@@ -295,7 +296,8 @@ impl DriveLoop {
         lifecycle::start_distance_imu(&kind).await;
         start_encoder_sampling(types::DISTANCE_CONTROL_INTERVAL_MS, true).await;
 
-        let mut state = DistanceDriveState::new(kind, direction, speed);
+        let distance_factor = flash_storage::get_distance_factor().await;
+        let mut state = DistanceDriveState::new(kind, direction, speed, distance_factor);
 
         let base_speed = speed.min(types::DISTANCE_MAX_SPEED);
         let signed_base = match direction {
