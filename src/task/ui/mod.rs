@@ -2,6 +2,10 @@
 //!
 //! Owns UI state, user interactions, and view rendering logic.
 
+use embassy_executor::Spawner;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
+use embassy_time::{Duration, Timer};
+
 use crate::{
     system::{
         event::RotaryDirection,
@@ -9,15 +13,13 @@ use crate::{
     },
     task::{
         autonomous_mode, drive,
-        io::display::{DisplayAction, display_update},
-        io::flash_storage,
+        io::{
+            display::{DisplayAction, display_update},
+            flash_storage,
+        },
         testmode,
     },
 };
-
-use embassy_executor::Spawner;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
-use embassy_time::{Duration, Timer};
 
 pub mod menu;
 pub mod render;
