@@ -194,6 +194,7 @@ impl DistanceCalibration {
     pub const MAX_FACTOR: f32 = 2.0;
 
     /// Create with factor clamped to the safe range.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn new(factor: f32) -> Self {
         Self {
             factor: factor.clamp(Self::MIN_FACTOR, Self::MAX_FACTOR),
@@ -202,7 +203,7 @@ impl DistanceCalibration {
 }
 
 /// Combined calibration data
-#[derive(Debug, Clone, Copy, Format)]
+#[derive(Debug, Clone, Copy, Format, Default)]
 pub struct CalibrationData {
     /// Motor calibration data
     pub motor: MotorCalibration,
@@ -212,17 +213,6 @@ pub struct CalibrationData {
     pub imu_flags: ImuCalibrationFlags,
     /// Distance calibration factor (persisted separately).
     pub distance: DistanceCalibration,
-}
-
-impl Default for CalibrationData {
-    fn default() -> Self {
-        Self {
-            motor: MotorCalibration::default(),
-            imu: ImuCalibration::default(),
-            imu_flags: ImuCalibrationFlags::default(),
-            distance: DistanceCalibration::default(),
-        }
-    }
 }
 
 /// Storage keys for sequential-storage
@@ -323,7 +313,7 @@ impl Value<'_> for DistanceCalibration {
             return Err(SerializationError::BufferTooSmall);
         }
         let factor = f32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
-        Ok((DistanceCalibration::new(factor), 4))
+        Ok((Self::new(factor), 4))
     }
 }
 

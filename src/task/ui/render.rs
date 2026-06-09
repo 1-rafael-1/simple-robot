@@ -57,10 +57,9 @@ pub async fn render_current_ui(state: &UiState) {
         UiMode::Calibrating { kind } => {
             render_calibrating(kind).await;
         }
-        UiMode::EnteringDistance { value } => {
+        UiMode::EnteringDistance { .. } => {
             // Rendering handled by the rotary-turn handler — this arm exists
             // for exhaustiveness but should not be reached via render_current_ui.
-            let _value = value;
         }
     }
 }
