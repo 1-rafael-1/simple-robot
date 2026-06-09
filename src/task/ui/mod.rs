@@ -500,9 +500,15 @@ async fn run_distance_calibration() {
         Timer::after(Duration::from_secs(1)).await;
     }
 
-    // Drive 150cm forward.
+    // Drive 150cm forward — always use uncalibrated factor 1.0 so the
+    // calibration baseline does not compound with a previously-saved factor.
     show_line(2, "Driving...").await;
     show_line(3, "").await;
+
+    let saved_factor = flash_storage::get_distance_factor().await;
+    if (saved_factor - 1.0).abs() > f32::EPSILON {
+        flash_storage::set_distance_factor(1.0).await;
+    }
 
     let mut queue = DriveQueueBuilder::new();
 
@@ -529,6 +535,9 @@ async fn run_distance_calibration() {
         show_main_menu().await;
         return;
     }
+
+    // Let the robot settle after braking, then release motors.
+    let _ = queue.push(DriveCommand::Drive(DriveAction::Coast));
 
     let _completion = queue.submit().await;
 

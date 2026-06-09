@@ -66,6 +66,14 @@ pub async fn get_distance_factor() -> f32 {
 #[allow(dead_code)]
 pub async fn set_distance_factor(factor: f32) {
     let dist_cal = DistanceCalibration::new(factor);
+    // Update in-memory cache immediately so subsequent reads see the new value
+    // without waiting for the flash task to process the SaveData command.
+    {
+        let mut data = CALIBRATION_DATA.lock().await;
+        if let Some(ref mut cal) = *data {
+            cal.distance = dist_cal;
+        }
+    }
     send_flash_command(FlashCommand::SaveData(CalibrationDataKind::Distance(dist_cal))).await;
 }
 
@@ -180,11 +188,17 @@ impl Default for ImuCalibration {
 ///
 /// Stored separately from `MotorCalibration` so that motor calibration
 /// layout remains backward compatible with existing flash data.
-#[derive(Debug, Clone, Copy, Format, Default)]
+#[derive(Debug, Clone, Copy, Format)]
 pub struct DistanceCalibration {
     /// Multiplicative factor applied to target sprocket revolutions.
     /// 1.0 = no correction, >1.0 = drive further, <1.0 = drive shorter.
     pub factor: f32,
+}
+
+impl Default for DistanceCalibration {
+    fn default() -> Self {
+        Self { factor: 1.0 }
+    }
 }
 
 impl DistanceCalibration {
