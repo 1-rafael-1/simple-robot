@@ -24,6 +24,7 @@
 //! feature is enabled; otherwise no formatting/queueing cost is incurred.
 
 use embassy_time::{Duration, Instant, Timer};
+use libm::roundf;
 
 use crate::{
     system::state::motion,
@@ -384,8 +385,15 @@ async fn run_correction_phase(
         }
         last_error_sign = current_sign;
 
-        // Torque ladder: start at SPEED_START, step down by SPEED_STEP each iteration.
-        let correction_speed: u8 = types::ROTATION_CORRECTION_SPEED_START
+        // Proportional torque ladder: base speed scales with error magnitude
+        // (~6 speed-units per degree), clamped between MIN and START, then
+        // stepped down by SPEED_STEP each iteration.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let proportional = (roundf(error_deg.abs() * 6.0) as u8).clamp(
+            types::ROTATION_CORRECTION_SPEED_MIN,
+            types::ROTATION_CORRECTION_SPEED_START,
+        );
+        let correction_speed: u8 = proportional
             .saturating_sub(iteration.saturating_mul(types::ROTATION_CORRECTION_SPEED_STEP))
             .max(types::ROTATION_CORRECTION_SPEED_MIN);
 
