@@ -50,7 +50,11 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
 use embassy_time::{Delay, Duration, Instant, Timer};
-use icm20948::{I2cInterface, Icm20948Driver, dmp::DmpConfig};
+use icm20948::{
+    I2cInterface, Icm20948Driver,
+    dmp::DmpConfig,
+    sensors::{GyroConfig, GyroDlpf, GyroFullScale},
+};
 use nalgebra::Vector3;
 
 use crate::{
@@ -674,6 +678,22 @@ pub async fn inertial_measurement_read(i2c_bus: &'static I2cBusShared) {
     if !init_dmp(&mut sensor).await {
         warn!("DMP firmware load failed — IMU task terminating");
         return;
+    }
+
+    // Configure gyro DLPF to 51 Hz for anti-aliasing with the 100 Hz DMP
+    // sample rate.  The reset-default 197 Hz DLPF passes motor vibration
+    // straight through to the gyro, causing false yaw accumulation during
+    // turns and false overshoot corrections after stopping.
+    if let Err(e) = sensor
+        .configure_gyroscope(GyroConfig {
+            full_scale: GyroFullScale::Dps2000,
+            dlpf: GyroDlpf::Hz51,
+            dlpf_enable: true,
+            sample_rate_div: 0,
+        })
+        .await
+    {
+        warn!("Gyro DLPF configure failed: {:?}", e);
     }
 
     info!(

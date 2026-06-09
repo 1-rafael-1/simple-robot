@@ -298,9 +298,9 @@ pub const STRAIGHT_IMU_MAX_CORRECTION: f32 = 8.0;
 /// Correction clamp scales with current ramp speed: `min(MAX, speed * SCALE)`.
 pub const STRAIGHT_IMU_CORRECTION_SCALE: f32 = 0.15;
 /// Maximum rotation speed (0-100%)
-pub const ROTATION_SPEED_MAX: u8 = 50;
+pub const ROTATION_SPEED_MAX: u8 = 100;
 /// Minimum rotation speed to overcome friction
-pub const ROTATION_SPEED_MIN: u8 = 30;
+pub const ROTATION_SPEED_MIN: u8 = 45;
 /// Acceptable angle error in degrees
 ///
 /// Target: 0.5° for precise turns-in-place.
@@ -320,10 +320,10 @@ pub const ROTATION_IMU_WAIT_TIMEOUT_MS: u64 = 20;
 /// Maximum correction iterations after the initial turn stops.
 pub const ROTATION_CORRECTION_MAX_ITERATIONS: u8 = 15;
 /// Settle wait after each correction pulse (ms).
-pub const ROTATION_CORRECTION_SETTLE_MS: u64 = 100;
+pub const ROTATION_CORRECTION_SETTLE_MS: u64 = 400;
 /// Starting speed for the first correction pulse.
 /// Lower starting speed reduces overshoot on the first correction pulse.
-pub const ROTATION_CORRECTION_SPEED_START: u8 = 45;
+pub const ROTATION_CORRECTION_SPEED_START: u8 = 35;
 /// Speed reduction per correction iteration.
 /// Each iteration lowers speed by this amount, trading force for precision.
 pub const ROTATION_CORRECTION_SPEED_STEP: u8 = 2;
