@@ -217,18 +217,23 @@ pub async fn drive_queue_executor() {
             match completion.status {
                 CompletionStatus::Success => {
                     completed_steps += 1;
+                    status = CompletionStatus::Success;
                 }
                 CompletionStatus::Cancelled => {
+                    status = CompletionStatus::Cancelled;
                     if step.abort_on_fail {
-                        status = CompletionStatus::Cancelled;
                         failed_step_index = Some(index);
                         break;
                     }
                     defmt::warn!("Drive queue: step {=usize} cancelled (continuing)", index);
                 }
                 CompletionStatus::Failed(reason) => {
-                    if step.abort_on_fail {
+                    // Prefer Cancelled over Failed when both occur in the same queue;
+                    // a cancellation means the queue was externally preempted.
+                    if !matches!(status, CompletionStatus::Cancelled) {
                         status = CompletionStatus::Failed(reason);
+                    }
+                    if step.abort_on_fail {
                         failed_step_index = Some(index);
                         break;
                     }
