@@ -225,7 +225,6 @@ pub async fn drive_queue_executor() {
                         break;
                     }
                     defmt::warn!("Drive queue: step {=usize} cancelled (continuing)", index);
-                    completed_steps += 1;
                 }
                 CompletionStatus::Failed(reason) => {
                     if step.abort_on_fail {
@@ -234,7 +233,6 @@ pub async fn drive_queue_executor() {
                         break;
                     }
                     defmt::warn!("Drive queue: step {=usize} failed: {=str} (continuing)", index, reason);
-                    completed_steps += 1;
                 }
             }
         }

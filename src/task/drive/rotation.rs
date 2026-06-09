@@ -456,11 +456,12 @@ async fn poll_correction_imu(
 
 /// Post-stop multi-iteration correction loop for stationary turns.
 ///
-/// Uses a torque-ladder strategy: pulse duration is fixed at
-/// `ROTATION_CORRECTION_PULSE_MS` and motor speed is stepped down by
+/// Uses a torque-ladder strategy: motor speed is stepped down by
 /// `ROTATION_CORRECTION_SPEED_STEP` each iteration, starting at
 /// `ROTATION_CORRECTION_SPEED_START` and floored at
-/// `ROTATION_CORRECTION_SPEED_MIN`.
+/// `ROTATION_CORRECTION_SPEED_MIN`. In each iteration the motors run
+/// while the IMU is polled continuously until the yaw converges, an
+/// overshoot is detected, or a timeout expires.
 ///
 /// The high starting speed reliably breaks static friction; subsequent
 /// iterations trade torque for precision as the remaining error shrinks.

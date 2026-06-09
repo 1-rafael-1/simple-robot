@@ -5,7 +5,7 @@
 //! # Test Sequence
 //!
 //! 1. Load calibration from flash (if available)
-//! 2. Wait 10 seconds
+//! 2. Wait 5 seconds
 //! 3. Perform a series of in-place 90° turns at speeds: 40, 60, 80, 100
 //!
 //! During the run, the OLED shows per-turn telemetry:

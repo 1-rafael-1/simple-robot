@@ -434,8 +434,8 @@ pub(super) async fn run_distance_control_step(state: &mut DistanceDriveState) ->
             let max_correction =
                 (f32::from(ramp_speed) * types::STRAIGHT_IMU_CORRECTION_SCALE).min(types::STRAIGHT_IMU_MAX_CORRECTION);
             let correction = (types::STRAIGHT_IMU_KP * heading_error).clamp(-max_correction, max_correction);
-            // Positive heading_error = drifting clockwise/right → slow right track
-            // Negative heading_error = drifting counter-clockwise/left → slow left track
+            // Positive heading_error = drifting counter-clockwise/left → slow right track to correct
+            // Negative heading_error = drifting clockwise/right → slow left track to correct
             let corrected_left = ((f32::from(left_speed) + correction).round() as i8).clamp(-100, 100);
             let corrected_right = ((f32::from(right_speed) - correction).round() as i8).clamp(-100, 100);
             #[cfg(feature = "telemetry_logs")]

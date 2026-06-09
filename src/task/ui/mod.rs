@@ -33,6 +33,11 @@ use state::{UI_STATE, UiMode};
 /// Channel for requesting distance calibration drive from the controller task.
 static DIST_CAL_CHANNEL: Channel<CriticalSectionRawMutex, (), 1> = Channel::new();
 
+/// Stores the distance factor from before calibration started, so it can be
+/// restored if the calibration is cancelled or fails before saving.
+static PREVIOUS_DISTANCE_FACTOR: embassy_sync::mutex::Mutex<CriticalSectionRawMutex, Option<f32>> =
+    embassy_sync::mutex::Mutex::new(None);
+
 /// Initialise the UI calibration controller (spawned once at boot).
 #[allow(clippy::unwrap_used)]
 pub fn init_ui(spawner: Spawner) {
@@ -481,10 +486,16 @@ pub async fn refresh() {
 /// Handle a button press while the distance entry screen is active.
 async fn handle_distance_entry_press(value: u8) {
     if value == 0 {
-        // Cancel — don't save, return to main menu.
+        // Cancel — restore the pre-calibration factor and return to main menu.
+        if let Some(previous) = { PREVIOUS_DISTANCE_FACTOR.lock().await.take() } {
+            flash_storage::set_distance_factor(previous).await;
+        }
         show_main_menu().await;
         return;
     }
+
+    // Calibration succeeded — discard the backup.
+    PREVIOUS_DISTANCE_FACTOR.lock().await.take();
 
     let factor = (150.0 / f32::from(value)).clamp(
         flash_storage::DistanceCalibration::MIN_FACTOR,
@@ -528,8 +539,9 @@ async fn run_distance_calibration() {
     show_line(2, "Driving...").await;
     show_line(3, "").await;
 
-    // Reset to uncalibrated factor 1.0 for the calibration baseline drive.
+    // Back up the previous factor so it can be restored on cancel/error.
     let saved_factor = flash_storage::get_distance_factor().await;
+    PREVIOUS_DISTANCE_FACTOR.lock().await.replace(saved_factor);
     if (saved_factor - 1.0).abs() > f32::EPSILON {
         flash_storage::set_distance_factor(1.0).await;
     }
@@ -544,6 +556,16 @@ async fn run_distance_calibration() {
 async fn calibration_drive_task() {
     use crate::task::drive::{DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, DriveQueueBuilder};
 
+    async fn abort_calibration(message: &str) {
+        // Restore the pre-calibration factor on failure.
+        if let Some(previous) = { PREVIOUS_DISTANCE_FACTOR.lock().await.take() } {
+            flash_storage::set_distance_factor(previous).await;
+        }
+        show_line(2, message).await;
+        Timer::after(Duration::from_secs(2)).await;
+        show_main_menu().await;
+    }
+
     let mut queue = DriveQueueBuilder::new();
 
     if queue
@@ -554,9 +576,7 @@ async fn calibration_drive_task() {
         }))
         .is_err()
     {
-        show_line(2, "Queue full").await;
-        Timer::after(Duration::from_secs(2)).await;
-        show_main_menu().await;
+        abort_calibration("Queue full").await;
         return;
     }
 
@@ -564,22 +584,25 @@ async fn calibration_drive_task() {
         .push_abort_on_fail(DriveCommand::Drive(DriveAction::Brake))
         .is_err()
     {
-        show_line(2, "Queue full").await;
-        Timer::after(Duration::from_secs(2)).await;
-        show_main_menu().await;
+        abort_calibration("Queue full").await;
         return;
     }
 
     // Let the robot settle after braking, then release motors.
     let _ = queue.push(DriveCommand::Drive(DriveAction::Coast));
 
-    let _completion = queue.submit().await;
-
-    // Transition to entry screen.
-    let mut ui = UI_STATE.lock().await;
-    ui.mode = UiMode::EnteringDistance { value: 150 };
-    drop(ui);
-    render_entering_distance(150).await;
+    match queue.submit().await {
+        Ok(_) => {
+            // Transition to entry screen.
+            let mut ui = UI_STATE.lock().await;
+            ui.mode = UiMode::EnteringDistance { value: 150 };
+            drop(ui);
+            render_entering_distance(150).await;
+        }
+        Err(_) => {
+            abort_calibration("Queue busy").await;
+        }
+    }
 }
 
 /// Render the distance entry screen with the current entered value.

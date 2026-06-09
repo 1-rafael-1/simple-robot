@@ -5,9 +5,9 @@
 //! # Test Sequence
 //!
 //! 1. Load calibration from flash (if available)
-//! 2. Wait 10 seconds
-//! 3. Drive forward 50 cm at speed 70
-//! 4. Drive backward 50 cm at speed 70
+//! 2. Wait 5 seconds
+//! 3. Drive forward 150 cm at speed 70
+//! 4. Drive backward 150 cm at speed 70
 //!
 //! Completion telemetry (achieved left/right revs and status) is logged
 //! after the queue drains.
