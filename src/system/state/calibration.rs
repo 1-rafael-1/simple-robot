@@ -17,6 +17,7 @@ pub static CALIBRATION_STATE: Mutex<CriticalSectionRawMutex, CalibrationState> =
     motor_calibration_status: CalibrationStatus::NotLoaded,
     imu_calibration_status: CalibrationStatus::NotLoaded,
     mag_calibration_status: CalibrationStatus::NotLoaded,
+    distance_calibration_status: CalibrationStatus::NotLoaded,
 });
 
 /// Calibration state shared across the system.
@@ -28,14 +29,16 @@ pub struct CalibrationState {
     pub imu_calibration_status: CalibrationStatus,
     /// Magnetometer calibration status.
     pub mag_calibration_status: CalibrationStatus,
+    /// Distance calibration status.
+    pub distance_calibration_status: CalibrationStatus,
 }
 
 impl CalibrationState {
     /// Checks if system initialization is complete.
-    /// Returns true when both motor and IMU calibration have been queried.
     pub fn is_initialized(&self) -> bool {
         self.motor_calibration_status != CalibrationStatus::NotLoaded
             && self.imu_calibration_status != CalibrationStatus::NotLoaded
+            && self.distance_calibration_status != CalibrationStatus::NotLoaded
     }
 }
 

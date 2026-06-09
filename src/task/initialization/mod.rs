@@ -96,8 +96,16 @@ pub async fn handle_calibration_data_loaded(
         CalibrationKind::Distance => {
             if let Some(CalibrationDataKind::Distance(dist_cal)) = data {
                 info!("Distance calibration loaded: factor={}", dist_cal.factor);
+                {
+                    let mut state = calibration::CALIBRATION_STATE.lock().await;
+                    state.distance_calibration_status = CalibrationStatus::Loaded;
+                }
             } else {
                 info!("No distance calibration found - using default 1.0");
+                {
+                    let mut state = calibration::CALIBRATION_STATE.lock().await;
+                    state.distance_calibration_status = CalibrationStatus::NotAvailable;
+                }
             }
         }
         CalibrationKind::Imu => {

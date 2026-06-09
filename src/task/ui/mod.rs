@@ -15,6 +15,8 @@ use crate::{
     },
 };
 
+use embassy_executor::Spawner;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
 
 pub mod menu;
@@ -25,6 +27,25 @@ pub mod state;
 use menu::{calibration_selection_from_index, menu_selection_from_index, next_menu_index, test_selection_from_index};
 use render::{render_current_ui, show_line};
 use state::{UI_STATE, UiMode};
+
+/// Channel for requesting distance calibration drive from the controller task.
+static DIST_CAL_CHANNEL: Channel<CriticalSectionRawMutex, (), 1> = Channel::new();
+
+/// Initialise the UI calibration controller (spawned once at boot).
+#[allow(clippy::unwrap_used)]
+pub fn init_ui(spawner: Spawner) {
+    spawner.spawn(calibration_controller(spawner).unwrap());
+}
+
+/// Controller task: waits for distance calibration requests and spawns the drive.
+#[embassy_executor::task]
+#[allow(clippy::unwrap_used)]
+async fn calibration_controller(spawner: Spawner) {
+    loop {
+        DIST_CAL_CHANNEL.receive().await;
+        spawner.spawn(calibration_drive_task().unwrap());
+    }
+}
 
 /// Returns true once calibration data has been queried.
 pub async fn ui_initialized() -> bool {
@@ -486,9 +507,11 @@ async fn handle_distance_entry_press(value: u8) {
 }
 
 /// Run the distance calibration procedure: countdown → auto-drive → entry screen.
+///
+/// The countdown runs in the orchestrator context (yields via `Timer::after`).
+/// The drive is spawned as a separate task so the orchestrator stays free to
+/// forward encoder and IMU events to the drive control loop.
 async fn run_distance_calibration() {
-    use crate::task::drive::{DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, DriveQueueBuilder};
-
     // Countdown.
     display_update(DisplayAction::Clear).await;
     show_line(0, "Distance Cal").await;
@@ -500,15 +523,24 @@ async fn run_distance_calibration() {
         Timer::after(Duration::from_secs(1)).await;
     }
 
-    // Drive 150cm forward — always use uncalibrated factor 1.0 so the
-    // calibration baseline does not compound with a previously-saved factor.
     show_line(2, "Driving...").await;
     show_line(3, "").await;
 
+    // Reset to uncalibrated factor 1.0 for the calibration baseline drive.
     let saved_factor = flash_storage::get_distance_factor().await;
     if (saved_factor - 1.0).abs() > f32::EPSILON {
         flash_storage::set_distance_factor(1.0).await;
     }
+
+    // Request the controller to spawn the drive task (non-blocking send).
+    DIST_CAL_CHANNEL.send(()).await;
+}
+
+/// Spawned task: submit the 150cm drive, wait for completion, then transition
+/// to the distance entry screen.
+#[embassy_executor::task]
+async fn calibration_drive_task() {
+    use crate::task::drive::{DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, DriveQueueBuilder};
 
     let mut queue = DriveQueueBuilder::new();
 

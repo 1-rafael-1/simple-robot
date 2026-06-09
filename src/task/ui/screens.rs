@@ -51,6 +51,8 @@ pub struct SystemInfoData {
     pub motor_calibration_status: CalibrationStatus,
     /// Magnetometer calibration status
     pub mag_calibration_status: CalibrationStatus,
+    /// Distance calibration status
+    pub distance_calibration_status: CalibrationStatus,
 }
 
 /// Render the main menu with the given selected index.
@@ -123,13 +125,14 @@ async fn render_menu(header: &str, items: &[&str], selected_index: usize) {
 }
 
 /// Build the list of system info lines (scrollable).
-fn build_system_info_lines(info: &SystemInfoData) -> Vec<String<MAX_LINE_LEN>, 8> {
-    let mut lines: Vec<String<MAX_LINE_LEN>, 8> = Vec::new();
+fn build_system_info_lines(info: &SystemInfoData) -> Vec<String<MAX_LINE_LEN>, 12> {
+    let mut lines: Vec<String<MAX_LINE_LEN>, 12> = Vec::new();
 
     let _ = lines.push(format_battery_level_line(info.battery_level));
     let _ = lines.push(format_battery_voltage_line(info.battery_voltage));
     let _ = lines.push(format_cal_line("Motor", info.motor_calibration_status));
     let _ = lines.push(format_cal_line("Mag", info.mag_calibration_status));
+    let _ = lines.push(format_cal_line("Dist", info.distance_calibration_status));
 
     lines
 }

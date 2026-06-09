@@ -30,7 +30,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use panic_probe as _;
 use static_cell::StaticCell;
 
-use crate::task::{autonomous_mode::init_autonomous_mode, testmode::init_testing};
+use crate::task::{autonomous_mode::init_autonomous_mode, testmode::init_testing, ui::init_ui};
 
 /// Firmware image type for bootloader
 #[unsafe(link_section = ".start_block")]
@@ -156,6 +156,7 @@ static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 /// Uses the canonical Embassy RP multicore pattern:
 /// `#[cortex_m_rt::entry]` + two `StaticCell<Executor>` statics +
 /// `spawn_core1` for core1 bootstrap.
+#[allow(clippy::too_many_lines)]
 #[cortex_m_rt::entry]
 fn main() -> ! {
     // Configure rp2350 to use the external oscillator and run at its usual 150Mhz
@@ -293,6 +294,9 @@ fn main() -> ! {
 
         // Initialize testing task for development
         init_testing(spawner);
+
+        // Initialize UI (needs spawner for calibration tasks)
+        init_ui(spawner);
 
         // Initialize autonomous mode controller
         init_autonomous_mode(spawner);
