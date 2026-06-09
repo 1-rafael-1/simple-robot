@@ -292,7 +292,7 @@ impl DriveLoop {
             return;
         }
 
-        lifecycle::start_curve_imu(&kind).await;
+        lifecycle::start_distance_imu(&kind).await;
         start_encoder_sampling(types::DISTANCE_CONTROL_INTERVAL_MS, true).await;
 
         let mut state = DistanceDriveState::new(kind, direction, speed);
@@ -474,7 +474,7 @@ impl DriveLoop {
                 } => {
                     let duration_ms = Instant::now().as_millis() - state.started_at_ms;
 
-                    lifecycle::stop_curve_imu(&state.kind).await;
+                    lifecycle::stop_distance_imu(&state.kind).await;
                     api::send_completion(
                         completion_requested,
                         DriveCompletion {

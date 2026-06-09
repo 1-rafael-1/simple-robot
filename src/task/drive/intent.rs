@@ -28,7 +28,7 @@ use crate::task::drive::{
     distance::{DistanceStepResult, distance_stop_motors, run_distance_control_step},
     drift::run_drift_compensation_step,
     rotation::{RotationStepResult, run_rotation_control_step},
-    sensors::control::{stop_curve_imu, stop_encoder_sampling, stop_rotation_imu},
+    sensors::control::{stop_distance_imu, stop_encoder_sampling, stop_rotation_imu},
     state::{ActiveIntent, DriveLoop},
     types::{self, CompletionStatus, DriveCompletion},
 };
@@ -141,10 +141,8 @@ pub(super) async fn apply_distance_result(loop_state: &mut DriveLoop, result: Di
     };
 
     distance_stop_motors().await;
-    if let Some(ActiveIntent::DriveDistance { state, .. }) = loop_state.active_intent.as_ref()
-        && matches!(state.kind, types::DriveDistanceKind::CurveArc { .. })
-    {
-        stop_curve_imu(&state.kind).await;
+    if let Some(ActiveIntent::DriveDistance { state, .. }) = loop_state.active_intent.as_ref() {
+        stop_distance_imu(&state.kind).await;
     }
     send_completion(completion_requested, DriveCompletion { status, telemetry }).await;
 
