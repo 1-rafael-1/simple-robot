@@ -24,11 +24,21 @@ use super::{
 /// Maximum number of steps allowed in a single queue.
 pub const DRIVE_QUEUE_CAPACITY: usize = 10;
 
+/// A single step in a drive queue, with abort policy.
+#[derive(Debug, Clone)]
+pub struct DriveQueueStep {
+    /// The command to execute.
+    pub command: DriveCommand,
+    /// If true, a failure on this step aborts the remaining queue.
+    /// If false, failures are logged and execution continues.
+    pub abort_on_fail: bool,
+}
+
 /// Queue submission payload.
 #[derive(Debug)]
 pub(super) struct DriveQueueRequest {
-    /// Commands to execute in order.
-    steps: Vec<DriveCommand, DRIVE_QUEUE_CAPACITY>,
+    /// Steps to execute in order, each with its own abort policy.
+    steps: Vec<DriveQueueStep, DRIVE_QUEUE_CAPACITY>,
     /// Reply channel for queue completion.
     reply_channel: &'static Channel<CriticalSectionRawMutex, DriveQueueCompletion, 1>,
 }
@@ -101,7 +111,7 @@ static QUEUE_BUSY: AtomicBool = AtomicBool::new(false);
 #[derive(Debug, Default)]
 pub struct DriveQueueBuilder {
     /// Accumulated command steps.
-    steps: Vec<DriveCommand, DRIVE_QUEUE_CAPACITY>,
+    steps: Vec<DriveQueueStep, DRIVE_QUEUE_CAPACITY>,
 }
 
 impl DriveQueueBuilder {
@@ -110,9 +120,24 @@ impl DriveQueueBuilder {
         Self { steps: Vec::new() }
     }
 
-    /// Push a command onto the queue.
+    /// Push a step that continues the queue even if it fails.
     pub fn push(&mut self, command: DriveCommand) -> Result<(), DriveQueueBuildError> {
-        self.steps.push(command).map_err(|_| DriveQueueBuildError::Full)
+        self.steps
+            .push(DriveQueueStep {
+                command,
+                abort_on_fail: false,
+            })
+            .map_err(|_| DriveQueueBuildError::Full)
+    }
+
+    /// Push a step that aborts the queue on failure.
+    pub fn push_abort_on_fail(&mut self, command: DriveCommand) -> Result<(), DriveQueueBuildError> {
+        self.steps
+            .push(DriveQueueStep {
+                command,
+                abort_on_fail: true,
+            })
+            .map_err(|_| DriveQueueBuildError::Full)
     }
 
     /// Extend the queue with an iterator of commands.
@@ -185,18 +210,29 @@ pub async fn drive_queue_executor() {
         let mut last_step_completion: Option<DriveCompletion> = None;
         let mut status = CompletionStatus::Success;
 
-        for (index, command) in request.steps.into_iter().enumerate() {
-            let completion = complete_drive_command(command).await;
+        for (index, step) in request.steps.into_iter().enumerate() {
+            let completion = complete_drive_command(step.command).await;
             last_step_completion = Some(completion.clone());
 
             match completion.status {
                 CompletionStatus::Success => {
                     completed_steps += 1;
                 }
-                CompletionStatus::Cancelled | CompletionStatus::Failed(_) => {
-                    status = completion.status.clone();
-                    failed_step_index = Some(index);
-                    break;
+                CompletionStatus::Cancelled => {
+                    if step.abort_on_fail {
+                        status = CompletionStatus::Cancelled;
+                        failed_step_index = Some(index);
+                        break;
+                    }
+                    defmt::warn!("Drive queue: step {=usize} cancelled (continuing)", index);
+                }
+                CompletionStatus::Failed(reason) => {
+                    if step.abort_on_fail {
+                        status = CompletionStatus::Failed(reason);
+                        failed_step_index = Some(index);
+                        break;
+                    }
+                    defmt::warn!("Drive queue: step {=usize} failed: {=str} (continuing)", index, reason);
                 }
             }
         }

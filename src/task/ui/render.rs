@@ -27,8 +27,14 @@ pub async fn render_current_ui(state: &UiState) {
             let info = build_system_info_data().await;
             screens::render_system_info(scroll_offset as usize, &info).await;
         }
-        UiMode::RunningTest => {
-            render_test_running().await;
+        UiMode::RunningTurnsTest => {
+            render_turns_test_running().await;
+        }
+        UiMode::RunningStraightDriveTest => {
+            render_straight_drive_test_running().await;
+        }
+        UiMode::RunningArcDriveTest => {
+            render_arc_drive_test_running().await;
         }
         UiMode::RunningImuTest => {
             render_imu_test_running().await;
@@ -51,14 +57,36 @@ pub async fn render_current_ui(state: &UiState) {
         UiMode::Calibrating { kind } => {
             render_calibrating(kind).await;
         }
+        UiMode::EnteringDistance { .. } => {
+            // Rendering handled by the rotary-turn handler — this arm exists
+            // for exhaustiveness but should not be reached via render_current_ui.
+        }
     }
 }
 
-/// Render the "test running" status screen.
-pub async fn render_test_running() {
+/// Render the turns test initial status screen.
+pub async fn render_turns_test_running() {
     display::display_update(DisplayAction::Clear).await;
-    show_line(0, "Test Mode").await;
-    show_line(1, "Running...").await;
+    show_line(0, "TURN TEST").await;
+    show_line(1, "Starting...").await;
+    show_line(2, "").await;
+    show_line(3, "").await;
+}
+
+/// Render the straight drive test initial status screen.
+pub async fn render_straight_drive_test_running() {
+    display::display_update(DisplayAction::Clear).await;
+    show_line(0, "DIST TEST").await;
+    show_line(1, "Starting...").await;
+    show_line(2, "").await;
+    show_line(3, "").await;
+}
+
+/// Render the arc drive test initial status screen.
+pub async fn render_arc_drive_test_running() {
+    display::display_update(DisplayAction::Clear).await;
+    show_line(0, "ARC TEST").await;
+    show_line(1, "Starting...").await;
     show_line(2, "").await;
     show_line(3, "").await;
 }
@@ -178,5 +206,6 @@ pub async fn build_system_info_data() -> screens::SystemInfoData {
         battery_voltage: power_state.battery_voltage,
         motor_calibration_status: calibration_state.motor_calibration_status,
         mag_calibration_status: calibration_state.mag_calibration_status,
+        distance_calibration_status: calibration_state.distance_calibration_status,
     }
 }

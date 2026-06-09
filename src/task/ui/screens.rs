@@ -25,8 +25,10 @@ pub const MAIN_MENU_ITEMS: [&str; 4] = ["System Info", "Calibrate", "Drive Mode"
 pub const DRIVE_MODE_MENU_ITEMS: [&str; 2] = ["Coast & Avoid", "Back"];
 
 /// Test mode submenu entries.
-pub const TEST_MENU_ITEMS: [&str; 7] = [
-    "Combined Test",
+pub const TEST_MENU_ITEMS: [&str; 9] = [
+    "Turns Test",
+    "Straight Drive",
+    "Arc Drive",
     "IMU Test (9-axis)",
     "IMU Test (6-axis)",
     "Basic Motor Test",
@@ -36,7 +38,7 @@ pub const TEST_MENU_ITEMS: [&str; 7] = [
 ];
 
 /// Calibration submenu entries.
-pub const CALIBRATE_MENU_ITEMS: [&str; 3] = ["Motor", "Mag", "Back"];
+pub const CALIBRATE_MENU_ITEMS: [&str; 4] = ["Motor", "Mag", "Distance", "Back"];
 
 /// Snapshot of the system info values needed for display.
 #[derive(Clone, Copy)]
@@ -49,6 +51,8 @@ pub struct SystemInfoData {
     pub motor_calibration_status: CalibrationStatus,
     /// Magnetometer calibration status
     pub mag_calibration_status: CalibrationStatus,
+    /// Distance calibration status
+    pub distance_calibration_status: CalibrationStatus,
 }
 
 /// Render the main menu with the given selected index.
@@ -121,13 +125,14 @@ async fn render_menu(header: &str, items: &[&str], selected_index: usize) {
 }
 
 /// Build the list of system info lines (scrollable).
-fn build_system_info_lines(info: &SystemInfoData) -> Vec<String<MAX_LINE_LEN>, 8> {
-    let mut lines: Vec<String<MAX_LINE_LEN>, 8> = Vec::new();
+fn build_system_info_lines(info: &SystemInfoData) -> Vec<String<MAX_LINE_LEN>, 12> {
+    let mut lines: Vec<String<MAX_LINE_LEN>, 12> = Vec::new();
 
     let _ = lines.push(format_battery_level_line(info.battery_level));
     let _ = lines.push(format_battery_voltage_line(info.battery_voltage));
     let _ = lines.push(format_cal_line("Motor", info.motor_calibration_status));
     let _ = lines.push(format_cal_line("Mag", info.mag_calibration_status));
+    let _ = lines.push(format_cal_line("Dist", info.distance_calibration_status));
 
     lines
 }

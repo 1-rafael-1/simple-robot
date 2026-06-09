@@ -26,8 +26,12 @@ pub enum UiMode {
         /// Which drive mode is running
         mode: DriveMode,
     },
-    /// Combined test sequence running
-    RunningTest,
+    /// Turns test running
+    RunningTurnsTest,
+    /// Straight drive test running
+    RunningStraightDriveTest,
+    /// Arc drive test running
+    RunningArcDriveTest,
     /// IMU test mode (live display)
     RunningImuTest,
     /// IMU test mode (6-axis live display)
@@ -42,6 +46,11 @@ pub enum UiMode {
     Calibrating {
         /// Selected calibration kind
         kind: CalibrationSelection,
+    },
+    /// Distance calibration entry — user adjusts measured distance via rotary encoder.
+    EnteringDistance {
+        /// Current entered value in cm (preset to 150, range [0, 200]).
+        value: u8,
     },
 }
 

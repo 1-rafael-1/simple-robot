@@ -50,7 +50,11 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
 use embassy_time::{Delay, Duration, Instant, Timer};
-use icm20948::{I2cInterface, Icm20948Driver, dmp::DmpConfig};
+use icm20948::{
+    I2cInterface, Icm20948Driver,
+    dmp::DmpConfig,
+    sensors::{GyroConfig, GyroDlpf, GyroFullScale},
+};
 use nalgebra::Vector3;
 
 use crate::{
@@ -179,9 +183,6 @@ static MAG_AVAILABLE: AtomicBool = AtomicBool::new(false);
 /// Latest DMP-derived orientation snapshot (updated on every valid packet).
 static LATEST_ORIENTATION: Mutex<CriticalSectionRawMutex, Option<Orientation>> = Mutex::new(None);
 
-/// Latest DMP host-calibrated accelerometer reading (g).
-static LATEST_CALIBRATED_ACCEL: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
-
 /// Latest DMP-calibrated gyroscope reading (deg/s, DMP internal bias subtracted).
 static LATEST_CALIBRATED_GYRO: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
 
@@ -228,11 +229,6 @@ pub fn load_imu_calibration(calibration: flash_storage::ImuCalibration) {
 /// Return the latest DMP-derived orientation.
 pub async fn get_latest_orientation() -> Option<Orientation> {
     *LATEST_ORIENTATION.lock().await
-}
-
-/// Return the latest DMP host-calibrated accelerometer reading (g).
-pub async fn get_latest_calibrated_accel() -> Option<Vector3<f32>> {
-    *LATEST_CALIBRATED_ACCEL.lock().await
 }
 
 /// Return the latest DMP-calibrated gyroscope reading (deg/s).
@@ -374,16 +370,6 @@ async fn update_statics_from_dmp(packet: &icm20948::dmp::DmpData, calibration: O
         *LATEST_RAW_GYRO.lock().await = Some(v);
     }
 
-    // Host-calibrated accelerometer (DMP applies host offsets when configured) -
-    if let Some((ax, ay, az)) = packet.host_calibrated_accel {
-        let v = Vector3::new(
-            f32::from(ax) * ACCEL_SCALE_G,
-            f32::from(ay) * ACCEL_SCALE_G,
-            f32::from(az) * ACCEL_SCALE_G,
-        );
-        *LATEST_CALIBRATED_ACCEL.lock().await = Some(v);
-    }
-
     // DMP-calibrated gyroscope (bias subtracted by DMP calibration engine) ----
     if let Some((gx, gy, gz)) = packet.calibrated_gyro {
         let v = Vector3::new(
@@ -490,14 +476,12 @@ const fn build_dmp_config(mode: DmpFusionMode) -> DmpConfig {
     match mode {
         DmpFusionMode::Axis6 => DmpConfig::new()
             .with_quaternion_6axis(true)
-            .with_host_calibrated_accel(true)
             .with_raw_accel(true)
             .with_raw_gyro(true)
             .with_calibrated_gyro(true)
             .with_sample_rate(DMP_SAMPLE_RATE_HZ),
         DmpFusionMode::Axis9 => DmpConfig::new()
             .with_quaternion_9axis(true)
-            .with_host_calibrated_accel(true)
             .with_raw_accel(true)
             .with_raw_gyro(true)
             .with_calibrated_gyro(true)
@@ -694,6 +678,22 @@ pub async fn inertial_measurement_read(i2c_bus: &'static I2cBusShared) {
     if !init_dmp(&mut sensor).await {
         warn!("DMP firmware load failed — IMU task terminating");
         return;
+    }
+
+    // Configure gyro DLPF to 51 Hz for anti-aliasing with the 100 Hz DMP
+    // sample rate.  The reset-default 197 Hz DLPF passes motor vibration
+    // straight through to the gyro, causing false yaw accumulation during
+    // turns and false overshoot corrections after stopping.
+    if let Err(e) = sensor
+        .configure_gyroscope(GyroConfig {
+            full_scale: GyroFullScale::Dps2000,
+            dlpf: GyroDlpf::Hz51,
+            dlpf_enable: true,
+            sample_rate_div: 0,
+        })
+        .await
+    {
+        warn!("Gyro DLPF configure failed: {:?}", e);
     }
 
     info!(

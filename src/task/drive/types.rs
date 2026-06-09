@@ -291,30 +291,48 @@ pub const DISTANCE_CURVE_YAW_KP: f32 = 0.5;
 /// destabilizing the base curve profile. For example, `0.25` limits correction
 /// to ±25% of the commanded ratio before ramping/clamping.
 pub const DISTANCE_CURVE_YAW_MAX_CORRECTION: f32 = 0.25;
+/// Proportional gain for IMU heading correction on straight drives.
+pub const STRAIGHT_IMU_KP: f32 = 2.0;
+/// Maximum absolute heading correction (speed units) before scaling.
+pub const STRAIGHT_IMU_MAX_CORRECTION: f32 = 8.0;
+/// Correction clamp scales with current ramp speed: `min(MAX, speed * SCALE)`.
+pub const STRAIGHT_IMU_CORRECTION_SCALE: f32 = 0.15;
 /// Maximum rotation speed (0-100%)
-pub const ROTATION_SPEED_MAX: u8 = 50;
+pub const ROTATION_SPEED_MAX: u8 = 100;
 /// Minimum rotation speed to overcome friction
-pub const ROTATION_SPEED_MIN: u8 = 40;
+pub const ROTATION_SPEED_MIN: u8 = 45;
 /// Acceptable angle error in degrees
 ///
-/// Target: ~1° for a moderately strict turns-in-place tolerance.
-pub const ROTATION_TOLERANCE_DEG: f32 = 1.0;
+/// Target: 0.5° for precise turns-in-place.
+pub const ROTATION_TOLERANCE_DEG: f32 = 0.5;
 /// Overshoot deadband before applying corrective reverse (degrees).
 pub const ROTATION_CORRECTION_DEADBAND_DEG: f32 = 0.5;
 /// Maximum time allowed for overshoot correction before bailing (milliseconds).
 pub const ROTATION_CORRECTION_TIMEOUT_MS: u64 = 4_000;
 /// Rotation ramp-down begins when remaining degrees drop below this value.
-pub const ROTATION_RAMP_DOWN_START_DEG: f32 = 45.0;
+pub const ROTATION_RAMP_DOWN_START_DEG: f32 = 60.0;
 /// Maximum number of corrective direction flips allowed during rotation.
 pub const ROTATION_CORRECTION_MAX_FLIPS: u8 = 12;
 /// Safety timeout for `RotateExact` (milliseconds).
 pub const ROTATION_TIMEOUT_MS: u64 = 8_000;
 /// Maximum time to wait for a fresh IMU sample per tick (milliseconds).
 pub const ROTATION_IMU_WAIT_TIMEOUT_MS: u64 = 20;
-/// Time to wait after stopping to capture post-stop yaw settling (milliseconds).
-pub const ROTATION_POST_STOP_SETTLE_MS: u64 = 200;
-/// Duration of a single corrective pulse after settle if error persists (milliseconds).
-pub const ROTATION_POST_STOP_CORRECTION_PULSE_MS: u64 = 120;
+/// Maximum correction iterations after the initial turn stops.
+pub const ROTATION_CORRECTION_MAX_ITERATIONS: u8 = 15;
+/// Settle wait after each correction pulse (ms).
+pub const ROTATION_CORRECTION_SETTLE_MS: u64 = 400;
+/// Starting speed for the first correction pulse.
+/// Lower starting speed reduces overshoot on the first correction pulse.
+pub const ROTATION_CORRECTION_SPEED_START: u8 = 35;
+/// Speed reduction per correction iteration.
+/// Each iteration lowers speed by this amount, trading force for precision.
+pub const ROTATION_CORRECTION_SPEED_STEP: u8 = 2;
+/// Minimum speed floor for correction pulses.
+/// Pulses below this will barely move the bot and are not useful.
+pub const ROTATION_CORRECTION_SPEED_MIN: u8 = 25;
+/// Maximum time for a single correction iteration before giving up and moving on (ms).
+/// Guards against the bot being physically stuck or very slow at low speed.
+pub const ROTATION_CORRECTION_ITER_TIMEOUT_MS: u64 = 400;
 /// Maximum speed differential during combined motion
 pub const SPEED_DIFF_MAX: i8 = 30;
 

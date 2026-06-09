@@ -7,7 +7,8 @@
 //! # Lifecycle rules
 //!
 //! - Rotation intents always require IMU streaming.
-//! - Curve distance intents require IMU streaming; straight distance does not.
+//! - All distance intents (straight and curve) require IMU streaming for
+//!   heading correction.
 //! - Encoder sampling is required for distance driving and drift compensation.
 //! - When an intent completes or is interrupted, the corresponding sensor
 //!   streams must be stopped to prevent stale feedback from leaking into the
@@ -40,24 +41,19 @@ pub async fn stop_rotation_imu() {
     raise_event(Events::StartStopMotionDataCollection(false)).await;
 }
 
-/// Start IMU streaming if a distance intent is a curve arc.
+/// Start IMU streaming for all distance drive intents.
 ///
-/// For straight distance drives this is a no-op; IMU feedback is only needed
-/// to correct heading drift during curved motion.
-pub async fn start_curve_imu(kind: &types::DriveDistanceKind) {
-    if matches!(kind, types::DriveDistanceKind::CurveArc { .. }) {
-        imu::set_dmp_fusion_mode(DEFAULT_FUSION_MODE);
-        raise_event(Events::StartStopMotionDataCollection(true)).await;
-    }
+/// IMU feedback is used for heading correction on straight drives and
+/// yaw-based curve correction on arc drives. The DMP fusion mode is set
+/// to the system default (6-axis gyro + accel) before streaming begins.
+pub async fn start_distance_imu(_kind: &types::DriveDistanceKind) {
+    imu::set_dmp_fusion_mode(DEFAULT_FUSION_MODE);
+    raise_event(Events::StartStopMotionDataCollection(true)).await;
 }
 
-/// Stop IMU streaming if a distance intent is a curve arc.
-///
-/// For straight distance drives this is a no-op.
-pub async fn stop_curve_imu(kind: &types::DriveDistanceKind) {
-    if matches!(kind, types::DriveDistanceKind::CurveArc { .. }) {
-        raise_event(Events::StartStopMotionDataCollection(false)).await;
-    }
+/// Stop IMU streaming for all distance drive intents.
+pub async fn stop_distance_imu(_kind: &types::DriveDistanceKind) {
+    raise_event(Events::StartStopMotionDataCollection(false)).await;
 }
 
 /// Start encoder sampling for distance intents.

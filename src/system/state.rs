@@ -51,8 +51,12 @@ pub enum DriveMode {
 /// Test submenu selections
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Format)]
 pub enum TestSelection {
-    /// Combined test sequence
-    Combined,
+    /// In-place turn accuracy test at multiple speeds
+    Turns,
+    /// Straight-line encoder-based distance test (forward + backward)
+    StraightDrive,
+    /// Curve arc drive test (360° circle at 1 m radius)
+    ArcDrive,
     /// IMU live display test
     Imu,
     /// IMU live display test (6-axis)
@@ -72,6 +76,8 @@ pub enum CalibrationSelection {
     Motor,
     /// Magnetometer calibration
     Mag,
+    /// Distance calibration
+    Distance,
 }
 
 // Motion state helpers moved to the `motion` module.

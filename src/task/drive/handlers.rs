@@ -39,6 +39,7 @@ use crate::{
             state::{ActiveIntent, DriveLoop},
             types::{self, CompletionStatus, DriveAction, DriveCommand, DriveCompletion},
         },
+        io::flash_storage,
         motor_driver::{self, MotorCommand},
     },
 };
@@ -292,10 +293,11 @@ impl DriveLoop {
             return;
         }
 
-        lifecycle::start_curve_imu(&kind).await;
+        lifecycle::start_distance_imu(&kind).await;
         start_encoder_sampling(types::DISTANCE_CONTROL_INTERVAL_MS, true).await;
 
-        let mut state = DistanceDriveState::new(kind, direction, speed);
+        let distance_factor = flash_storage::get_distance_factor().await;
+        let mut state = DistanceDriveState::new(kind, direction, speed, distance_factor);
 
         let base_speed = speed.min(types::DISTANCE_MAX_SPEED);
         let signed_base = match direction {
@@ -447,8 +449,6 @@ impl DriveLoop {
                     completion_requested,
                     started_at_ms,
                 } => {
-                    let accumulated = state.accumulated_angle.abs();
-                    let target = state.target_angle.abs();
                     let last_yaw_deg = state.last_yaw.unwrap_or(0.0);
                     let duration_ms = Instant::now().as_millis() - started_at_ms;
 
@@ -459,7 +459,7 @@ impl DriveLoop {
                             status: CompletionStatus::Cancelled,
                             telemetry: types::CompletionTelemetry::RotateExact {
                                 final_yaw_deg: last_yaw_deg,
-                                angle_error_deg: accumulated - target,
+                                angle_error_deg: -state.remaining(),
                                 duration_ms,
                             },
                         },
@@ -476,7 +476,7 @@ impl DriveLoop {
                 } => {
                     let duration_ms = Instant::now().as_millis() - state.started_at_ms;
 
-                    lifecycle::stop_curve_imu(&state.kind).await;
+                    lifecycle::stop_distance_imu(&state.kind).await;
                     api::send_completion(
                         completion_requested,
                         DriveCompletion {

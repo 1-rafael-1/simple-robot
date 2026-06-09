@@ -7,25 +7,33 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
+pub mod arc_drive;
 pub mod basic_motor;
 pub mod imu_6axis;
 pub mod imu_9axis;
 pub mod ir_ultrasonic;
-pub mod sequence;
+pub mod straight_drive;
+pub mod turns;
 pub mod ultrasonic_sweep;
 
+pub use arc_drive::start_arc_drive_test;
 pub use basic_motor::{start_basic_motor_test_mode, stop_basic_motor_test_mode};
 pub use imu_6axis::{start_imu6_test_mode, stop_imu6_test_mode};
 pub use imu_9axis::{start_imu_test_mode, stop_imu_test_mode};
 pub use ir_ultrasonic::{start_ir_ultrasonic_test_mode, stop_ir_ultrasonic_test_mode};
-pub use sequence::start_testing_sequence;
+pub use straight_drive::start_straight_drive_test;
+pub use turns::start_turns_test;
 pub use ultrasonic_sweep::{start_ultrasonic_sweep_test_mode, stop_ultrasonic_sweep_test_mode};
 
 #[derive(Clone, Copy)]
 /// Command sent to the testmode controller.
 pub(super) enum TestCommand {
-    /// Spawn the combined test sequence.
-    Sequence,
+    /// Spawn the turns test.
+    Turns,
+    /// Spawn the straight drive test.
+    StraightDrive,
+    /// Spawn the arc drive test.
+    ArcDrive,
     /// Spawn the IMU telemetry test.
     Imu,
     /// Spawn the IMU 6-axis telemetry test.
@@ -74,7 +82,9 @@ pub(super) fn release_testmode() {
 async fn testmode_controller(spawner: Spawner) {
     loop {
         match TESTMODE_COMMAND.receive().await {
-            TestCommand::Sequence => sequence::spawn(spawner),
+            TestCommand::Turns => turns::spawn(spawner),
+            TestCommand::StraightDrive => straight_drive::spawn(spawner),
+            TestCommand::ArcDrive => arc_drive::spawn(spawner),
             TestCommand::Imu => imu_9axis::spawn(spawner),
             TestCommand::Imu6 => imu_6axis::spawn(spawner),
             TestCommand::IrUltrasonic => ir_ultrasonic::spawn(spawner),

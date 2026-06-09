@@ -41,6 +41,13 @@ pub async fn handle_initialize() {
     ))
     .await;
 
+    // Request distance calibration from flash.
+    info!("Requesting distance calibration from flash");
+    flash_storage::send_flash_command(flash_storage::FlashCommand::GetData(
+        flash_storage::CalibrationKind::Distance,
+    ))
+    .await;
+
     // Request IMU calibration flags from flash.
     info!("Requesting IMU calibration flags from flash");
     flash_storage::send_flash_command(flash_storage::FlashCommand::GetImuFlags).await;
@@ -84,6 +91,21 @@ pub async fn handle_calibration_data_loaded(
                 let mut txt: String<20> = String::new();
                 let _ = write!(txt, "Need motor calib");
                 display::display_update(display::DisplayAction::ShowText(txt, 1)).await;
+            }
+        }
+        CalibrationKind::Distance => {
+            if let Some(CalibrationDataKind::Distance(dist_cal)) = data {
+                info!("Distance calibration loaded: factor={}", dist_cal.factor);
+                {
+                    let mut state = calibration::CALIBRATION_STATE.lock().await;
+                    state.distance_calibration_status = CalibrationStatus::Loaded;
+                }
+            } else {
+                info!("No distance calibration found - using default 1.0");
+                {
+                    let mut state = calibration::CALIBRATION_STATE.lock().await;
+                    state.distance_calibration_status = CalibrationStatus::NotAvailable;
+                }
             }
         }
         CalibrationKind::Imu => {

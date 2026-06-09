@@ -56,6 +56,27 @@ pub async fn get_cached_imu_flags() -> Option<ImuCalibrationFlags> {
     data.as_ref().map(|cal| cal.imu_flags)
 }
 
+/// Return the latest cached distance calibration factor (defaults to 1.0).
+pub async fn get_distance_factor() -> f32 {
+    let data = CALIBRATION_DATA.lock().await;
+    data.as_ref().map_or(1.0, |cal| cal.distance.factor)
+}
+
+/// Save a new distance calibration factor to flash.
+#[allow(dead_code)]
+pub async fn set_distance_factor(factor: f32) {
+    let dist_cal = DistanceCalibration::new(factor);
+    // Update in-memory cache immediately so subsequent reads see the new value
+    // without waiting for the flash task to process the SaveData command.
+    {
+        let mut data = CALIBRATION_DATA.lock().await;
+        if let Some(ref mut cal) = *data {
+            cal.distance = dist_cal;
+        }
+    }
+    send_flash_command(FlashCommand::SaveData(CalibrationDataKind::Distance(dist_cal))).await;
+}
+
 /// Send a flash storage command
 pub async fn send_flash_command(command: FlashCommand) {
     FLASH_COMMAND_CHANNEL.send(command).await;
@@ -73,6 +94,8 @@ pub enum CalibrationKind {
     Motor,
     /// IMU calibration data
     Imu,
+    /// Distance calibration data
+    Distance,
 }
 
 /// Calibration data variants
@@ -82,6 +105,8 @@ pub enum CalibrationDataKind {
     Motor(MotorCalibration),
     /// IMU calibration data
     Imu(ImuCalibration),
+    /// Distance calibration data
+    Distance(DistanceCalibration),
 }
 
 /// Commands that can be sent to the flash storage task
@@ -159,6 +184,38 @@ impl Default for ImuCalibration {
     }
 }
 
+/// Persisted distance calibration factor newtype.
+///
+/// Stored separately from `MotorCalibration` so that motor calibration
+/// layout remains backward compatible with existing flash data.
+#[derive(Debug, Clone, Copy, Format)]
+pub struct DistanceCalibration {
+    /// Multiplicative factor applied to target sprocket revolutions.
+    /// 1.0 = no correction, >1.0 = drive further, <1.0 = drive shorter.
+    pub factor: f32,
+}
+
+impl Default for DistanceCalibration {
+    fn default() -> Self {
+        Self { factor: 1.0 }
+    }
+}
+
+impl DistanceCalibration {
+    /// Lower clamp (50% of target distance).
+    pub const MIN_FACTOR: f32 = 0.5;
+    /// Upper clamp (200% of target distance).
+    pub const MAX_FACTOR: f32 = 2.0;
+
+    /// Create with factor clamped to the safe range.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn new(factor: f32) -> Self {
+        Self {
+            factor: factor.clamp(Self::MIN_FACTOR, Self::MAX_FACTOR),
+        }
+    }
+}
+
 /// Combined calibration data
 #[derive(Debug, Clone, Copy, Format, Default)]
 pub struct CalibrationData {
@@ -168,6 +225,8 @@ pub struct CalibrationData {
     pub imu: ImuCalibration,
     /// IMU calibration completion flags
     pub imu_flags: ImuCalibrationFlags,
+    /// Distance calibration factor (persisted separately).
+    pub distance: DistanceCalibration,
 }
 
 /// Storage keys for sequential-storage
@@ -187,6 +246,8 @@ enum StorageKey {
     /// Current `ImuCalibration` schema (96 bytes / 24 floats, post-DMP-migration).
     /// Uses key 3 (not 1) so any legacy record in flash is never matched.
     ImuCalibration = 3,
+    /// Distance calibration factor (4 bytes / 1 float).
+    DistanceFactor = 4,
 }
 
 impl Key for StorageKey {
@@ -210,6 +271,7 @@ impl Key for StorageKey {
             1 => Ok((Self::LegacyImuCalibration, 1)),
             2 => Ok((Self::ImuFlags, 1)),
             3 => Ok((Self::ImuCalibration, 1)),
+            4 => Ok((Self::DistanceFactor, 1)),
             _ => Err(SerializationError::InvalidFormat),
         }
     }
@@ -244,6 +306,28 @@ impl Value<'_> for MotorCalibration {
         let right_rear = f32::from_le_bytes([buffer[12], buffer[13], buffer[14], buffer[15]]);
 
         Ok((Self::new(left_front, left_rear, right_front, right_rear), 16))
+    }
+}
+
+/// Serialize distance calibration to bytes (4 bytes = 1 f32).
+impl Value<'_> for DistanceCalibration {
+    fn serialize_into(&self, buffer: &mut [u8]) -> Result<usize, SerializationError> {
+        if buffer.len() < 4 {
+            return Err(SerializationError::BufferTooSmall);
+        }
+        buffer[0..4].copy_from_slice(&self.factor.to_le_bytes());
+        Ok(4)
+    }
+
+    fn deserialize_from(buffer: &[u8]) -> Result<(Self, usize), SerializationError>
+    where
+        Self: Sized,
+    {
+        if buffer.len() < 4 {
+            return Err(SerializationError::BufferTooSmall);
+        }
+        let factor = f32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+        Ok((Self::new(factor), 4))
     }
 }
 
@@ -525,6 +609,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                                     motor: motor_cal,
                                     imu: ImuCalibration::default(),
                                     imu_flags: ImuCalibrationFlags::default(),
+                                    distance: DistanceCalibration::default(),
                                 });
                             }
                             drop(data);
@@ -571,6 +656,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                                     motor: MotorCalibration::default(),
                                     imu: imu_cal,
                                     imu_flags: ImuCalibrationFlags::default(),
+                                    distance: DistanceCalibration::default(),
                                 });
                             }
                             drop(data);
@@ -596,6 +682,47 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                         _ => {}
                     }
                 }
+                CalibrationKind::Distance => {
+                    info!("Loading distance calibration from flash...");
+
+                    #[allow(unreachable_patterns)]
+                    match storage
+                        .fetch_item::<DistanceCalibration>(&mut data_buffer, &StorageKey::DistanceFactor)
+                        .await
+                    {
+                        Ok(Some(dist_cal)) => {
+                            info!("Distance calibration loaded: factor={}", dist_cal.factor);
+
+                            let mut data = CALIBRATION_DATA.lock().await;
+                            if let Some(ref mut cal) = *data {
+                                cal.distance = dist_cal;
+                            } else {
+                                *data = Some(CalibrationData {
+                                    motor: MotorCalibration::default(),
+                                    imu: ImuCalibration::default(),
+                                    imu_flags: ImuCalibrationFlags::default(),
+                                    distance: dist_cal,
+                                });
+                            }
+                            drop(data);
+
+                            raise_event(Events::CalibrationDataLoaded(
+                                CalibrationKind::Distance,
+                                Some(CalibrationDataKind::Distance(dist_cal)),
+                            ))
+                            .await;
+                        }
+                        Ok(None) => {
+                            info!("No distance calibration found in flash (defaulting to 1.0)");
+                            raise_event(Events::CalibrationDataLoaded(CalibrationKind::Distance, None)).await;
+                        }
+                        Err(e) => {
+                            error!("Failed to load distance calibration: {}", defmt::Debug2Format(&e));
+                            raise_event(Events::CalibrationDataLoaded(CalibrationKind::Distance, None)).await;
+                        }
+                        _ => {}
+                    }
+                }
             },
 
             FlashCommand::GetImuFlags => {
@@ -618,6 +745,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                                 motor: MotorCalibration::default(),
                                 imu: ImuCalibration::default(),
                                 imu_flags: flags,
+                                distance: DistanceCalibration::default(),
                             });
                         }
                         drop(data);
@@ -648,6 +776,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                         motor: MotorCalibration::default(),
                         imu: ImuCalibration::default(),
                         imu_flags: flags,
+                        distance: DistanceCalibration::default(),
                     });
                 }
                 drop(data);
@@ -685,6 +814,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                                 motor: motor_cal,
                                 imu: ImuCalibration::default(),
                                 imu_flags: ImuCalibrationFlags::default(),
+                                distance: DistanceCalibration::default(),
                             });
                         }
                         drop(data);
@@ -722,6 +852,7 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                                 motor: MotorCalibration::default(),
                                 imu: imu_cal,
                                 imu_flags: ImuCalibrationFlags::default(),
+                                distance: DistanceCalibration::default(),
                             });
                         }
                         drop(data);
@@ -744,6 +875,41 @@ pub async fn flash_storage(flash: Flash<'static, embassy_rp::peripherals::FLASH,
                                 error!("Failed to save IMU calibration: {}", defmt::Debug2Format(&e));
                             }
                             // nominally unreachable, but rust-analyzer kept flagging this as an error without the wildcard arm
+                            _ => {}
+                        }
+                    }
+                    CalibrationDataKind::Distance(dist_cal) => {
+                        info!("Saving distance calibration to flash...");
+
+                        let mut data = CALIBRATION_DATA.lock().await;
+                        if let Some(ref mut cal) = *data {
+                            cal.distance = dist_cal;
+                        } else {
+                            *data = Some(CalibrationData {
+                                motor: MotorCalibration::default(),
+                                imu: ImuCalibration::default(),
+                                imu_flags: ImuCalibrationFlags::default(),
+                                distance: dist_cal,
+                            });
+                        }
+                        drop(data);
+
+                        #[allow(unreachable_patterns)]
+                        match storage
+                            .store_item(&mut data_buffer, &StorageKey::DistanceFactor, &dist_cal)
+                            .await
+                        {
+                            Ok(()) => {
+                                info!("Distance calibration saved successfully");
+                                raise_event(Events::CalibrationDataLoaded(
+                                    CalibrationKind::Distance,
+                                    Some(CalibrationDataKind::Distance(dist_cal)),
+                                ))
+                                .await;
+                            }
+                            Err(e) => {
+                                error!("Failed to save distance calibration: {}", defmt::Debug2Format(&e));
+                            }
                             _ => {}
                         }
                     }

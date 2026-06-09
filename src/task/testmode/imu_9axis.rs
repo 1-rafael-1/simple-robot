@@ -15,9 +15,9 @@ use super::{TestCommand, release_testmode, request_start};
 use crate::task::{
     io::display::{DisplayAction, display_update},
     sensors::imu::{
-        DmpFusionMode, Orientation, get_latest_calibrated_accel, get_latest_calibrated_gyro, get_latest_calibrated_mag,
-        get_latest_orientation, get_latest_raw_accel, get_latest_raw_gyro, get_latest_raw_mag, set_dmp_fusion_mode,
-        start_imu_readings, stop_imu_readings,
+        DmpFusionMode, Orientation, get_latest_calibrated_gyro, get_latest_calibrated_mag, get_latest_orientation,
+        get_latest_raw_accel, get_latest_raw_gyro, get_latest_raw_mag, set_dmp_fusion_mode, start_imu_readings,
+        stop_imu_readings,
     },
 };
 
@@ -76,14 +76,13 @@ async fn imu_test_task() {
                 }
 
                 let orientation = get_latest_orientation().await;
-                let accel = get_latest_calibrated_accel().await;
                 let gyro = get_latest_calibrated_gyro().await;
                 let mag = get_latest_calibrated_mag().await;
                 let raw_accel = get_latest_raw_accel().await;
                 let raw_gyro = get_latest_raw_gyro().await;
                 let raw_mag = get_latest_raw_mag().await;
 
-                if orientation.is_none() && accel.is_none() && gyro.is_none() && mag.is_none() {
+                if orientation.is_none() && gyro.is_none() && mag.is_none() {
                     missing = missing.saturating_add(1);
                 } else {
                     missing = 0;
@@ -95,7 +94,7 @@ async fn imu_test_task() {
                     let header = format_orientation_line(orientation);
                     display_update(DisplayAction::ShowText(header, 0)).await;
 
-                    let line1 = format_axis_line("A", accel);
+                    let line1 = format_axis_line("A", raw_accel);
                     display_update(DisplayAction::ShowText(line1, 1)).await;
 
                     let line2 = format_axis_line("G", gyro);
@@ -107,9 +106,8 @@ async fn imu_test_task() {
 
                 if tick.is_multiple_of(50) {
                     defmt::debug!(
-                        "IMU test data: ori={} accel={} gyro={} mag={} missing={}",
+                        "IMU test data: ori={} gyro={} mag={} missing={}",
                         orientation.is_some(),
-                        accel.is_some(),
                         gyro.is_some(),
                         mag.is_some(),
                         missing

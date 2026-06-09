@@ -4,10 +4,9 @@
 
 #![no_std]
 #![no_main]
-// #![allow(unused)]
 
 use defmt_rtt as _;
-use embassy_executor::Spawner;
+use embassy_executor::{Executor, Spawner};
 use embassy_rp::{
     Peri,
     adc::{Adc, Channel, Config as AdcConfig, InterruptHandler as AdcInterruptHandler},
@@ -18,6 +17,7 @@ use embassy_rp::{
     flash::{Async, Flash},
     gpio::{Input, Level, Output, Pull},
     i2c::{Config as I2cConfig, I2c, InterruptHandler as I2cInterruptHandler},
+    multicore::{Stack, spawn_core1},
     peripherals::{DMA_CH0, I2C0, PIO0, PIO1},
     pio::{InterruptHandler as PioInterruptHandler, Pio},
     pio_programs::{
@@ -29,6 +29,8 @@ use embassy_rp::{
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use panic_probe as _;
 use static_cell::StaticCell;
+
+use crate::task::{autonomous_mode::init_autonomous_mode, testmode::init_testing, ui::init_ui};
 
 /// Firmware image type for bootloader
 #[unsafe(link_section = ".start_block")]
@@ -136,9 +138,27 @@ struct UltrasonicPins {
 /// Public type for shared I2C bus
 pub type I2cBusShared = Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, embassy_rp::i2c::Async>>;
 
+/// Core1 stack (~50 KB).
+///
+/// Sized to accommodate the IMU task's deep async call stack (DMP firmware
+/// load, FIFO loop, nalgebra ops) and the display task's draw-time frames.
+/// If stack-overflow symptoms appear the next increment is `Stack<65536>`.
+static mut CORE1_STACK: Stack<51200> = Stack::new();
+
+/// Executor for core0 (all non-I2C tasks)
+static EXECUTOR0: StaticCell<Executor> = StaticCell::new();
+
+/// Executor for core1 (I2C-dependent tasks: display, IMU, port expander)
+static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
+
 /// Firmware entry point
-#[embassy_executor::main]
-async fn main(spawner: Spawner) {
+///
+/// Uses the canonical Embassy RP multicore pattern:
+/// `#[cortex_m_rt::entry]` + two `StaticCell<Executor>` statics +
+/// `spawn_core1` for core1 bootstrap.
+#[allow(clippy::too_many_lines)]
+#[cortex_m_rt::entry]
+fn main() -> ! {
     // Configure rp2350 to use the external oscillator and run at its usual 150Mhz
     let mut config = Config::default();
     config.clocks = embassy_rp::clocks::ClockConfig::system_freq(150_000_000)
@@ -146,10 +166,12 @@ async fn main(spawner: Spawner) {
     // get a peripheral handle
     let p = embassy_rp::init(config);
 
-    // make peripheral handles and spawn tasks
-
-    // Initialize shared I2C bus
-    let i2c_bus = init_i2c_bus(p.I2C0, p.PIN_13, p.PIN_12);
+    // --- I2C peripherals: moved into core1 closure so that I2C0_IRQ is
+    //     enabled on core1's NVIC when I2c::new_async is called there. ---
+    let i2c0 = p.I2C0;
+    let pin_scl = p.PIN_13;
+    let pin_sda = p.PIN_12;
+    let pin_pe_int = p.PIN_20;
 
     // note: the order of PIO inits is important, PIO0 must be initialized before PIO1 or PIO1 will not work
     // ...not sure why....
@@ -171,104 +193,123 @@ async fn main(spawner: Spawner) {
         ..
     } = Pio::new(p.PIO1, Irqs);
 
-    // Initialize core tasks
-    // Orchestrator
-    init_orchestrate(spawner);
-    // Battery monitoring
-    init_battery_monitoring(spawner, p.ADC, p.PIN_26);
-    // Display
-    init_display(spawner, i2c_bus);
+    // Start core1.  It owns the I2C bus and runs the three I2C-dependent tasks.
+    // I2C0, PIN_12 (SDA), PIN_13 (SCL), and PIN_20 (port-expander INT) are
+    // moved in here; they are not referenced on core0 after this point.
+    #[allow(static_mut_refs)]
+    spawn_core1(p.CORE1, unsafe { &mut CORE1_STACK }, move || {
+        let executor1 = EXECUTOR1.init(Executor::new());
+        executor1.run(|spawner| {
+            // init_i2c_bus is called from within core1's execution context
+            // so that I2c::new_async enables I2C0_IRQ on core1's NVIC.
+            let i2c_bus = init_i2c_bus(i2c0, pin_scl, pin_sda);
+            init_display(spawner, i2c_bus);
+            init_imu_read(spawner, i2c_bus);
+            init_port_expander(spawner, i2c_bus, pin_pe_int);
+        });
+    });
 
-    // Initialize port expander task
-    init_port_expander(spawner, i2c_bus, p.PIN_20);
+    // Core0 executor: all non-I2C tasks, unchanged from before.
+    let executor0 = EXECUTOR0.init(Executor::new());
+    executor0.run(move |spawner| {
+        // Orchestrator
+        init_orchestrate(spawner);
 
-    // Initialize the rgb indicator led
-    init_rgb_led(
-        spawner,
-        &mut pio1_common,
-        pio1_sm0,
-        pio1_sm1,
-        pio1_sm2,
-        RgbLedPins {
-            red: p.PIN_28,
-            green: p.PIN_22,
-            blue: p.PIN_19,
-        },
-    );
+        // Battery monitoring
+        init_battery_monitoring(spawner, p.ADC, p.PIN_26);
 
-    // Initialize the rotary encoder
-    init_rotary_encoder(
-        spawner,
-        &mut pio1_common,
-        pio1_sm3,
-        Ec11Pins {
-            a: p.PIN_10,
-            b: p.PIN_11,
-        },
-    );
+        // Initialize the rgb indicator led
+        init_rgb_led(
+            spawner,
+            &mut pio1_common,
+            pio1_sm0,
+            pio1_sm1,
+            pio1_sm2,
+            RgbLedPins {
+                red: p.PIN_28,
+                green: p.PIN_22,
+                blue: p.PIN_19,
+            },
+        );
 
-    // initialize the RC Control buttons
-    init_rc_buttons(
-        spawner,
-        RCButtonPins {
-            a: p.PIN_4,
-            b: p.PIN_5,
-            c: p.PIN_6,
-            d: p.PIN_8,
-        },
-    );
+        // Initialize the rotary encoder
+        init_rotary_encoder(
+            spawner,
+            &mut pio1_common,
+            pio1_sm3,
+            Ec11Pins {
+                a: p.PIN_10,
+                b: p.PIN_11,
+            },
+        );
 
-    // Initialize motor driver and motor encoders
-    init_motor_driver(
-        spawner,
-        MotorDriverPins {
-            lmot_pwm_slice: p.PWM_SLICE0,
-            lmot_pwm_a: p.PIN_0,
-            lmot_pwm_b: p.PIN_1,
-            rmot_pwm_slice: p.PWM_SLICE1,
-            rmot_pwm_a: p.PIN_2,
-            rmot_pwm_b: p.PIN_3,
-            encoder_left_front_slice: p.PWM_SLICE3,
-            encoder_left_front_pin: p.PIN_7,
-            encoder_left_rear_slice: p.PWM_SLICE2,
-            encoder_left_rear_pin: p.PIN_21,
-            encoder_right_front_slice: p.PWM_SLICE4,
-            encoder_right_front_pin: p.PIN_9,
-            encoder_right_rear_slice: p.PWM_SLICE5,
-            encoder_right_rear_pin: p.PIN_27,
-        },
-    );
-    // init_autonomous_drive(&spawner);
-    init_ir_obstacle_detect(spawner);
+        // initialize the RC Control buttons
+        init_rc_buttons(
+            spawner,
+            RCButtonPins {
+                a: p.PIN_4,
+                b: p.PIN_5,
+                c: p.PIN_6,
+                d: p.PIN_8,
+            },
+        );
 
-    // Initialize the ultrasonic sweep tasks
-    init_ultrasonic_sweep(
-        spawner,
-        &mut pio0_common,
-        pio0_sm0,
-        UltrasonicPins {
-            servo: p.PIN_18,
-            trigger: p.PIN_14,
-            echo: p.PIN_15,
-        },
-    );
+        // Initialize motor driver and motor encoders
+        init_motor_driver(
+            spawner,
+            MotorDriverPins {
+                lmot_pwm_slice: p.PWM_SLICE0,
+                lmot_pwm_a: p.PIN_0,
+                lmot_pwm_b: p.PIN_1,
+                rmot_pwm_slice: p.PWM_SLICE1,
+                rmot_pwm_a: p.PIN_2,
+                rmot_pwm_b: p.PIN_3,
+                encoder_left_front_slice: p.PWM_SLICE3,
+                encoder_left_front_pin: p.PIN_7,
+                encoder_left_rear_slice: p.PWM_SLICE2,
+                encoder_left_rear_pin: p.PIN_21,
+                encoder_right_front_slice: p.PWM_SLICE4,
+                encoder_right_front_pin: p.PIN_9,
+                encoder_right_rear_slice: p.PWM_SLICE5,
+                encoder_right_rear_pin: p.PIN_27,
+            },
+        );
 
-    // Initialize IMU task
-    init_imu_read(spawner, i2c_bus);
+        init_ir_obstacle_detect(spawner);
 
-    // Initialize flash storage task
-    init_flash_storage(spawner, p.FLASH, p.DMA_CH0);
+        // Initialize the ultrasonic sweep tasks
+        init_ultrasonic_sweep(
+            spawner,
+            &mut pio0_common,
+            pio0_sm0,
+            UltrasonicPins {
+                servo: p.PIN_18,
+                trigger: p.PIN_14,
+                echo: p.PIN_15,
+            },
+        );
 
-    // Initialize testing task for development
-    task::testmode::init_testing(spawner);
+        // Initialize flash storage task
+        init_flash_storage(spawner, p.FLASH, p.DMA_CH0);
 
-    // Initialize autonomous mode controller
-    task::autonomous_mode::init_autonomous_mode(spawner);
+        // Initialize testing task for development
+        init_testing(spawner);
 
-    // Trigger system initialization (loads calibration data + shows UI when ready)
-    crate::system::event::raise_event(crate::system::event::Events::Initialize).await;
+        // Initialize UI (needs spawner for calibration tasks)
+        init_ui(spawner);
 
-    // main wishes you a great day
+        // Initialize autonomous mode controller
+        init_autonomous_mode(spawner);
+
+        // Trigger system initialization (loads calibration data + shows UI when ready).
+        init_startup(spawner);
+    });
+}
+
+/// Spawn the startup task that fires the `Initialize` event
+#[allow(clippy::unwrap_used)]
+fn init_startup(spawner: Spawner) {
+    spawner.spawn(task::startup::startup().unwrap());
 }
 
 /// Initialize orchestrator task
@@ -454,7 +495,10 @@ fn init_ultrasonic_sweep(
     spawner.spawn(task::sensors::ultrasonic::ultrasonic_sweep(us_pwm, us_trigger, us_echo).unwrap());
 }
 
-/// Initialize shared I2C bus for display and IMU
+/// Initialize shared I2C bus for display and IMU.
+///
+/// Must be called from within core1's executor `run` closure so that
+/// `I2c::new_async` enables `I2C0_IRQ` on core1's NVIC.
 fn init_i2c_bus(
     i2c0: Peri<'static, I2C0>,
     scl: Peri<'static, embassy_rp::peripherals::PIN_13>,

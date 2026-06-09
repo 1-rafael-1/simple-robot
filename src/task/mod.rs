@@ -15,4 +15,5 @@ pub mod drive;
 pub mod indicators;
 pub mod io;
 pub mod sensors;
+pub mod startup;
 pub mod testmode;

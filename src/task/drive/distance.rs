@@ -44,9 +44,9 @@
 //!
 //! # IMU lifecycle
 //!
-//! The IMU is only consumed for curve driving; the lifecycle module is expected
-//! to start IMU streaming when a curve intent begins and stop it when the intent
-//! completes or is interrupted. Straight distance drives do not require IMU data.
+//! IMU streaming is started for all distance drive intents (straight and curve)
+//! and stopped when the intent completes or is interrupted. Straight drives use
+//! IMU for heading correction; curve drives use IMU for yaw-based curve correction.
 //!
 //! # Telemetry logging
 //!
@@ -119,6 +119,8 @@ pub(super) struct DistanceDriveState {
     pub(super) curve_last_yaw_deg: Option<f32>,
     /// Accumulated curve yaw delta (degrees).
     pub(super) curve_accumulated_yaw_deg: f32,
+    /// IMU reference yaw captured at first valid sample for straight-line heading control.
+    pub(super) reference_yaw: Option<f32>,
     /// Last time we observed forward progress (ms).
     pub(super) last_progress_ms: u64,
     /// Consecutive samples with zero progress.
@@ -135,10 +137,15 @@ pub(super) struct DistanceDriveState {
 
 impl DistanceDriveState {
     /// Create a new distance drive state and precompute targets/ratios.
-    pub(super) fn new(kind: types::DriveDistanceKind, direction: types::DriveDirection, base_speed: u8) -> Self {
+    pub(super) fn new(
+        kind: types::DriveDistanceKind,
+        direction: types::DriveDirection,
+        base_speed: u8,
+        calibration_factor: f32,
+    ) -> Self {
         let (target_left_revs, target_right_revs, inner_left, target_inner_revs) = match kind {
             types::DriveDistanceKind::Straight { distance_cm } => {
-                let revolutions = distance_cm / types::SPROCKET_CIRCUMFERENCE_CM;
+                let revolutions = (distance_cm / types::SPROCKET_CIRCUMFERENCE_CM) * calibration_factor;
                 (revolutions, revolutions, None, revolutions)
             }
             types::DriveDistanceKind::CurveArc {
@@ -156,8 +163,8 @@ impl DistanceDriveState {
                 let safe_radius = radius_cm.max(0.001);
                 let left_arc_cm = arc_length_cm * (left_radius / safe_radius);
                 let right_arc_cm = arc_length_cm * (right_radius / safe_radius);
-                let left_revs = left_arc_cm / types::SPROCKET_CIRCUMFERENCE_CM;
-                let right_revs = right_arc_cm / types::SPROCKET_CIRCUMFERENCE_CM;
+                let left_revs = (left_arc_cm / types::SPROCKET_CIRCUMFERENCE_CM) * calibration_factor;
+                let right_revs = (right_arc_cm / types::SPROCKET_CIRCUMFERENCE_CM) * calibration_factor;
                 let inner_revs = if inner_left { left_revs } else { right_revs };
                 (left_revs, right_revs, Some(inner_left), inner_revs)
             }
@@ -193,6 +200,7 @@ impl DistanceDriveState {
             accumulated_right_revs: 0.0,
             curve_last_yaw_deg: None,
             curve_accumulated_yaw_deg: 0.0,
+            reference_yaw: None,
             last_progress_ms: now_ms,
             zero_progress_samples: 0,
             last_encoder_timestamp_ms: 0,
@@ -292,6 +300,18 @@ pub(super) async fn run_distance_control_step(state: &mut DistanceDriveState) ->
 
     state.accumulated_left_revs += left_revs;
     state.accumulated_right_revs += right_revs;
+
+    let mut straight_imu_sample: Option<crate::task::sensors::imu::ImuMeasurement> = None;
+    if matches!(state.kind, types::DriveDistanceKind::Straight { .. }) {
+        while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
+            straight_imu_sample = Some(m);
+        }
+        if state.reference_yaw.is_none()
+            && let Some(sample) = straight_imu_sample
+        {
+            state.reference_yaw = Some(sample.orientation.yaw);
+        }
+    }
 
     if matches!(state.kind, types::DriveDistanceKind::CurveArc { .. }) {
         let mut latest_imu: Option<crate::task::sensors::imu::ImuMeasurement> = None;
@@ -401,11 +421,42 @@ pub(super) async fn run_distance_control_step(state: &mut DistanceDriveState) ->
     let left_speed = (f32::from(signed_base) * left_ratio).round() as i8;
     let right_speed = (f32::from(signed_base) * right_ratio).round() as i8;
 
-    let mut adjusted_left = left_speed;
-    let mut adjusted_right = right_speed;
-    if matches!(state.kind, types::DriveDistanceKind::Straight { .. }) {
-        distance_apply_compensation(left_speed, right_speed, &mut adjusted_left, &mut adjusted_right, data);
-    }
+    let (adjusted_left, adjusted_right) = if matches!(state.kind, types::DriveDistanceKind::Straight { .. }) {
+        if let (Some(ref_yaw), Some(sample)) = (state.reference_yaw, straight_imu_sample) {
+            let current_yaw = sample.orientation.yaw;
+            let mut heading_error = current_yaw - ref_yaw;
+            if heading_error > 180.0 {
+                heading_error -= 360.0;
+            }
+            if heading_error <= -180.0 {
+                heading_error += 360.0;
+            }
+            let max_correction =
+                (f32::from(ramp_speed) * types::STRAIGHT_IMU_CORRECTION_SCALE).min(types::STRAIGHT_IMU_MAX_CORRECTION);
+            let correction = (types::STRAIGHT_IMU_KP * heading_error).clamp(-max_correction, max_correction);
+            // Positive heading_error = drifting counter-clockwise/left → slow right track to correct
+            // Negative heading_error = drifting clockwise/right → slow left track to correct
+            let corrected_left = ((f32::from(left_speed) + correction).round() as i8).clamp(-100, 100);
+            let corrected_right = ((f32::from(right_speed) - correction).round() as i8).clamp(-100, 100);
+            #[cfg(feature = "telemetry_logs")]
+            {
+                if (now_ms % 200) < 20 {
+                    defmt::info!(
+                        "distance_straight: ref={=f32}° cur={=f32}° err={=f32}° corr={=f32}",
+                        ref_yaw,
+                        current_yaw,
+                        heading_error,
+                        correction,
+                    );
+                }
+            }
+            (corrected_left, corrected_right)
+        } else {
+            (left_speed, right_speed)
+        }
+    } else {
+        (left_speed, right_speed)
+    };
 
     state.last_left_speed = adjusted_left;
     state.last_right_speed = adjusted_right;
@@ -432,31 +483,4 @@ pub(super) async fn distance_stop_motors() {
     .await;
 
     crate::system::state::motion::set_track_speeds(0, 0).await;
-}
-
-/// Apply drift compensation to scaled left/right targets for distance driving.
-fn distance_apply_compensation(
-    base_left: i8,
-    base_right: i8,
-    adjusted_left: &mut i8,
-    adjusted_right: &mut i8,
-    data: compensation::TrackSpeedData,
-) {
-    if data.all_zero() || data.has_single_motor_zero_anomaly() {
-        return;
-    }
-
-    let diff_percent = compensation::calculate_speed_difference(&data);
-    let action = compensation::determine_compensation(diff_percent, *adjusted_left, *adjusted_right);
-
-    let (new_left, new_right) = compensation::apply_compensation_action(action, *adjusted_left, *adjusted_right);
-
-    if new_left != *adjusted_left || new_right != *adjusted_right {
-        *adjusted_left = new_left.clamp(-100i8, 100i8);
-        *adjusted_right = new_right.clamp(-100i8, 100i8);
-    } else {
-        // Keep base values if no adjustment is needed.
-        *adjusted_left = base_left;
-        *adjusted_right = base_right;
-    }
 }
