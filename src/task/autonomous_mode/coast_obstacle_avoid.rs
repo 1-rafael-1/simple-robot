@@ -46,6 +46,7 @@ use crate::{
     },
     task::{
         autonomous_mode::{self, AutonomousCommand},
+        behavior::obstacle as obstacle_behavior,
         drive::{
             CompletionStatus, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, DriveQueueBuilder,
             DriveQueueSubmitError, InterruptKind, send_drive_command, send_drive_interrupt,
@@ -234,88 +235,138 @@ async fn drive_forward() -> CompletionStatus {
     completion.status
 }
 
-/// Back up a fixed distance and then turn a random angle before resuming.
+/// Return the opposite of the given rotation direction.
+const fn opposite_direction(dir: RotationDirection) -> RotationDirection {
+    match dir {
+        RotationDirection::Clockwise => RotationDirection::CounterClockwise,
+        RotationDirection::CounterClockwise => RotationDirection::Clockwise,
+    }
+}
+
+/// Back up a fixed distance and turn a random angle to avoid an obstacle.
+///
+/// On the first iteration this performs a backup followed by a turn. If the
+/// path is still blocked after the turn, the function re-avoids with a turn-only
+/// maneuver (using the opposite direction). Loops until the path is clear or the
+/// mode is deactivated.
 async fn avoid_obstacle() {
     info!("coast-avoid: obstacle avoidance maneuver");
 
     // Brief pause to let the emergency-brake settle.
     Timer::after(Duration::from_millis(200)).await;
 
-    // Randomly choose a turn angle and direction
+    // Randomly choose initial turn angle and direction
     let seed = Instant::now().as_micros();
     let mut rng = WyRand::new_seed(seed);
-    let turn_degrees = rng.generate_range(TURN_ANGLE_MIN..=TURN_ANGLE_MAX);
-    let direction = if rng.generate_range(0u8..=1u8) == 0 {
+    let mut turn_degrees = rng.generate_range(TURN_ANGLE_MIN..=TURN_ANGLE_MAX);
+    let mut direction = if rng.generate_range(0u8..=1u8) == 0 {
         RotationDirection::CounterClockwise
     } else {
         RotationDirection::Clockwise
     };
 
-    info!("coast-avoid: turning {} degrees", turn_degrees);
+    let mut is_first = true;
 
-    let mut queue = DriveQueueBuilder::new();
-    if queue
-        .push(DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::Straight {
-                distance_cm: BACKUP_DISTANCE_CM,
-            },
-            direction: DriveDirection::Backward,
-            speed: REVERSE_SPEED,
-        }))
-        .is_err()
-    {
-        info!("coast-avoid: avoidance queue full (backup)");
-        return;
-    }
-
-    if queue
-        .push(DriveCommand::Drive(DriveAction::RotateExact {
-            degrees: f32::from(turn_degrees),
-            direction,
-            motion: RotationMotion::Stationary { speed: TURN_SPEED },
-        }))
-        .is_err()
-    {
-        info!("coast-avoid: avoidance queue full (turn)");
-        return;
-    }
-
-    let completion = match queue.submit().await {
-        Ok(completion) => completion,
-        Err(DriveQueueSubmitError::QueueBusy) => {
-            info!("coast-avoid: avoidance queue busy");
+    loop {
+        // Pre-queue ACTIVE check: bail if stop() was called.
+        if !ACTIVE.load(Ordering::Relaxed) {
+            info!("coast-avoid: avoidance aborted before queue (stop requested)");
             return;
         }
-    };
 
-    match completion.status {
-        CompletionStatus::Cancelled => {
-            let failed_step = completion.failed_step_index.unwrap_or(0);
-            info!("coast-avoid: avoidance cancelled (step {=usize})", failed_step);
+        info!("coast-avoid: turning {} degrees", turn_degrees);
+
+        let mut queue = DriveQueueBuilder::new();
+
+        // First iteration only: back up before turning.
+        if is_first
+            && queue
+                .push(DriveCommand::Drive(DriveAction::DriveDistance {
+                    kind: DriveDistanceKind::Straight {
+                        distance_cm: BACKUP_DISTANCE_CM,
+                    },
+                    direction: DriveDirection::Backward,
+                    speed: REVERSE_SPEED,
+                }))
+                .is_err()
+        {
+            info!("coast-avoid: avoidance queue full (backup)");
             return;
         }
-        CompletionStatus::Failed(reason) => {
-            let failed_step = completion.failed_step_index.unwrap_or(0);
-            info!(
-                "coast-avoid: avoidance failed: {=str} (step {=usize})",
-                reason, failed_step
-            );
+
+        // Turn (always: both first-time and re-avoidance).
+        if queue
+            .push(DriveCommand::Drive(DriveAction::RotateExact {
+                degrees: f32::from(turn_degrees),
+                direction,
+                motion: RotationMotion::Stationary { speed: TURN_SPEED },
+            }))
+            .is_err()
+        {
+            info!("coast-avoid: avoidance queue full (turn)");
             return;
         }
-        CompletionStatus::Success => {}
-    }
 
-    if !ACTIVE.load(Ordering::Relaxed) {
+        let completion = match queue.submit().await {
+            Ok(completion) => completion,
+            Err(DriveQueueSubmitError::QueueBusy) => {
+                info!("coast-avoid: avoidance queue busy");
+                return;
+            }
+        };
+
+        match completion.status {
+            CompletionStatus::Cancelled => {
+                let failed_step = completion.failed_step_index.unwrap_or(0);
+                info!("coast-avoid: avoidance cancelled (step {=usize})", failed_step);
+                if !ACTIVE.load(Ordering::Relaxed) {
+                    send_drive_interrupt(InterruptKind::EmergencyBrake);
+                }
+                return;
+            }
+            CompletionStatus::Failed(reason) => {
+                let failed_step = completion.failed_step_index.unwrap_or(0);
+                info!(
+                    "coast-avoid: avoidance failed: {=str} (step {=usize})",
+                    reason, failed_step
+                );
+                if !ACTIVE.load(Ordering::Relaxed) {
+                    send_drive_interrupt(InterruptKind::EmergencyBrake);
+                }
+                return;
+            }
+            CompletionStatus::Success => {}
+        }
+
+        // Post-queue ACTIVE check on the Success path.
+        if !ACTIVE.load(Ordering::Relaxed) {
+            send_drive_interrupt(InterruptKind::EmergencyBrake);
+            return;
+        }
+
+        is_first = false;
+
+        // Post-turn obstacle re-check: clear all obstacle state then wait for
+        // fresh sensor readings. Rely on ultrasonic only — IR is edge-triggered
+        // and unreliable for a stationary re-check after a turn.
+        obstacle_behavior::reset_obstacle_state().await;
+        Timer::after(Duration::from_millis(200)).await;
+
+        let still_blocked = {
+            let state = perception::PERCEPTION_STATE.lock().await;
+            state.ultrasonic_obstacle_detected
+        };
+
+        if still_blocked {
+            rng = WyRand::new_seed(Instant::now().as_micros());
+            turn_degrees = rng.generate_range(TURN_ANGLE_MIN..=TURN_ANGLE_MAX);
+            direction = opposite_direction(direction);
+            info!("coast-avoid: obstacle still detected — re-avoiding");
+            continue;
+        }
+
+        // Path is clear — notify the system and exit.
+        raise_event(Events::ObstacleAvoidanceAttempted).await;
         return;
     }
-
-    Timer::after(Duration::from_millis(100)).await;
-
-    {
-        let mut state = perception::PERCEPTION_STATE.lock().await;
-        state.ultrasonic_reading = None;
-    }
-
-    // Notify the rest of the system that one avoidance cycle completed.
-    raise_event(Events::ObstacleAvoidanceAttempted).await;
 }
