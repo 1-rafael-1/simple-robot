@@ -217,7 +217,6 @@ pub async fn drive_queue_executor() {
             match completion.status {
                 CompletionStatus::Success => {
                     completed_steps += 1;
-                    status = CompletionStatus::Success;
                 }
                 CompletionStatus::Cancelled => {
                     status = CompletionStatus::Cancelled;

@@ -249,6 +249,7 @@ const fn opposite_direction(dir: RotationDirection) -> RotationDirection {
 /// path is still blocked after the turn, the function re-avoids with a turn-only
 /// maneuver (using the opposite direction). Loops until the path is clear or the
 /// mode is deactivated.
+#[allow(clippy::too_many_lines)]
 async fn avoid_obstacle() {
     info!("coast-avoid: obstacle avoidance maneuver");
 
@@ -267,7 +268,6 @@ async fn avoid_obstacle() {
 
     let mut is_first = true;
 
-    #[allow(clippy::too_many_lines)]
     loop {
         // Pre-queue ACTIVE check: bail if stop() was called.
         if !ACTIVE.load(Ordering::Relaxed) {
@@ -359,8 +359,7 @@ async fn avoid_obstacle() {
         };
 
         if still_blocked {
-            let seed = Instant::now().as_micros();
-            let mut rng = WyRand::new_seed(seed);
+            rng = WyRand::new_seed(Instant::now().as_micros());
             turn_degrees = rng.generate_range(TURN_ANGLE_MIN..=TURN_ANGLE_MAX);
             direction = opposite_direction(direction);
             info!("coast-avoid: obstacle still detected — re-avoiding");
