@@ -249,7 +249,6 @@ const fn opposite_direction(dir: RotationDirection) -> RotationDirection {
 /// path is still blocked after the turn, the function re-avoids with a turn-only
 /// maneuver (using the opposite direction). Loops until the path is clear or the
 /// mode is deactivated.
-#[allow(clippy::too_many_lines)]
 async fn avoid_obstacle() {
     info!("coast-avoid: obstacle avoidance maneuver");
 
