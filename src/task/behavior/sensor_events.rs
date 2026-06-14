@@ -33,11 +33,7 @@ pub fn handle_encoder_measurement(measurement: encoders::EncoderMeasurement) {
 /// Handle ultrasonic sensor readings.
 #[allow(clippy::cast_possible_truncation)]
 pub async fn handle_ultrasonic_sweep_reading(reading: UltrasonicReading, angle: f32) {
-    {
-        let mut state = perception::PERCEPTION_STATE.lock().await;
-        state.ultrasonic_reading = Some(reading);
-        state.ultrasonic_angle_deg = Some(angle);
-    }
+    perception::set_ultrasonic_reading(Some(reading), angle).await;
 
     // Forward sweep data to the display only while the sweep test owns the screen.
     let ui_mode = {
@@ -71,14 +67,12 @@ pub async fn handle_ultrasonic_sweep_reading(reading: UltrasonicReading, angle: 
             ui::refresh().await;
         }
     }
-
-    // TODO: Feed data to obstacle detection.
 }
 
 /// Handle IMU measurements.
 pub fn handle_imu_measurement(measurement: imu::ImuMeasurement) {
     // Forward IMU measurements to drive task for rotation control.
-    // Use try_send to avoid blocking orchestrator - IMU data arrives at 100Hz.
+    // Use try_send to avoid blocking orchestrator — IMU data arrives at 100Hz.
     // Dropping occasional measurements is acceptable at this rate.
     let _ = drive::try_send_imu_measurement(measurement);
 }

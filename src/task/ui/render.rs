@@ -135,14 +135,9 @@ pub async fn render_ultrasonic_sweep_test_running() {
 
 /// Render the autonomous drive mode running screen.
 pub async fn render_autonomous_running(mode: DriveMode) {
-    let (ir_detected, ultrasonic_reading, obstacle_detected) = {
-        let state = perception::PERCEPTION_STATE.lock().await;
-        (
-            state.ir_obstacle_detected,
-            state.ultrasonic_reading,
-            state.obstacle_detected,
-        )
-    };
+    let ir_detected = perception::is_ir_obstacle_detected();
+    let ultrasonic_reading = perception::ultrasonic_reading_copy().await;
+    let obstacle_detected = perception::is_obstacle_detected();
 
     let mode_label = match mode {
         DriveMode::CoastAndAvoid => "Coast & Avoid",

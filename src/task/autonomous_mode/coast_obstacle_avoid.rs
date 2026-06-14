@@ -352,10 +352,7 @@ async fn avoid_obstacle() {
         obstacle_behavior::reset_obstacle_state().await;
         Timer::after(Duration::from_millis(200)).await;
 
-        let still_blocked = {
-            let state = perception::PERCEPTION_STATE.lock().await;
-            state.ultrasonic_obstacle_detected
-        };
+        let still_blocked = perception::is_ultrasonic_obstacle_detected();
 
         if still_blocked {
             rng = WyRand::new_seed(Instant::now().as_micros());
