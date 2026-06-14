@@ -125,7 +125,7 @@ Hardware abstraction tasks under `task/io/`: display driver, flash storage (cali
 The deepened state module that owns obstacle detection. Obsolete: direct `PERCEPTION_STATE` field access. Current: 10 accessor functions including lock-free boolean reads and an obstacle distance threshold that auto-detects obstacles from ultrasonic readings.
 
 **Obstacle Threshold**
-The distance cutoff (default 50 cm) used to classify ultrasonic readings as obstacles. Reading distance ≤ threshold → obstacle detected. Overridable via `set_obstacle_threshold`.
+The distance cutoff (default 15 cm, matching the ultrasonic sensor task) used to classify ultrasonic readings as obstacles. Reading distance ≤ threshold → obstacle detected. Overridable via `set_obstacle_threshold`.
 
 **Change Detected**
 An enum (`ChangeDetected`) returned by perception setters: `NoChange`, `ChangedToDetected`, `ChangedToCleared`. Lets callers react to obstacle state transitions without re-reading the combined flag.

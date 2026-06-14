@@ -6,7 +6,7 @@
 //! Lock order (when multiple state mutexes are needed):
 //! 1) `POWER_STATE`
 //! 2) `CALIBRATION_STATE`
-//! 3) `PERCEPTION_STATE`
+//! 3) perception mutex (private — use accessor functions)
 //! 4) `MOTION_STATE`
 
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -30,7 +30,10 @@ static COMBINED_DETECTED: AtomicBool = AtomicBool::new(false);
 
 /// Default obstacle distance threshold (cm). Used by `set_ultrasonic_reading` to
 /// auto-detect obstacles from raw distance readings.
-const DEFAULT_OBSTACLE_THRESHOLD_CM: f64 = 50.0;
+///
+/// Matches the ultrasonic sensor task's `ULTRASONIC_OBSTACLE_THRESHOLD_CM` (15 cm)
+/// so lock-free readers see the same obstacle state the event system produces.
+const DEFAULT_OBSTACLE_THRESHOLD_CM: f64 = 15.0;
 
 /// Mutex-guarded state holding ultrasonic readings and threshold.
 static STATE: Mutex<CriticalSectionRawMutex, PerceptionState> = Mutex::new(PerceptionState {
@@ -136,7 +139,7 @@ pub async fn clear_ultrasonic_data() {
     state.ultrasonic_angle_deg = None;
 }
 
-/// Reset all obstacle flags and ultrasonic data to defaults.
+/// Reset all obstacle flags, ultrasonic data, and threshold to defaults.
 pub async fn reset_all() {
     IR_DETECTED.store(false, Ordering::Relaxed);
     ULTRASONIC_DETECTED.store(false, Ordering::Relaxed);
@@ -145,6 +148,7 @@ pub async fn reset_all() {
     let mut state = STATE.lock().await;
     state.ultrasonic_reading = None;
     state.ultrasonic_angle_deg = None;
+    state.obstacle_threshold_cm = DEFAULT_OBSTACLE_THRESHOLD_CM;
 }
 
 /// Return a copy of the latest ultrasonic reading, if any.

@@ -69,7 +69,7 @@ async fn ir_ultrasonic_test_task() {
                     break;
                 }
 
-                let ir_detected = crate::system::state::perception::is_obstacle_detected();
+                let ir_detected = crate::system::state::perception::is_ir_obstacle_detected();
                 let reading = crate::system::state::perception::ultrasonic_reading_copy().await;
 
                 let header = {
