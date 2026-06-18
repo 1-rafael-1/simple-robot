@@ -45,7 +45,8 @@ pub(super) struct BrakeCoastState {
 impl BrakeCoastState {
     /// Initialise a brake/coast settle intent.
     ///
-    /// Starts encoder sampling and returns the `ActiveIntent` + `IntentSetup` descriptor.
+    /// Returns the `ActiveIntent` + `IntentSetup::EncoderSettle` descriptor
+    /// (the dispatch executes the descriptor to start encoder sampling).
     pub(super) fn init(completion_requested: bool) -> (super::state::ActiveIntent, super::types::IntentSetup) {
         let state = Self::new();
         let intent = super::state::ActiveIntent::BrakeCoast {

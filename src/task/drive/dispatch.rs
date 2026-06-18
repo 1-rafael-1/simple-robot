@@ -17,7 +17,7 @@ use crate::{
             differential,
             distance::{self, DistanceDriveState},
             rotation::RotationState,
-            sensors::control as lifecycle,
+            sensors::{control as lifecycle, data::IMU_FEEDBACK_CHANNEL},
             state::{ActiveIntent, DriveLoop},
             types::{self, CompletionStatus, DriveAction, DriveCommand, DriveCompletion, IntentSetup, IntentTeardown},
         },
@@ -144,7 +144,7 @@ impl DriveLoop {
 
     // ── Per-action handlers ────────────────────────────────────────────────
 
-    /// Handle a `Differential` command — fire-and-forget with drift correction.
+    /// Handle a `Differential` command — fire-and-forget passthrough.
     async fn handle_differential(&self, left: i8, right: i8) {
         let (left_adjusted, right_adjusted) = differential::set_speeds(left, right);
 
@@ -177,8 +177,13 @@ impl DriveLoop {
         speed: u8,
         completion_requested: bool,
     ) {
+        /// IMU DMP filter stabilisation delay after enabling (milliseconds).
+        const IMU_STABILISE_MS: u64 = 150;
+        /// Maximum time to wait for the first IMU sample (milliseconds).
+        const IMU_WAIT_TIMEOUT_MS: u64 = 1000;
+
         let distance_factor = calibration::get_distance_factor().await;
-        let state = DistanceDriveState::new(kind, direction, speed, distance_factor);
+        let mut state = DistanceDriveState::new(kind, direction, speed, distance_factor);
 
         // Early exit for trivially short distances.
         if state.target_inner_revs <= distance::TOLERANCE_REVS {
@@ -201,6 +206,24 @@ impl DriveLoop {
 
         // Start sensors via descriptor.
         execute_intent_setup(types::IntentSetup::DistanceImuAndEncoder).await;
+
+        // Capture reference yaw from IMU before any movement starts.
+        // The DMP filters need time to stabilise after being enabled — wait for
+        // the first sample to confirm the IMU is alive, then allow 150 ms settle.
+        let deadline = Instant::now() + Duration::from_millis(IMU_WAIT_TIMEOUT_MS);
+        while state.reference_yaw.is_none() && Instant::now() < deadline {
+            while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
+                state.reference_yaw = Some(m.orientation.yaw);
+            }
+            if state.reference_yaw.is_none() {
+                Timer::after(Duration::from_millis(10)).await;
+            }
+        }
+        Timer::after(Duration::from_millis(IMU_STABILISE_MS)).await;
+        // Drain the channel again for a stabilised sample to use as the true reference.
+        while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
+            state.reference_yaw = Some(m.orientation.yaw);
+        }
 
         // Apply initial speeds.
         let base_speed = speed.min(distance::MAX_SPEED);

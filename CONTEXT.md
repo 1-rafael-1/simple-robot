@@ -61,7 +61,7 @@ A `DriveAction` that commands the robot to travel a specified distance (straight
 A `DriveAction` that commands an in-place rotation to a target angle using IMU feedback. Completes when the angle is reached within tolerance.
 
 **Drift Compensation**
-Inline correction applied at command time for symmetric `Differential` commands (equal left/right speed). Reads encoder pulse rates, computes per-track averages, and adjusts the slower track up (or faster track down) to equalize them. Pure math in `drift_math`; called from `differential`. Prevents the robot from veering due to track friction differences or motor variance.
+Encoder-based correction that equalises left/right track speeds to prevent veering. Currently handled by higher-level intents (distance, rotation) via IMU heading correction and encoder feedback — the inline per-command path was removed from `Differential` (now a passthrough). The pure math lives in `distance.rs` as helper functions.
 
 **Ramp-Down**
 Progressive speed reduction as a distance or rotation command approaches its target. Prevents overshoot.
@@ -104,7 +104,7 @@ Four domain-specific state modules under `system/state/`, each with its own `Mut
 When multiple state mutexes must be held: Power → Calibration → Perception → Motion. Prevents deadlocks.
 
 **Drive Subsystem**
-The `drive` module tree. Owns the drive task, command queue, interrupt signal, control algorithms (rotation, distance, brake/coast, differential with inline drift), sensor feedback channels, and calibration procedures. Commands flow through a thin `dispatch` that routes to control modules via `IntentSetup` / `IntentTeardown` descriptors — sensor lifecycle is declared by each module, not hardcoded in the dispatch. Exposes two public entry points: `send_drive_command` and `send_drive_interrupt`.
+The `drive` module tree. Owns the drive task, command queue, interrupt signal, control algorithms (rotation, distance, brake/coast, differential), sensor feedback channels, and calibration procedures. Commands flow through a thin `dispatch` that routes to control modules via `IntentSetup` / `IntentTeardown` descriptors — sensor lifecycle is declared by each module, not hardcoded in the dispatch. Exposes two public entry points: `send_drive_command` and `send_drive_interrupt`.
 
 **Drive Queue**
 A builder (`DriveQueueBuilder`) that accumulates `DriveCommand` steps and submits them for sequential execution. A single `drive_queue_executor` task runs one queue at a time and emits a single queue-level completion.

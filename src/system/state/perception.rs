@@ -111,7 +111,7 @@ pub async fn set_ultrasonic_reading(reading: Option<UltrasonicReading>, angle_de
     let obstacle = match reading {
         Some(UltrasonicReading::Distance(cm)) => {
             let threshold = { STATE.lock().await.obstacle_threshold_cm };
-            cm <= threshold
+            cm < threshold
         }
         _ => false,
     };
@@ -160,7 +160,7 @@ pub async fn ultrasonic_reading_copy() -> Option<UltrasonicReading> {
 }
 
 /// Override the obstacle detection distance threshold (cm).
-/// Distance readings ≤ this value are considered obstacles by `set_ultrasonic_reading`.
+/// Distance readings < this value are considered obstacles by `set_ultrasonic_reading`.
 #[allow(dead_code)]
 pub async fn set_obstacle_threshold(cm: f64) {
     let mut state = STATE.lock().await;
