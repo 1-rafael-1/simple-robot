@@ -178,7 +178,7 @@ impl DriveLoop {
         completion_requested: bool,
     ) {
         let distance_factor = calibration::get_distance_factor().await;
-        let mut state = DistanceDriveState::new(kind, direction, speed, distance_factor);
+        let state = DistanceDriveState::new(kind, direction, speed, distance_factor);
 
         // Early exit for trivially short distances.
         if state.target_inner_revs <= distance::TOLERANCE_REVS {
@@ -210,8 +210,6 @@ impl DriveLoop {
         };
         let left_speed = roundf(f32::from(signed_base) * state.left_ratio) as i8;
         let right_speed = roundf(f32::from(signed_base) * state.right_ratio) as i8;
-        state.last_left_speed = left_speed;
-        state.last_right_speed = right_speed;
 
         motor_driver::send_motor_command(MotorCommand::SetTracks {
             left_speed,
