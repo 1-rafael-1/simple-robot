@@ -1,8 +1,12 @@
-//! Differential drive speed management — fire-and-forget with optional drift correction.
+//! Differential drive speed management — fire-and-forget with drift correction.
 //!
-//! Called by the dispatch for `DriveAction::Differential` commands. Applies
-//! drift-compensation math for symmetric (straight-line) commands and passes
-//! speeds through unchanged for differential/turning commands.
+//! Called by the dispatch for `DriveAction::Differential` commands. For
+//! symmetric commands (equal left/right speeds), reads encoder data and applies
+//! drift-compensation math from [`drift_math`] to equalize track speeds. For
+//! asymmetric or zero-speed commands, passes speeds through unchanged.
+//!
+//! Unlike other control modules, this is not an intent — commands complete
+//! instantly and never block the queue.
 
 use crate::task::drive::drift_math;
 

@@ -1,15 +1,32 @@
 //! Drive loop data structures.
 //!
 //! This module defines the core state types owned by the drive task's main loop.
-//! It is deliberately free of behaviour: no command handling, no motor commands,
+//! It is deliberately free of behaviour — no command handling, no motor commands,
 //! no sensor calls. That logic lives in [`super::dispatch`].
+//!
+//! # Intent lifecycle
+//!
+//! An intent is a state machine for one motion behaviour. It is created by a
+//! control module's `init()`, polled by the intent loop via the module's
+//! `run_step()`, and torn down via its [`teardown()`](ActiveIntent::teardown)
+//! descriptor. The dispatch owns setup (starting sensors) and teardown (stopping
+//! sensors); the control modules own the runtime logic.
+//!
+//! Each intent carries:
+//! - A controller state (`RotationState`, `DistanceDriveState`, etc.)
+//! - A completion flag — whether the caller expects a [`DriveCompletion`]
+//! - A teardown descriptor — which sensors to stop on completion or interrupt
+//! - Cancellation telemetry — what data to report if interrupted
+//!
+//! Commands that complete instantly (e.g. `Differential`) are **not** intents;
+//! they are fire-and-forget, handled directly by the dispatch.
 //!
 //! # Types
 //!
-//! - [`ActiveIntent`]: the currently executing drive intent (rotation or
-//!   distance), together with its completion-request flag and any runtime state.
-//! - [`DriveLoop`]: the top-level state struct owned by the drive task. Holds
-//!   standby status and the active intent (if any).
+//! - [`ActiveIntent`]: the currently executing drive intent, together with its
+//!   completion flag, teardown descriptor, and runtime state.
+//! - [`DriveLoop`]: top-level state struct — holds `standby_enabled` and the
+//!   active intent (if any).
 
 use embassy_time::Instant;
 

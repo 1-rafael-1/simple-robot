@@ -1,4 +1,22 @@
-//! Brake/Coast settle control logic for the drive loop.
+//! Brake/Coast settle control logic.
+//!
+//! Handles the `Brake` and `Coast` drive actions. After issuing the motor
+//! command (brake or freewheel), the control loop waits for encoder readings
+//! to settle — N consecutive zero-delta samples within a timeout window.
+//!
+//! # Lifecycle
+//!
+//! - `init()` creates the settle state and declares an `IntentSetup::EncoderSettle`
+//!   descriptor. The dispatch executes the descriptor to start encoder sampling.
+//! - `run_brake_coast_step()` checks for settle or timeout each tick.
+//! - Completion teardown uses an `IntentTeardown::EncoderSettle` descriptor to
+//!   stop encoder sampling.
+//!
+//! # Constants
+//!
+//! - `SETTLE_INTERVAL_MS` (100 ms): time between settle checks
+//! - `SETTLE_CONSECUTIVE_SAMPLES` (3): consecutive zero-delta readings to declare settled
+//! - `SETTLE_TIMEOUT_MS` (2000 ms): maximum time before failing
 
 use embassy_time::{Duration, Instant};
 

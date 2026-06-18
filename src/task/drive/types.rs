@@ -1,4 +1,12 @@
-//! Type definitions and constants for drive control
+//! Shared types and geometry constants for drive control.
+//!
+//! This module owns the vocabulary shared across the drive subsystem — the
+//! command types, completion types, and geometry constants. Per-module control
+//! parameters (rotation tuning, distance tuning, drift tuning, etc.) live in
+//! their respective control modules.
+//!
+//! Also defines the [`IntentSetup`] and [`IntentTeardown`] descriptor enums
+//! that form the seam between the [`super::dispatch`] and the control modules.
 
 // ── Geometry constants (shared across modules) ────────────────────────────
 
