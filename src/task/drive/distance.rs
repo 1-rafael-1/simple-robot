@@ -479,8 +479,11 @@ fn apply_imu_corrections(
     state: &DistanceDriveState,
     latest_imu: Option<crate::task::sensors::imu::ImuMeasurement>,
     signed_base: i8,
-    _now_ms: u64,
+    now_ms: u64,
 ) -> (i8, i8) {
+    #[cfg(not(feature = "telemetry_logs"))]
+    let _ = now_ms;
+
     let mut left_ratio = state.left_ratio;
     let mut right_ratio = state.right_ratio;
 

@@ -113,7 +113,9 @@ pub(super) async fn apply_completion(
     let (completion_requested, teardown) = loop_state
         .active_intent
         .as_ref()
-        .map_or((false, IntentTeardown::None), |i| (i.completion_requested(), i.teardown()));
+        .map_or((false, IntentTeardown::None), |i| {
+            (i.completion_requested(), i.teardown())
+        });
 
     execute_intent_teardown(teardown).await;
     send_completion(completion_requested, DriveCompletion { status, telemetry }).await;
