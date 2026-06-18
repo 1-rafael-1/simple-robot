@@ -2,9 +2,7 @@
 //!
 //! This module contains only stateless, synchronous functions and types that
 //! implement the encoder-based drift-compensation algorithm. There is no async
-//! code and no I/O here; all of that lives in the parent [`super`] module
-//! (`drift/mod.rs`), which owns the async control-loop step and calls into
-//! these functions for the actual computation.
+//! code and no I/O here.
 //!
 //! # Responsibilities
 //!
@@ -23,13 +21,22 @@
 //! 3. Call [`determine_compensation`] with the difference and current speed commands.
 //! 4. Apply the returned [`CompensationAction`] via [`apply_compensation_action`].
 
-use crate::task::drive::types::{DRIFT_COMPENSATION_GAIN, DRIFT_COMPENSATION_MAX, DRIFT_TOLERANCE_PERCENT};
+use crate::task::sensors::encoders::EncoderMeasurement;
+
+// ── Drift compensation constants ───────────────────────────────────────────
+
+/// Drift tolerance percentage
+const DRIFT_TOLERANCE_PERCENT: f32 = 1.0;
+/// Compensation adjustment gain (0.0-1.0)
+const DRIFT_COMPENSATION_GAIN: f32 = 0.5;
+/// Maximum compensation per adjustment (percent points)
+const DRIFT_COMPENSATION_MAX: i8 = 5;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /// Which track (left or right) is being referenced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Track {
+pub(super) enum Track {
     /// Left track.
     Left,
     /// Right track.
@@ -44,7 +51,7 @@ pub enum Track {
 /// to compute deltas from consecutive cumulative readings before constructing
 /// this value via [`calculate_track_averages`].
 #[derive(Debug, Clone, Copy)]
-pub struct TrackSpeedData {
+pub(super) struct TrackSpeedData {
     /// Delta pulse count for the left-front motor in the current sampling window.
     pub left_front: u16,
     /// Delta pulse count for the left-rear motor in the current sampling window.
@@ -58,6 +65,7 @@ pub struct TrackSpeedData {
     /// Computed average pulse count for the right track (`(right_front + right_rear) / 2`).
     pub right_track_avg: f32,
     /// Timestamp of the originating `EncoderMeasurement` (milliseconds since boot).
+    #[allow(dead_code)]
     pub timestamp_ms: u64,
 }
 
@@ -66,7 +74,7 @@ impl TrackSpeedData {
     ///
     /// This typically means the robot is stationary or at very low speed; the
     /// drift-compensation loop should skip the sample.
-    pub const fn all_zero(&self) -> bool {
+    pub(super) const fn all_zero(&self) -> bool {
         self.left_front == 0 && self.left_rear == 0 && self.right_front == 0 && self.right_rear == 0
     }
 
@@ -74,7 +82,7 @@ impl TrackSpeedData {
     ///
     /// This pattern suggests a faulty or unplugged encoder. The compensation
     /// loop should treat this as an anomaly and disable itself.
-    pub fn has_single_motor_zero_anomaly(&self) -> bool {
+    pub(super) fn has_single_motor_zero_anomaly(&self) -> bool {
         let vals = [self.left_front, self.left_rear, self.right_front, self.right_rear];
         let any_nonzero = vals.iter().any(|&v| v != 0);
         let any_zero = vals.contains(&0);
@@ -87,7 +95,7 @@ impl TrackSpeedData {
 /// The policy prefers *increasing* the slower track if doing so stays within
 /// the ±100 speed limit; otherwise it *decreases* the faster track.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
-pub enum CompensationAction {
+pub(super) enum CompensationAction {
     /// Within tolerance — no adjustment needed.
     None,
     /// Increase the left track by N speed points.
@@ -106,7 +114,7 @@ pub enum CompensationAction {
 ///
 /// The caller must supply per-window *delta* values (not raw cumulative counters).
 /// Use [`calculate_delta_u16`] to compute deltas from consecutive cumulative readings.
-pub fn calculate_track_averages(measurement: crate::task::sensors::encoders::EncoderMeasurement) -> TrackSpeedData {
+pub(super) fn calculate_track_averages(measurement: EncoderMeasurement) -> TrackSpeedData {
     let left_front = measurement.left_front;
     let left_rear = measurement.left_rear;
     let right_front = measurement.right_front;
@@ -140,7 +148,7 @@ pub fn calculate_track_averages(measurement: crate::task::sensors::encoders::Enc
 /// - **Negative** → right track is faster.
 ///
 /// Returns `0.0` if both tracks are at (or near) zero to avoid division by zero.
-pub fn calculate_speed_difference(data: &TrackSpeedData) -> f32 {
+pub(super) fn calculate_speed_difference(data: &TrackSpeedData) -> f32 {
     let left = data.left_track_avg;
     let right = data.right_track_avg;
     let denom = left.max(right);
@@ -171,7 +179,7 @@ pub fn calculate_speed_difference(data: &TrackSpeedData) -> f32 {
 /// # Preconditions
 ///
 /// Speed commands are expected to be in the range `[-100, 100]`.
-pub fn determine_compensation(diff_percent: f32, left_speed: i8, right_speed: i8) -> CompensationAction {
+pub(super) fn determine_compensation(diff_percent: f32, left_speed: i8, right_speed: i8) -> CompensationAction {
     if diff_percent.abs() <= DRIFT_TOLERANCE_PERCENT {
         return CompensationAction::None;
     }
@@ -231,7 +239,7 @@ pub fn determine_compensation(diff_percent: f32, left_speed: i8, right_speed: i8
 /// Apply a [`CompensationAction`] to the current motor commands.
 ///
 /// Returns `(new_left, new_right)` clamped to `[-100, 100]`.
-pub fn apply_compensation_action(action: CompensationAction, left_speed: i8, right_speed: i8) -> (i8, i8) {
+pub(super) fn apply_compensation_action(action: CompensationAction, left_speed: i8, right_speed: i8) -> (i8, i8) {
     let (mut l, mut r) = (left_speed, right_speed);
 
     match action {
@@ -255,7 +263,8 @@ pub fn apply_compensation_action(action: CompensationAction, left_speed: i8, rig
 /// ```text
 /// previous = 65530, current = 3  →  delta = 9
 /// ```
-pub const fn calculate_delta_u16(current: u16, previous: u16) -> u16 {
+#[allow(dead_code)]
+pub(super) const fn calculate_delta_u16(current: u16, previous: u16) -> u16 {
     if current >= previous {
         current - previous
     } else {

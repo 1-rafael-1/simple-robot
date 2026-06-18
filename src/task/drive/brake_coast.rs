@@ -2,10 +2,14 @@
 
 use embassy_time::{Duration, Instant};
 
-use crate::task::{
-    drive::{sensors::data::get_latest_encoder_measurement, types},
-    sensors::encoders::EncoderMeasurement,
-};
+use crate::task::{drive::sensors::data::get_latest_encoder_measurement, sensors::encoders::EncoderMeasurement};
+
+/// Encoder settle interval for brake/coast completion (milliseconds).
+pub(super) const SETTLE_INTERVAL_MS: u64 = 100;
+/// Consecutive zero-delta samples required to declare settled.
+const SETTLE_CONSECUTIVE_SAMPLES: u8 = 3;
+/// Maximum time allowed to settle before failing completion (milliseconds).
+const SETTLE_TIMEOUT_MS: u64 = 2000;
 
 /// State for brake/coast settle detection.
 #[derive(Debug, Clone, Copy)]
@@ -21,10 +25,22 @@ pub(super) struct BrakeCoastState {
 }
 
 impl BrakeCoastState {
+    /// Initialise a brake/coast settle intent.
+    ///
+    /// Starts encoder sampling and returns the `ActiveIntent` + `IntentSetup` descriptor.
+    pub(super) fn init(completion_requested: bool) -> (super::state::ActiveIntent, super::types::IntentSetup) {
+        let state = Self::new();
+        let intent = super::state::ActiveIntent::BrakeCoast {
+            state,
+            completion_requested,
+        };
+        (intent, super::types::IntentSetup::EncoderSettle)
+    }
+
     /// Create a new settle state with timeout applied.
     pub(super) fn new() -> Self {
         Self {
-            deadline: Instant::now() + Duration::from_millis(types::BRAKE_COAST_SETTLE_TIMEOUT_MS),
+            deadline: Instant::now() + Duration::from_millis(SETTLE_TIMEOUT_MS),
             consecutive: 0,
             last_measurement: None,
             last_timestamp_ms: 0,
@@ -62,7 +78,7 @@ pub(super) async fn run_brake_coast_step(state: &mut BrakeCoastState) -> BrakeCo
 
             if delta_left == 0 && delta_right == 0 {
                 state.consecutive = state.consecutive.saturating_add(1);
-                if state.consecutive >= types::BRAKE_COAST_SETTLE_CONSECUTIVE_SAMPLES {
+                if state.consecutive >= SETTLE_CONSECUTIVE_SAMPLES {
                     state.last_measurement = Some(measurement);
                     return BrakeCoastStepResult::Completed;
                 }

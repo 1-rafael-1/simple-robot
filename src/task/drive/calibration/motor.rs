@@ -15,16 +15,19 @@ use embassy_time::{Duration, Timer};
 use crate::{
     system::helper::string_helper::status_text,
     task::{
-        drive::{
-            sensors::data::{clear_encoder_measurement, wait_for_encoder_event_timeout},
-            types::{
-                CALIBRATION_COAST_DURATION_MS, CALIBRATION_SAMPLE_DURATION_MS, CALIBRATION_SPEED_INDIVIDUAL,
-                CALIBRATION_SPEED_TRACK,
-            },
-        },
+        drive::sensors::data::{clear_encoder_measurement, wait_for_encoder_event_timeout},
         motor_driver::{self, MotorCommand, Track},
     },
 };
+
+/// Coast duration between calibration runs (milliseconds).
+const CALIBRATION_COAST_DURATION_MS: u64 = 500;
+/// Encoder sample duration for calibration (milliseconds).
+const CALIBRATION_SAMPLE_DURATION_MS: u64 = 1000;
+/// Motor speed for individual motor calibration (0-100).
+const CALIBRATION_SPEED_INDIVIDUAL: i8 = 60;
+/// Motor speed for per-track calibration (0-100).
+const CALIBRATION_SPEED_TRACK: i8 = 60;
 
 /// Run the motor calibration procedure
 ///

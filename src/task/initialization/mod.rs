@@ -99,6 +99,7 @@ pub async fn handle_calibration_data_loaded(
                 {
                     let mut state = calibration::CALIBRATION_STATE.lock().await;
                     state.distance_calibration_status = CalibrationStatus::Loaded;
+                    state.distance_factor = dist_cal.factor;
                 }
             } else {
                 info!("No distance calibration found - using default 1.0");

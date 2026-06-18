@@ -6,14 +6,29 @@
 //!
 //! # Architecture
 //!
-//! ```text
-//! sensors::encoders     drive task               motor_driver
-//! ├── Pulse counts  →   ├── Queue/interrupt   →   ├── PWM actuation
-//! └── Feedback          ├── Intent lifecycle      └── Direction control
+//! The drive subsystem is structured around **intents** — state machines that own
+//! a specific motion behaviour (rotation, distance, brake/coast, idle). The
+//! [`dispatch`] module routes incoming commands to the correct control module via
+//! [`types::IntentSetup`] / [`types::IntentTeardown`] descriptors, keeping the
+//! dispatch thin and per-intent knowledge local.
 //!
-//! sensors::imu      →   drive task               motor_driver
-//! ├── Orientation       ├── Rotation control
-//! └── Angles            └── Stabilization
+//! ```text
+//! caller ──► DriveCommand ──► dispatch ──► control module init()
+//!                                │              │
+//!                                │         returns (ActiveIntent, IntentSetup)
+//!                                │              │
+//!                                │    ┌─────────┘
+//!                                │    ▼
+//!                          execute IntentSetup (start sensors)
+//!                                │
+//!                                ▼
+//!                          intent loop ──► control module run_step()
+//!                                │
+//!                                ▼
+//!                          execute IntentTeardown (stop sensors)
+//!                                │
+//!                                ▼
+//!                          send completion
 //! ```
 //!
 //! # Control Flow Overview
@@ -23,9 +38,10 @@
 //! - **Regular command queue**: Sequenced drive intents that may take time.
 //! - **Interrupt signal**: Emergency brake/stop/cancel that preempts any intent.
 //!
-//! When an interrupt arrives, the task cancels the active intent, resolves its
-//! completion (if any), increments an epoch, and discards queued commands that
-//! were stamped before the interrupt.
+//! When an interrupt arrives, the task cancels the active intent via the same
+//! [`IntentTeardown`] path used by normal completion, resolves its completion
+//! as `Cancelled`, increments an epoch, and discards queued commands stamped
+//! before the interrupt.
 //!
 //! # Completion Flow (queue-level)
 //!
@@ -62,17 +78,16 @@
 //! - [`types`]: Command, telemetry, and completion types.
 //!
 //! ## Loop orchestration
-//! - [`state`]: Drive loop data structures (`DriveLoop`, `ActiveIntent`, `DriftCompensationState`).
-//! - [`handlers`]: `impl DriveLoop` command handlers (envelope dispatch, action handling, interrupts).
+//! - [`state`]: Drive loop data structures (`DriveLoop`, `ActiveIntent`).
+//! - [`dispatch`]: `impl DriveLoop` command handlers (envelope dispatch, action handling, interrupts).
 //! - [`intent`]: Active intent polling, result application, and idle stepping.
 //!
 //! ## Control algorithms
 //! - [`rotation`]: Rotation state machine and async control step.
 //! - [`distance`]: Distance state machine and async control step.
-//!
-//! ## Drift compensation
-//! - [`drift`]: Async drift compensation loop step.
-//! - [`drift::math`]: Pure math functions (track averages, speed difference, compensation algorithm).
+//! - [`brake_coast`]: Brake/coast settle detection.
+//! - [`differential`]: Differential drive speed management with inline drift correction.
+//! - [`drift_math`]: Pure drift-compensation math (encoder deltas, speed difference, correction action).
 //!
 //! ## Sensor infrastructure
 //! - [`sensors::data`]: Static sensor feedback channels and measurement forwarding.
@@ -82,17 +97,16 @@
 //! - [`calibration`]: Motor and IMU calibration procedures.
 
 // ── Loop orchestration ────────────────────────────────────────────────────────
-mod handlers;
+mod dispatch;
 mod intent;
 mod state;
 
 // ── Control algorithms ────────────────────────────────────────────────────────
 mod brake_coast;
+mod differential;
 mod distance;
+pub(super) mod drift_math;
 mod rotation;
-
-// ── Drift compensation ────────────────────────────────────────────────────────
-mod drift;
 
 // ── Sensor infrastructure ─────────────────────────────────────────────────────
 mod sensors;
@@ -108,11 +122,11 @@ pub mod types;
 // ── Re-exports ────────────────────────────────────────────────────────────────
 
 pub use api::{send_drive_command, send_drive_interrupt};
-use intent::{
-    ActiveIntentOutcome, apply_brake_coast_result, apply_distance_result, apply_idle_result, apply_rotation_result,
-    poll_active_intent, step_idle_with_drift, step_idle_without_drift,
-};
+use brake_coast::BrakeCoastStepResult;
+use distance::DistanceStepResult;
+use intent::{ActiveIntentOutcome, apply_completion, poll_active_intent, step_idle};
 pub use queue::{DriveQueueBuilder, drive_queue_executor};
+use rotation::RotationStepResult;
 pub use sensors::data::{
     clear_encoder_measurement, clear_imu_measurements, get_latest_encoder_measurement, send_mag_measurement,
     try_send_encoder_measurement, try_send_imu_measurement,
@@ -153,27 +167,56 @@ pub async fn drive() {
                 ActiveIntentOutcome::Interrupt(kind) => {
                     loop_state.handle_interrupt(kind).await;
                 }
-                ActiveIntentOutcome::RotationStep(result) => {
-                    apply_rotation_result(&mut loop_state, result).await;
-                }
-                ActiveIntentOutcome::DistanceStep(result) => {
-                    apply_distance_result(&mut loop_state, result).await;
-                }
+                ActiveIntentOutcome::RotationStep(result) => match result {
+                    RotationStepResult::InProgress => {}
+                    RotationStepResult::Completed { telemetry } => {
+                        apply_completion(&mut loop_state, CompletionStatus::Success, telemetry).await;
+                    }
+                    RotationStepResult::Failed { reason, telemetry } => {
+                        apply_completion(&mut loop_state, CompletionStatus::Failed(reason), telemetry).await;
+                    }
+                },
+                ActiveIntentOutcome::DistanceStep(result) => match result {
+                    DistanceStepResult::InProgress => {}
+                    DistanceStepResult::Completed { telemetry } => {
+                        apply_completion(&mut loop_state, CompletionStatus::Success, telemetry).await;
+                    }
+                    DistanceStepResult::Failed { reason, telemetry } => {
+                        apply_completion(&mut loop_state, CompletionStatus::Failed(reason), telemetry).await;
+                    }
+                },
                 ActiveIntentOutcome::IdleElapsed => {
-                    apply_idle_result(&mut loop_state).await;
+                    apply_completion(
+                        &mut loop_state,
+                        CompletionStatus::Success,
+                        types::CompletionTelemetry::None,
+                    )
+                    .await;
                 }
-                ActiveIntentOutcome::BrakeCoastStep(result) => {
-                    apply_brake_coast_result(&mut loop_state, result).await;
-                }
+                ActiveIntentOutcome::BrakeCoastStep(result) => match result {
+                    BrakeCoastStepResult::InProgress => {}
+                    BrakeCoastStepResult::Completed => {
+                        apply_completion(
+                            &mut loop_state,
+                            CompletionStatus::Success,
+                            types::CompletionTelemetry::None,
+                        )
+                        .await;
+                    }
+                    BrakeCoastStepResult::Failed(reason) => {
+                        apply_completion(
+                            &mut loop_state,
+                            CompletionStatus::Failed(reason),
+                            types::CompletionTelemetry::None,
+                        )
+                        .await;
+                    }
+                },
             }
             continue;
         }
 
-        // Step 2: No active intent — wait for work (with optional drift ticks).
-        if loop_state.drift.enabled {
-            step_idle_with_drift(&mut loop_state).await;
-        } else {
-            step_idle_without_drift(&mut loop_state).await;
-        }
+        // Step 2: No active intent — wait for work.
+        step_idle(&mut loop_state).await;
     }
 }

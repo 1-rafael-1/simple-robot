@@ -2,64 +2,19 @@
 //!
 //! This module defines the core state types owned by the drive task's main loop.
 //! It is deliberately free of behaviour: no command handling, no motor commands,
-//! no sensor calls. That logic lives in [`super::handlers`].
+//! no sensor calls. That logic lives in [`super::dispatch`].
 //!
 //! # Types
 //!
-//! - [`DriftCompensationState`]: tracks the encoder-based drift compensation
-//!   parameters for straight-line `Differential` commands.
 //! - [`ActiveIntent`]: the currently executing drive intent (rotation or
 //!   distance), together with its completion-request flag and any runtime state.
 //! - [`DriveLoop`]: the top-level state struct owned by the drive task. Holds
-//!   standby status, the active intent (if any), and drift compensation state.
+//!   standby status and the active intent (if any).
+
+use embassy_time::Instant;
 
 use super::{brake_coast::BrakeCoastState, rotation::RotationState};
-use crate::task::{drive::distance::DistanceDriveState, sensors::encoders::EncoderMeasurement};
-
-/// Encoder-based drift compensation state for straight-line driving.
-///
-/// Active only while a symmetric `Differential` command is executing.
-/// Disabled during rotation, distance driving, braking, and standby.
-#[derive(Clone, Copy)]
-pub(super) struct DriftCompensationState {
-    /// Whether drift compensation is currently active.
-    pub(super) enabled: bool,
-    /// Base left-track speed as commanded (before compensation).
-    pub(super) base_left: i8,
-    /// Base right-track speed as commanded (before compensation).
-    pub(super) base_right: i8,
-    /// Currently applied left-track speed (after compensation adjustments).
-    pub(super) adjusted_left: i8,
-    /// Currently applied right-track speed (after compensation adjustments).
-    pub(super) adjusted_right: i8,
-    /// Timestamp of the last applied compensation update (milliseconds).
-    pub(super) last_applied_ms: u64,
-    /// Timestamp of the last processed encoder measurement (milliseconds).
-    pub(super) last_encoder_timestamp_ms: u64,
-    /// Previous encoder measurement for computing per-sample deltas.
-    ///
-    /// Encoder hardware counters are cumulative since the last reset, so the
-    /// previous reading must be subtracted (with wraparound) to get the pulse
-    /// count for the current sampling window.
-    pub(super) last_encoder_measurement: Option<EncoderMeasurement>,
-}
-
-impl DriftCompensationState {
-    /// Create a new `DriftCompensationState` with drift disabled and all
-    /// speeds and timestamps zeroed.
-    pub(super) const fn new() -> Self {
-        Self {
-            enabled: false,
-            base_left: 0,
-            base_right: 0,
-            adjusted_left: 0,
-            adjusted_right: 0,
-            last_applied_ms: 0,
-            last_encoder_timestamp_ms: 0,
-            last_encoder_measurement: None,
-        }
-    }
-}
+use crate::task::drive::distance::DistanceDriveState;
 
 /// The drive intent currently being executed by the drive task.
 pub(super) enum ActiveIntent {
@@ -103,18 +58,72 @@ pub(super) struct DriveLoop {
     pub(super) standby_enabled: bool,
     /// The intent currently being executed, if any.
     pub(super) active_intent: Option<ActiveIntent>,
-    /// Encoder-based drift compensation state for straight-line driving.
-    pub(super) drift: DriftCompensationState,
 }
 
 impl DriveLoop {
-    /// Create a new `DriveLoop` with standby enabled, no active intent, and
-    /// drift compensation disabled.
+    /// Create a new `DriveLoop` with standby enabled and no active intent.
     pub(super) const fn new() -> Self {
         Self {
             standby_enabled: true,
             active_intent: None,
-            drift: DriftCompensationState::new(),
+        }
+    }
+}
+
+impl ActiveIntent {
+    /// Return the `IntentTeardown` descriptor for this active intent.
+    pub(super) const fn teardown(&self) -> super::types::IntentTeardown {
+        match self {
+            Self::RotateExact { .. } => super::types::IntentTeardown::RotationImu,
+            Self::DriveDistance { .. } => super::types::IntentTeardown::DistanceImuAndMotors,
+            Self::Idle { .. } => super::types::IntentTeardown::None,
+            Self::BrakeCoast { .. } => super::types::IntentTeardown::EncoderSettle,
+        }
+    }
+
+    /// Returns true if this intent requested a completion event.
+    pub(super) const fn completion_requested(&self) -> bool {
+        match self {
+            Self::RotateExact {
+                completion_requested, ..
+            }
+            | Self::DriveDistance {
+                completion_requested, ..
+            }
+            | Self::Idle {
+                completion_requested, ..
+            }
+            | Self::BrakeCoast {
+                completion_requested, ..
+            } => *completion_requested,
+        }
+    }
+
+    /// Returns cancellation telemetry appropriate for this intent type.
+    pub(super) fn cancellation_telemetry(&self) -> super::types::CompletionTelemetry {
+        match self {
+            Self::RotateExact {
+                state, started_at_ms, ..
+            } => {
+                let last_yaw_deg = state.last_yaw.unwrap_or(0.0);
+                let duration_ms = Instant::now().as_millis() - started_at_ms;
+                super::types::CompletionTelemetry::RotateExact {
+                    final_yaw_deg: last_yaw_deg,
+                    angle_error_deg: -state.remaining(),
+                    duration_ms,
+                }
+            }
+            Self::DriveDistance { state, .. } => {
+                let duration_ms = Instant::now().as_millis() - state.started_at_ms;
+                super::types::CompletionTelemetry::DriveDistance {
+                    achieved_left_revs: state.accumulated_left_revs,
+                    achieved_right_revs: state.accumulated_right_revs,
+                    target_left_revs: state.target_left_revs,
+                    target_right_revs: state.target_right_revs,
+                    duration_ms,
+                }
+            }
+            Self::Idle { .. } | Self::BrakeCoast { .. } => super::types::CompletionTelemetry::None,
         }
     }
 }

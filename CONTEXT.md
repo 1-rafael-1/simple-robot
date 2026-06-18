@@ -61,7 +61,7 @@ A `DriveAction` that commands the robot to travel a specified distance (straight
 A `DriveAction` that commands an in-place rotation to a target angle using IMU feedback. Completes when the angle is reached within tolerance.
 
 **Drift Compensation**
-An active correction loop that monitors encoder pulse rates on both tracks and adjusts motor speeds to equalize them. Prevents the robot from veering due to track friction differences or motor variance.
+Inline correction applied at command time for symmetric `Differential` commands (equal left/right speed). Reads encoder pulse rates, computes per-track averages, and adjusts the slower track up (or faster track down) to equalize them. Pure math in `drift_math`; called from `differential`. Prevents the robot from veering due to track friction differences or motor variance.
 
 **Ramp-Down**
 Progressive speed reduction as a distance or rotation command approaches its target. Prevents overshoot.
@@ -96,7 +96,7 @@ A multi-producer, single-consumer channel (`Events` enum, capacity 64). Sensor t
 **State Modules**
 Four domain-specific state modules under `system/state/`, each with its own `Mutex`:
 1. **Power** — battery level and voltage.
-2. **Calibration** — calibration data load status and flags.
+2. **Calibration** — calibration data load status, flags, and the distance calibration factor.
 3. **Perception** — obstacle detection state (IR, ultrasonic, combined) and ultrasonic readings. Deepened: all access goes through accessor functions; internal atomics provide lock-free reads.
 4. **Motion** — track speed state, also exposed via lock-free atomics for the IMU hot path.
 
@@ -104,10 +104,19 @@ Four domain-specific state modules under `system/state/`, each with its own `Mut
 When multiple state mutexes must be held: Power → Calibration → Perception → Motion. Prevents deadlocks.
 
 **Drive Subsystem**
-The `drive` module tree. Owns the drive task, command queue, interrupt signal, control algorithms (rotation, distance, brake/coast, drift compensation), sensor feedback channels, and calibration procedures. Exposes two public entry points: `send_drive_command` and `send_drive_interrupt`.
+The `drive` module tree. Owns the drive task, command queue, interrupt signal, control algorithms (rotation, distance, brake/coast, differential with inline drift), sensor feedback channels, and calibration procedures. Commands flow through a thin `dispatch` that routes to control modules via `IntentSetup` / `IntentTeardown` descriptors — sensor lifecycle is declared by each module, not hardcoded in the dispatch. Exposes two public entry points: `send_drive_command` and `send_drive_interrupt`.
 
 **Drive Queue**
 A builder (`DriveQueueBuilder`) that accumulates `DriveCommand` steps and submits them for sequential execution. A single `drive_queue_executor` task runs one queue at a time and emits a single queue-level completion.
+
+**Intent**
+A state machine that owns a specific motion behaviour — rotation, distance drive, brake/coast settle, or idle. Each intent is an `ActiveIntent` variant carrying its controller state, completion flag, and lifecycle descriptors. Commands that complete instantly (e.g. `Differential`) are not intents; they are fire-and-forget.
+
+**IntentSetup / IntentTeardown**
+Enums declaring what sensor streams an intent needs during setup and teardown. Control modules return these descriptors from `init()` and `teardown()`; the `dispatch` executes them. This keeps the dispatch thin — it knows to start or stop sensors but not which specific sensors each intent requires.
+
+**Dispatch**
+The `dispatch` module — the thin seam between the drive command queue and the control modules. Routes incoming `DriveCommand` envelopes, handles standby wake-up, and executes `IntentSetup` / `IntentTeardown` descriptors. Owns no per-intent knowledge.
 
 **Behavior Handlers**
 Functions under `task/behavior/` that react to specific events. Domain logic lives here — obstacle fusion, sensor forwarding, battery updates. Called by the orchestrator.
