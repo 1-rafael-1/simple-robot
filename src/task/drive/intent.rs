@@ -24,10 +24,10 @@ use embassy_time::{Duration, Instant, Timer};
 
 use crate::task::drive::{
     api::{DRIVE_INTERRUPT, DRIVE_QUEUE, send_completion},
-    brake_coast::{BrakeCoastStepResult, run_brake_coast_step},
+    brake_coast::{self, BrakeCoastStepResult, run_brake_coast_step},
     dispatch::execute_intent_teardown,
-    distance::{DistanceStepResult, run_distance_control_step},
-    rotation::{RotationStepResult, run_rotation_control_step},
+    distance::{self, DistanceStepResult, run_distance_control_step},
+    rotation::{self, RotationStepResult, run_rotation_control_step},
     state::DriveLoop,
     types::{self, CompletionStatus, DriveCompletion, IntentTeardown},
 };
@@ -133,16 +133,15 @@ pub(super) async fn step_idle(loop_state: &mut DriveLoop) {
 
 /// Rotation control tick interval.
 async fn rotation_tick_ms() {
-    // 50Hz rotation control loop tick to align with 50Hz IMU sampling.
-    Timer::after(Duration::from_millis(20)).await;
+    Timer::after(Duration::from_millis(rotation::ROTATION_CONTROL_INTERVAL_MS)).await;
 }
 
 /// Brake/coast settle tick interval.
 async fn brake_coast_tick_ms() {
-    Timer::after(Duration::from_millis(100)).await;
+    Timer::after(Duration::from_millis(brake_coast::SETTLE_INTERVAL_MS)).await;
 }
 
 /// Distance control tick interval.
 async fn distance_tick_ms() {
-    Timer::after(Duration::from_millis(20)).await;
+    Timer::after(Duration::from_millis(distance::CONTROL_INTERVAL_MS)).await;
 }

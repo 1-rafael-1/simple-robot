@@ -63,6 +63,8 @@ const IMU_WAIT_TIMEOUT_MS: u64 = 20;
 const CORRECTION_MAX_ITERATIONS: u8 = 15;
 /// Settle wait after each correction pulse (ms).
 const CORRECTION_SETTLE_MS: u64 = 400;
+/// Rotation control loop tick interval (ms). Must align with the IMU sampling rate.
+pub(super) const ROTATION_CONTROL_INTERVAL_MS: u64 = 20;
 /// Starting speed for the first correction pulse.
 const CORRECTION_SPEED_START: u8 = 35;
 /// Speed reduction per correction iteration.

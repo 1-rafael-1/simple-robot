@@ -132,8 +132,11 @@ pub async fn set_ultrasonic_reading(reading: Option<UltrasonicReading>, angle_de
     let _ = old_combined;
 }
 
-/// Clear ultrasonic reading and angle (e.g. when exiting a test mode).
+/// Clear ultrasonic reading, angle, and obstacle flag (e.g. when exiting a test mode).
 pub async fn clear_ultrasonic_data() {
+    ULTRASONIC_DETECTED.store(false, Ordering::Relaxed);
+    recompute_combined();
+
     let mut state = STATE.lock().await;
     state.ultrasonic_reading = None;
     state.ultrasonic_angle_deg = None;

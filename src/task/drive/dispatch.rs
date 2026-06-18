@@ -146,7 +146,7 @@ impl DriveLoop {
 
     /// Handle a `Differential` command — fire-and-forget with drift correction.
     async fn handle_differential(&self, left: i8, right: i8) {
-        let (left_adjusted, right_adjusted) = differential::set_speeds(left, right).await;
+        let (left_adjusted, right_adjusted) = differential::set_speeds(left, right);
 
         motor_driver::send_motor_command(MotorCommand::SetTracks {
             left_speed: left_adjusted,
@@ -371,8 +371,14 @@ pub(super) async fn execute_intent_teardown(teardown: IntentTeardown) {
             lifecycle::stop_rotation_imu().await;
         }
         IntentTeardown::DistanceImuAndMotors => {
-            // NOTE: distance_stop_motors and stop_distance_imu are called by the controller;
-            // here we just stop the sensor streams.
+            // Stop motors first (safety: covers failure paths where the controller
+            // returned early without stopping motors, e.g. encoder timeout/stall).
+            motor_driver::send_motor_command(MotorCommand::SetTracks {
+                left_speed: 0,
+                right_speed: 0,
+            })
+            .await;
+            motion::set_track_speeds(0, 0).await;
             lifecycle::stop_encoder_sampling().await;
             lifecycle::stop_distance_imu(&types::DriveDistanceKind::Straight { distance_cm: 0.0 }).await;
         }

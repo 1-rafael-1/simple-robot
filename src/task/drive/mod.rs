@@ -86,8 +86,7 @@
 //! - [`rotation`]: Rotation state machine and async control step.
 //! - [`distance`]: Distance state machine and async control step.
 //! - [`brake_coast`]: Brake/coast settle detection.
-//! - [`differential`]: Differential drive speed management with inline drift correction.
-//! - [`drift_math`]: Pure drift-compensation math (encoder deltas, speed difference, correction action).
+//! - [`differential`]: Differential drive speed passthrough.
 //!
 //! ## Sensor infrastructure
 //! - [`sensors::data`]: Static sensor feedback channels and measurement forwarding.
@@ -105,7 +104,6 @@ mod state;
 mod brake_coast;
 mod differential;
 mod distance;
-pub(super) mod drift_math;
 mod rotation;
 
 // ── Sensor infrastructure ─────────────────────────────────────────────────────
