@@ -29,11 +29,52 @@ use libm::roundf;
 use crate::{
     system::state::motion,
     task::{
-        drive::{sensors::data::IMU_FEEDBACK_CHANNEL, types},
+        drive::{
+            clear_imu_measurements,
+            sensors::{control as lifecycle, data::IMU_FEEDBACK_CHANNEL},
+            types,
+        },
         motor_driver::{self, MotorCommand},
         sensors::imu::ImuMeasurement,
     },
 };
+
+// ── Rotation control constants ─────────────────────────────────────────────
+
+/// Maximum rotation speed (0-100%).
+const SPEED_MAX: u8 = 100;
+/// Minimum rotation speed to overcome friction.
+const SPEED_MIN: u8 = 45;
+/// Acceptable angle error in degrees.
+const TOLERANCE_DEG: f32 = 0.5;
+/// Overshoot deadband before applying corrective reverse (degrees).
+const CORRECTION_DEADBAND_DEG: f32 = 0.5;
+/// Maximum time allowed for overshoot correction before bailing (milliseconds).
+const CORRECTION_TIMEOUT_MS: u64 = 4_000;
+/// Rotation ramp-down begins when remaining degrees drop below this value.
+const RAMP_DOWN_START_DEG: f32 = 60.0;
+/// Maximum number of corrective direction flips allowed during rotation.
+const CORRECTION_MAX_FLIPS: u8 = 12;
+/// Safety timeout for `RotateExact` (milliseconds).
+const TIMEOUT_MS: u64 = 8_000;
+/// Maximum time to wait for a fresh IMU sample per tick (milliseconds).
+const IMU_WAIT_TIMEOUT_MS: u64 = 20;
+/// Maximum correction iterations after the initial turn stops.
+const CORRECTION_MAX_ITERATIONS: u8 = 15;
+/// Settle wait after each correction pulse (ms).
+const CORRECTION_SETTLE_MS: u64 = 400;
+/// Rotation control loop tick interval (ms). Must align with the IMU sampling rate.
+pub(super) const ROTATION_CONTROL_INTERVAL_MS: u64 = 20;
+/// Starting speed for the first correction pulse.
+const CORRECTION_SPEED_START: u8 = 35;
+/// Speed reduction per correction iteration.
+const CORRECTION_SPEED_STEP: u8 = 2;
+/// Minimum speed floor for correction pulses.
+const CORRECTION_SPEED_MIN: u8 = 25;
+/// Maximum time for a single correction iteration before giving up and moving on (ms).
+const CORRECTION_ITER_TIMEOUT_MS: u64 = 400;
+/// Maximum speed differential during combined motion.
+const SPEED_DIFF_MAX: i8 = 30;
 
 // ── Pure state / math ────────────────────────────────────────────────────────
 
@@ -80,6 +121,38 @@ pub struct RotationState {
 }
 
 impl RotationState {
+    /// Initialise a rotation intent — clear IMU samples, zero motors, create state.
+    ///
+    /// Returns the `ActiveIntent` and `IntentSetup` descriptor. Motor speeds stay at
+    /// zero until the first IMU sample arrives in the control step.
+    pub(super) async fn init(
+        degrees: f32,
+        direction: types::RotationDirection,
+        motion: types::RotationMotion,
+        completion_requested: bool,
+    ) -> (super::state::ActiveIntent, types::IntentSetup) {
+        lifecycle::start_rotation_imu().await;
+        clear_imu_measurements();
+
+        motor_driver::send_motor_command(MotorCommand::SetTracks {
+            left_speed: 0,
+            right_speed: 0,
+        })
+        .await;
+        motion::set_track_speeds(0, 0).await;
+
+        let state = Self::new(degrees, direction, motion);
+        let started_at_ms = embassy_time::Instant::now().as_millis();
+
+        let intent = super::state::ActiveIntent::RotateExact {
+            state,
+            completion_requested,
+            started_at_ms,
+        };
+
+        (intent, types::IntentSetup::RotationImu)
+    }
+
     /// Creates new rotation tracking state.
     pub const fn new(target_angle: f32, direction: types::RotationDirection, motion: types::RotationMotion) -> Self {
         let base_speed = match motion {
@@ -122,7 +195,7 @@ impl RotationState {
 
         let remaining = self.remaining();
         let error_sign: i8 = if remaining >= 0.0 { 1 } else { -1 };
-        if remaining.abs() > types::ROTATION_CORRECTION_DEADBAND_DEG {
+        if remaining.abs() > CORRECTION_DEADBAND_DEG {
             if self.last_error_sign != 0 && error_sign != self.last_error_sign {
                 self.correction_flips = self.correction_flips.saturating_add(1);
                 if self.correction_started_at_ms.is_none() {
@@ -132,7 +205,7 @@ impl RotationState {
             self.last_error_sign = error_sign;
         }
 
-        remaining.abs() <= types::ROTATION_TOLERANCE_DEG
+        remaining.abs() <= TOLERANCE_DEG
     }
 
     /// Remaining signed angle to target (degrees).
@@ -163,7 +236,7 @@ impl RotationState {
         let remaining_degrees = error_deg.abs();
 
         // If we overshot beyond the deadband, reverse effective direction to hunt back toward the setpoint.
-        let effective_direction = if error_deg < -types::ROTATION_CORRECTION_DEADBAND_DEG {
+        let effective_direction = if error_deg < -CORRECTION_DEADBAND_DEG {
             match self.direction {
                 types::RotationDirection::Clockwise => types::RotationDirection::CounterClockwise,
                 types::RotationDirection::CounterClockwise => types::RotationDirection::Clockwise,
@@ -177,23 +250,23 @@ impl RotationState {
                 // Keep a floor of ROTATION_SPEED_MIN to overcome static friction, but
                 // still taper near the target to limit overshoot.
                 let requested = speed.clamp(0, 100);
-                if remaining_degrees < types::ROTATION_RAMP_DOWN_START_DEG {
-                    let min = types::ROTATION_SPEED_MIN;
+                if remaining_degrees < RAMP_DOWN_START_DEG {
+                    let min = SPEED_MIN;
                     let max = requested.max(min);
                     let speed_range = max - min;
-                    let speed_factor = remaining_degrees / types::ROTATION_RAMP_DOWN_START_DEG;
+                    let speed_factor = remaining_degrees / RAMP_DOWN_START_DEG;
                     Self::clamp_speed_u8(f32::from(min) + (f32::from(speed_range) * speed_factor))
                 } else {
                     requested
                 }
             }
             types::RotationMotion::WhileMoving(_) => {
-                if remaining_degrees < types::ROTATION_RAMP_DOWN_START_DEG {
-                    let speed_range = types::ROTATION_SPEED_MAX - types::ROTATION_SPEED_MIN;
-                    let speed_factor = remaining_degrees / types::ROTATION_RAMP_DOWN_START_DEG;
-                    Self::clamp_speed_u8(f32::from(types::ROTATION_SPEED_MIN) + (f32::from(speed_range) * speed_factor))
+                if remaining_degrees < RAMP_DOWN_START_DEG {
+                    let speed_range = SPEED_MAX - SPEED_MIN;
+                    let speed_factor = remaining_degrees / RAMP_DOWN_START_DEG;
+                    Self::clamp_speed_u8(f32::from(SPEED_MIN) + (f32::from(speed_range) * speed_factor))
                 } else {
-                    types::ROTATION_SPEED_MAX
+                    SPEED_MAX
                 }
             }
         };
@@ -205,7 +278,7 @@ impl RotationState {
                 types::RotationDirection::CounterClockwise => (-rotation_speed_signed, rotation_speed_signed),
             },
             types::RotationMotion::WhileMoving(_) => {
-                let rotation_diff = rotation_speed_signed.min(types::SPEED_DIFF_MAX);
+                let rotation_diff = rotation_speed_signed.min(SPEED_DIFF_MAX);
                 match effective_direction {
                     types::RotationDirection::Clockwise => {
                         (self.base_speed, (self.base_speed - rotation_diff).clamp(-100, 100))
@@ -326,7 +399,7 @@ async fn read_rotation_measurement(started_at_ms: u64) -> Option<ImuMeasurement>
         return Some(measurement);
     }
 
-    Timer::after(Duration::from_millis(types::ROTATION_IMU_WAIT_TIMEOUT_MS)).await;
+    Timer::after(Duration::from_millis(IMU_WAIT_TIMEOUT_MS)).await;
     drain_latest_imu_since(started_at_ms)
 }
 
@@ -340,13 +413,11 @@ async fn read_rotation_measurement(started_at_ms: u64) -> Option<ImuMeasurement>
 /// [`types::ROTATION_CORRECTION_SPEED_STEP`] for each prior iteration.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn compute_correction_speeds(error_deg: f32, iteration: u8, direction: types::RotationDirection) -> (i8, i8) {
-    let proportional = (roundf(error_deg.abs() * 6.0) as u8).clamp(
-        types::ROTATION_CORRECTION_SPEED_MIN,
-        types::ROTATION_CORRECTION_SPEED_START,
-    );
+    let proportional = (roundf(error_deg.abs() * 6.0) as u8).clamp(CORRECTION_SPEED_MIN, CORRECTION_SPEED_START);
+
     let correction_speed = proportional
-        .saturating_sub(iteration.saturating_mul(types::ROTATION_CORRECTION_SPEED_STEP))
-        .max(types::ROTATION_CORRECTION_SPEED_MIN);
+        .saturating_sub(iteration.saturating_mul(CORRECTION_SPEED_STEP))
+        .max(CORRECTION_SPEED_MIN);
 
     let effective_direction = if error_deg > 0.0 {
         direction
@@ -374,7 +445,7 @@ fn try_correction_convergence(
     started_at_ms: u64,
 ) -> Option<RotationStepResult> {
     let error_deg = state.remaining();
-    if error_deg.abs() <= types::ROTATION_TOLERANCE_DEG {
+    if error_deg.abs() <= TOLERANCE_DEG {
         let yaw = state.last_yaw.unwrap_or(measurement.orientation.yaw);
         defmt::info!(
             "correction converged iter={=u8} yaw={=f32}° err={=f32}°",
@@ -414,7 +485,7 @@ async fn poll_correction_imu(
     let start_ms = Instant::now().as_millis();
 
     loop {
-        if Instant::now().as_millis() - start_ms > types::ROTATION_CORRECTION_ITER_TIMEOUT_MS {
+        if Instant::now().as_millis() - start_ms > CORRECTION_ITER_TIMEOUT_MS {
             stop_rotation_motors().await;
             defmt::info!(
                 "correction iter={=u8} timeout yaw={=f32}° err={=f32}°",
@@ -430,7 +501,7 @@ async fn poll_correction_imu(
             *latest_measurement = m;
             let new_error = rotation_state.remaining();
 
-            if new_error.abs() <= types::ROTATION_TOLERANCE_DEG {
+            if new_error.abs() <= TOLERANCE_DEG {
                 stop_rotation_motors().await;
                 return PollOutcome::Converged(rotation_success(latest_measurement, rotation_state, started_at_ms));
             }
@@ -477,7 +548,7 @@ async fn run_correction_phase(
     rotation_state.update(&initial_measurement);
 
     // Wait for initial settle and capture a fresh IMU sample.
-    let mut latest_measurement = wait_for_latest_imu_since(started_at_ms, types::ROTATION_CORRECTION_SETTLE_MS)
+    let mut latest_measurement = wait_for_latest_imu_since(started_at_ms, CORRECTION_SETTLE_MS)
         .await
         .map_or(initial_measurement, |settled| {
             rotation_state.update(&settled);
@@ -488,7 +559,7 @@ async fn run_correction_phase(
     let mut last_error_sign: i8 = 0;
     let mut iteration: u8 = 0;
 
-    while iteration < types::ROTATION_CORRECTION_MAX_ITERATIONS {
+    while iteration < CORRECTION_MAX_ITERATIONS {
         // Check convergence at loop entry (from coast between iterations).
         if let Some(result) = try_correction_convergence(rotation_state, &latest_measurement, iteration, started_at_ms)
         {
@@ -540,7 +611,7 @@ async fn run_correction_phase(
         }
 
         // After stopping: settle and re-check for coast landing in tolerance.
-        if let Some(settled) = wait_for_latest_imu_since(started_at_ms, types::ROTATION_CORRECTION_SETTLE_MS).await {
+        if let Some(settled) = wait_for_latest_imu_since(started_at_ms, CORRECTION_SETTLE_MS).await {
             rotation_state.update(&settled);
             latest_measurement = settled;
         }
@@ -580,7 +651,7 @@ pub(super) async fn run_rotation_control_step(
     started_at_ms: u64,
 ) -> RotationStepResult {
     let now_ms = Instant::now().as_millis();
-    if now_ms - started_at_ms > types::ROTATION_TIMEOUT_MS {
+    if now_ms - started_at_ms > TIMEOUT_MS {
         stop_rotation_motors().await;
         return rotation_failure(rotation_state, started_at_ms, now_ms, "RotateTimeout");
     }
@@ -624,13 +695,13 @@ pub(super) async fn run_rotation_control_step(
         return rotation_success(&measurement, rotation_state, started_at_ms);
     }
 
-    if rotation_state.correction_flips >= types::ROTATION_CORRECTION_MAX_FLIPS {
+    if rotation_state.correction_flips >= CORRECTION_MAX_FLIPS {
         stop_rotation_motors().await;
         return rotation_failure(rotation_state, started_at_ms, now_ms, "RotateCorrectionLimit");
     }
 
     if let Some(start_ms) = rotation_state.correction_started_at_ms
-        && now_ms - start_ms > types::ROTATION_CORRECTION_TIMEOUT_MS
+        && now_ms - start_ms > CORRECTION_TIMEOUT_MS
     {
         stop_rotation_motors().await;
         return rotation_failure(rotation_state, started_at_ms, now_ms, "RotateCorrectionTimeout");

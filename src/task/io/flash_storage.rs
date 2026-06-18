@@ -74,6 +74,11 @@ pub async fn set_distance_factor(factor: f32) {
             cal.distance = dist_cal;
         }
     }
+    // Sync to the system calibration state so the drive task picks it up.
+    {
+        let mut state = crate::system::state::calibration::CALIBRATION_STATE.lock().await;
+        state.distance_factor = factor;
+    }
     send_flash_command(FlashCommand::SaveData(CalibrationDataKind::Distance(dist_cal))).await;
 }
 

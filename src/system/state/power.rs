@@ -5,7 +5,7 @@
 //! Lock order (when multiple state mutexes are needed):
 //! 1) `POWER_STATE`
 //! 2) `CALIBRATION_STATE`
-//! 3) `PERCEPTION_STATE`
+//! 3) perception mutex (use accessor functions, see `perception` module)
 //! 4) `MOTION_STATE`
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};

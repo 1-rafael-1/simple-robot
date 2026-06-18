@@ -15,16 +15,19 @@ use embassy_time::{Duration, Timer};
 use crate::{
     system::helper::string_helper::status_text,
     task::{
-        drive::{
-            sensors::data::{clear_encoder_measurement, wait_for_encoder_event_timeout},
-            types::{
-                CALIBRATION_COAST_DURATION_MS, CALIBRATION_SAMPLE_DURATION_MS, CALIBRATION_SPEED_INDIVIDUAL,
-                CALIBRATION_SPEED_TRACK,
-            },
-        },
+        drive::sensors::data::{clear_encoder_measurement, wait_for_encoder_event_timeout},
         motor_driver::{self, MotorCommand, Track},
     },
 };
+
+/// Coast duration between calibration runs (milliseconds).
+const CALIBRATION_COAST_DURATION_MS: u64 = 500;
+/// Encoder sample duration for calibration (milliseconds).
+const CALIBRATION_SAMPLE_DURATION_MS: u64 = 1000;
+/// Motor speed for individual motor calibration (0-100).
+const CALIBRATION_SPEED_INDIVIDUAL: i8 = 60;
+/// Motor speed for per-track calibration (0-100).
+const CALIBRATION_SPEED_TRACK: i8 = 60;
 
 /// Run the motor calibration procedure
 ///
@@ -86,7 +89,10 @@ pub async fn run_motor_calibration() {
 
     // Test left front motor alone
     info!("  Testing left front motor");
-    info!("    -> Commanding LEFT FRONT motor to 100%");
+    info!(
+        "    -> Commanding LEFT FRONT motor to {}%",
+        CALIBRATION_SPEED_INDIVIDUAL
+    );
     info!("    -> All other motors OFF");
     event::raise_event(event::Events::CalibrationStatus {
         header: None,
@@ -137,7 +143,7 @@ pub async fn run_motor_calibration() {
 
     // Test left rear motor alone
     info!("  Testing left rear motor");
-    info!("    -> Commanding LEFT REAR motor to 100%");
+    info!("    -> Commanding LEFT REAR motor to {}%", CALIBRATION_SPEED_INDIVIDUAL);
     info!("    -> All other motors OFF");
     event::raise_event(event::Events::CalibrationStatus {
         header: None,
@@ -324,7 +330,10 @@ pub async fn run_motor_calibration() {
 
     // Test right front motor alone
     info!("  Testing right front motor");
-    info!("    -> Commanding RIGHT FRONT motor to 100%");
+    info!(
+        "    -> Commanding RIGHT FRONT motor to {}%",
+        CALIBRATION_SPEED_INDIVIDUAL
+    );
     info!("    -> All other motors OFF");
     event::raise_event(event::Events::CalibrationStatus {
         header: None,
@@ -375,7 +384,10 @@ pub async fn run_motor_calibration() {
 
     // Test right rear motor alone
     info!("  Testing right rear motor");
-    info!("    -> Commanding RIGHT REAR motor to 100%");
+    info!(
+        "    -> Commanding RIGHT REAR motor to {}%",
+        CALIBRATION_SPEED_INDIVIDUAL
+    );
     info!("    -> All other motors OFF");
     event::raise_event(event::Events::CalibrationStatus {
         header: None,

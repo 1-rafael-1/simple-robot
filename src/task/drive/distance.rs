@@ -56,18 +56,108 @@
 use embassy_time::Instant;
 use micromath::F32Ext;
 
-use crate::task::{
-    drive::{
-        drift::math as compensation,
-        sensors::data::{self as feedback, IMU_FEEDBACK_CHANNEL},
-        types,
+use crate::{
+    system::state,
+    task::{
+        drive::{
+            sensors::data::{self as feedback, IMU_FEEDBACK_CHANNEL},
+            types,
+        },
+        motor_driver::{self, MotorCommand},
+        sensors::encoders::EncoderMeasurement,
     },
-    motor_driver::{self, MotorCommand},
-    sensors::encoders::{self as encoder_read, EncoderMeasurement},
 };
 
+// ── Distance control constants ─────────────────────────────────────────────
+
+/// Distance drive ramp-down begins when remaining revolutions drop below this value.
+const RAMP_DOWN_START_REVS: f32 = 0.25;
+/// Minimum speed during ramp-down (0-100).
+const MIN_SPEED: u8 = 40;
+/// Maximum speed clamp for distance driving (0-100).
+pub(super) const MAX_SPEED: u8 = 100;
+/// Completion tolerance for distance driving (revolutions).
+pub(super) const TOLERANCE_REVS: f32 = 0.01;
+/// Distance drive control interval in milliseconds.
+pub(super) const CONTROL_INTERVAL_MS: u64 = 20;
+/// Encoder timeout during distance driving (milliseconds).
+const ENCODER_TIMEOUT_MS: u64 = 300;
+/// Curve yaw correction proportional gain (radians -> ratio).
+const CURVE_YAW_KP: f32 = 0.5;
+/// Maximum absolute curve yaw correction applied to speed ratio.
+const CURVE_YAW_MAX_CORRECTION: f32 = 0.25;
+/// Proportional gain for IMU heading correction on straight drives.
+const STRAIGHT_IMU_KP: f32 = 2.0;
+/// Maximum absolute heading correction (speed units) before scaling.
+const STRAIGHT_IMU_MAX_CORRECTION: f32 = 8.0;
+/// Correction clamp scales with current ramp speed: `min(MAX, speed * SCALE)`.
+const STRAIGHT_IMU_CORRECTION_SCALE: f32 = 0.15;
+
 /// Stall timeout during distance driving (milliseconds).
-const DISTANCE_STALL_TIMEOUT_MS: u64 = 1500;
+const STALL_TIMEOUT_MS: u64 = 1500;
+
+// ── Encoder delta helpers (previously in drift/math) ───────────────────────
+
+/// 16-bit counter delta with wraparound handling.
+const fn calculate_delta_u16(current: u16, previous: u16) -> u16 {
+    if current >= previous {
+        current - previous
+    } else {
+        (u16::MAX - previous).wrapping_add(current).wrapping_add(1)
+    }
+}
+
+/// Snapshot of encoder pulse counts for the current sampling window,
+/// together with computed per-track averages.
+#[derive(Debug, Clone, Copy)]
+struct TrackSpeedData {
+    /// Left front encoder pulse count.
+    left_front: u16,
+    /// Left rear encoder pulse count.
+    left_rear: u16,
+    /// Right front encoder pulse count.
+    right_front: u16,
+    /// Right rear encoder pulse count.
+    right_rear: u16,
+    /// Computed average for the left track.
+    left_track_avg: f32,
+    /// Computed average for the right track.
+    right_track_avg: f32,
+    /// Originating measurement timestamp (ms).
+    #[allow(dead_code)]
+    timestamp_ms: u64,
+}
+
+impl TrackSpeedData {
+    /// Returns true if all four motors reported zero pulses.
+    const fn all_zero(&self) -> bool {
+        self.left_front == 0 && self.left_rear == 0 && self.right_front == 0 && self.right_rear == 0
+    }
+
+    /// Returns true if some motors are nonzero while others are zero (anomaly).
+    fn has_single_motor_zero_anomaly(&self) -> bool {
+        let vals = [self.left_front, self.left_rear, self.right_front, self.right_rear];
+        let any_nonzero = vals.iter().any(|&v| v != 0);
+        let any_zero = vals.contains(&0);
+        any_nonzero && any_zero
+    }
+}
+
+/// Convert an [`EncoderMeasurement`] into [`TrackSpeedData`].
+fn calculate_track_averages(measurement: EncoderMeasurement) -> TrackSpeedData {
+    let left_track_avg = f32::midpoint(f32::from(measurement.left_front), f32::from(measurement.left_rear));
+    let right_track_avg = f32::midpoint(f32::from(measurement.right_front), f32::from(measurement.right_rear));
+
+    TrackSpeedData {
+        left_front: measurement.left_front,
+        left_rear: measurement.left_rear,
+        right_front: measurement.right_front,
+        right_rear: measurement.right_rear,
+        left_track_avg,
+        right_track_avg,
+        timestamp_ms: measurement.timestamp_ms,
+    }
+}
 
 /// Result of a distance control step.
 pub(super) enum DistanceStepResult {
@@ -107,10 +197,6 @@ pub(super) struct DistanceDriveState {
     pub(super) left_ratio: f32,
     /// Right speed scale relative to the max target (1.0 for the dominant track).
     pub(super) right_ratio: f32,
-    /// Last commanded left speed (after scaling/ramp).
-    pub(super) last_left_speed: i8,
-    /// Last commanded right speed (after scaling/ramp).
-    pub(super) last_right_speed: i8,
     /// Accumulated left revolutions.
     pub(super) accumulated_left_revs: f32,
     /// Accumulated right revolutions.
@@ -194,8 +280,6 @@ impl DistanceDriveState {
             target_inner_revs,
             left_ratio,
             right_ratio,
-            last_left_speed: 0,
-            last_right_speed: 0,
             accumulated_left_revs: 0.0,
             accumulated_right_revs: 0.0,
             curve_last_yaw_deg: None,
@@ -211,180 +295,199 @@ impl DistanceDriveState {
     }
 }
 
+// ── Main control step ──────────────────────────────────────────────────────────
+
 /// Run a single step of the distance control loop.
-#[allow(
-    clippy::too_many_lines,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::cast_possible_wrap
-)]
+///
+/// 1. Read encoder data (timeout / anomaly checks)
+/// 2. Check if target reached → complete
+/// 3. Drain IMU channel, update heading or curve yaw state
+/// 4. Compute ramp-down speed
+/// 5. Apply IMU corrections (curve ratio + straight heading)
+/// 6. Send motor commands
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 pub(super) async fn run_distance_control_step(state: &mut DistanceDriveState) -> DistanceStepResult {
     let now_ms = Instant::now().as_millis();
-    if now_ms.saturating_sub(state.last_encoder_seen_ms) >= types::DISTANCE_ENCODER_TIMEOUT_MS {
-        let telemetry = types::CompletionTelemetry::DriveDistance {
-            achieved_left_revs: state.accumulated_left_revs,
-            achieved_right_revs: state.accumulated_right_revs,
-            target_left_revs: state.target_left_revs,
-            target_right_revs: state.target_right_revs,
-            duration_ms: now_ms.saturating_sub(state.started_at_ms),
-        };
-        return DistanceStepResult::Failed {
-            reason: "EncoderTimeout",
-            telemetry,
-        };
-    }
 
-    let Some(measurement) = feedback::get_latest_encoder_measurement().await else {
-        return DistanceStepResult::InProgress;
+    // ── 1. Read encoder data ───────────────────────────────────────────────
+    let _data = match read_encoder(state, now_ms).await {
+        Ok(data) => data,
+        Err(early) => return early,
     };
 
-    if measurement.timestamp_ms == 0 || measurement.timestamp_ms == state.last_encoder_timestamp_ms {
-        return DistanceStepResult::InProgress;
-    }
-    state.last_encoder_timestamp_ms = measurement.timestamp_ms;
-    state.last_encoder_seen_ms = now_ms;
-
-    if state.last_encoder_measurement.is_none() {
-        state.last_encoder_measurement = Some(measurement);
-        return DistanceStepResult::InProgress;
-    }
-
-    let delta_measurement = state
-        .last_encoder_measurement
-        .map_or(measurement, |prev| EncoderMeasurement {
-            left_front: compensation::calculate_delta_u16(measurement.left_front, prev.left_front),
-            left_rear: compensation::calculate_delta_u16(measurement.left_rear, prev.left_rear),
-            right_front: compensation::calculate_delta_u16(measurement.right_front, prev.right_front),
-            right_rear: compensation::calculate_delta_u16(measurement.right_rear, prev.right_rear),
-            timestamp_ms: measurement.timestamp_ms,
-        });
-    state.last_encoder_measurement = Some(measurement);
-
-    let data = compensation::calculate_track_averages(delta_measurement);
-    if data.all_zero() {
-        state.zero_progress_samples = state.zero_progress_samples.saturating_add(1);
-        if now_ms.saturating_sub(state.last_progress_ms) >= DISTANCE_STALL_TIMEOUT_MS {
-            let telemetry = types::CompletionTelemetry::DriveDistance {
-                achieved_left_revs: state.accumulated_left_revs,
-                achieved_right_revs: state.accumulated_right_revs,
-                target_left_revs: state.target_left_revs,
-                target_right_revs: state.target_right_revs,
-                duration_ms: now_ms.saturating_sub(state.started_at_ms),
-            };
-            return DistanceStepResult::Failed {
-                reason: "StallTimeout",
-                telemetry,
-            };
-        }
-        return DistanceStepResult::InProgress;
-    }
-    if data.has_single_motor_zero_anomaly() {
-        let telemetry = types::CompletionTelemetry::DriveDistance {
-            achieved_left_revs: state.accumulated_left_revs,
-            achieved_right_revs: state.accumulated_right_revs,
-            target_left_revs: state.target_left_revs,
-            target_right_revs: state.target_right_revs,
-            duration_ms: now_ms.saturating_sub(state.started_at_ms),
-        };
-        return DistanceStepResult::Failed {
-            reason: "EncoderAnomaly",
-            telemetry,
-        };
-    }
-
-    state.last_progress_ms = now_ms;
-    state.zero_progress_samples = 0;
-
-    let left_revs = data.left_track_avg / types::PULSES_PER_SPROCKET_REV_F32;
-    let right_revs = data.right_track_avg / types::PULSES_PER_SPROCKET_REV_F32;
-
-    state.accumulated_left_revs += left_revs;
-    state.accumulated_right_revs += right_revs;
-
-    let mut straight_imu_sample: Option<crate::task::sensors::imu::ImuMeasurement> = None;
-    if matches!(state.kind, types::DriveDistanceKind::Straight { .. }) {
-        while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
-            straight_imu_sample = Some(m);
-        }
-        if state.reference_yaw.is_none()
-            && let Some(sample) = straight_imu_sample
-        {
-            state.reference_yaw = Some(sample.orientation.yaw);
-        }
-    }
-
-    if matches!(state.kind, types::DriveDistanceKind::CurveArc { .. }) {
-        let mut latest_imu: Option<crate::task::sensors::imu::ImuMeasurement> = None;
-        while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
-            latest_imu = Some(m);
-        }
-
-        if let Some(measurement) = latest_imu {
-            if let Some(last_yaw) = state.curve_last_yaw_deg {
-                let mut yaw_change = measurement.orientation.yaw - last_yaw;
-
-                // Handle wraparound at ±180 degrees
-                if yaw_change > 180.0 {
-                    yaw_change -= 360.0;
-                } else if yaw_change < -180.0 {
-                    yaw_change += 360.0;
-                }
-
-                state.curve_accumulated_yaw_deg += yaw_change;
-            }
-
-            state.curve_last_yaw_deg = Some(measurement.orientation.yaw);
-        }
-    }
-
-    let inner_progress = match state.kind {
-        types::DriveDistanceKind::Straight { .. } => state.accumulated_left_revs.min(state.accumulated_right_revs),
-        types::DriveDistanceKind::CurveArc { .. } => match state.inner_left {
-            Some(true) => state.accumulated_left_revs,
-            Some(false) => state.accumulated_right_revs,
-            None => (state.accumulated_left_revs + state.accumulated_right_revs) * 0.5,
-        },
-    };
-
+    // ── 2. Check completion ────────────────────────────────────────────────
+    let inner_progress = state.inner_progress();
     let remaining = (state.target_inner_revs - inner_progress).max(0.0);
 
-    let duration_ms = now_ms.saturating_sub(state.started_at_ms);
-    let telemetry = types::CompletionTelemetry::DriveDistance {
-        achieved_left_revs: state.accumulated_left_revs,
-        achieved_right_revs: state.accumulated_right_revs,
-        target_left_revs: state.target_left_revs,
-        target_right_revs: state.target_right_revs,
-        duration_ms,
-    };
-
-    if remaining <= types::DISTANCE_TOLERANCE_REVS {
+    if remaining <= TOLERANCE_REVS {
+        let telemetry = state.make_telemetry(now_ms);
         motor_driver::send_motor_command(MotorCommand::SetTracks {
             left_speed: 0,
             right_speed: 0,
         })
         .await;
-
-        crate::system::state::motion::set_track_speeds(0, 0).await;
-
+        state::motion::set_track_speeds(0, 0).await;
         return DistanceStepResult::Completed { telemetry };
     }
 
-    let ramp_speed = if remaining <= types::DISTANCE_RAMP_DOWN_START_REVS {
-        let factor = (remaining / types::DISTANCE_RAMP_DOWN_START_REVS).clamp(0.0, 1.0);
-        let scaled = (f32::from(state.base_speed) * factor).round() as u8;
-        scaled.clamp(types::DISTANCE_MIN_SPEED, types::DISTANCE_MAX_SPEED)
-    } else {
-        state.base_speed.min(types::DISTANCE_MAX_SPEED)
-    };
+    // ── 3. Drain IMU channel (only after confirming not done) ───────────────
+    let latest_imu = drain_imu(state);
 
+    // ── 4. Compute ramp-down speed ──────────────────────────────────────────
+    let ramp_speed = if remaining <= RAMP_DOWN_START_REVS {
+        let factor = (remaining / RAMP_DOWN_START_REVS).clamp(0.0, 1.0);
+        let scaled = (f32::from(state.base_speed) * factor).round() as u8;
+        scaled.clamp(MIN_SPEED, MAX_SPEED)
+    } else {
+        state.base_speed.min(MAX_SPEED)
+    };
     let signed_base = match state.direction {
         types::DriveDirection::Forward => ramp_speed as i8,
         types::DriveDirection::Backward => -(ramp_speed as i8),
     };
 
+    // ── 5. Apply IMU corrections ────────────────────────────────────────────
+    let (adjusted_left, adjusted_right) = apply_imu_corrections(state, latest_imu, signed_base, now_ms);
+
+    // ── 6. Send motor commands ──────────────────────────────────────────────
+    motor_driver::send_motor_command(MotorCommand::SetTracks {
+        left_speed: adjusted_left,
+        right_speed: adjusted_right,
+    })
+    .await;
+    state::motion::set_track_speeds(adjusted_left, adjusted_right).await;
+
+    DistanceStepResult::InProgress
+}
+
+// ── Helper: read encoder data (with timeout / anomaly early exits) ─────────────
+
+/// Read a fresh encoder sample, compute deltas, and check for stall/anomaly.
+/// Returns the per-track averages on success, or an early-return result on failure.
+#[allow(clippy::cast_possible_truncation)]
+async fn read_encoder(state: &mut DistanceDriveState, now_ms: u64) -> Result<TrackSpeedData, DistanceStepResult> {
+    // Timeout check.
+    if now_ms.saturating_sub(state.last_encoder_seen_ms) >= ENCODER_TIMEOUT_MS {
+        return Err(DistanceStepResult::Failed {
+            reason: "EncoderTimeout",
+            telemetry: state.make_telemetry(now_ms),
+        });
+    }
+
+    // Wait for fresh measurement.
+    let Some(measurement) = feedback::get_latest_encoder_measurement().await else {
+        return Err(DistanceStepResult::InProgress);
+    };
+    if measurement.timestamp_ms == 0 || measurement.timestamp_ms == state.last_encoder_timestamp_ms {
+        return Err(DistanceStepResult::InProgress);
+    }
+    state.last_encoder_timestamp_ms = measurement.timestamp_ms;
+    state.last_encoder_seen_ms = now_ms;
+
+    // Need two samples to compute deltas.
+    if state.last_encoder_measurement.is_none() {
+        state.last_encoder_measurement = Some(measurement);
+        return Err(DistanceStepResult::InProgress);
+    }
+
+    // Compute deltas from cumulative counters.
+    let delta_measurement = state
+        .last_encoder_measurement
+        .map_or(measurement, |prev| EncoderMeasurement {
+            left_front: calculate_delta_u16(measurement.left_front, prev.left_front),
+            left_rear: calculate_delta_u16(measurement.left_rear, prev.left_rear),
+            right_front: calculate_delta_u16(measurement.right_front, prev.right_front),
+            right_rear: calculate_delta_u16(measurement.right_rear, prev.right_rear),
+            timestamp_ms: measurement.timestamp_ms,
+        });
+    state.last_encoder_measurement = Some(measurement);
+
+    let data = calculate_track_averages(delta_measurement);
+
+    // Stall check.
+    if data.all_zero() {
+        state.zero_progress_samples = state.zero_progress_samples.saturating_add(1);
+        if now_ms.saturating_sub(state.last_progress_ms) >= STALL_TIMEOUT_MS {
+            return Err(DistanceStepResult::Failed {
+                reason: "StallTimeout",
+                telemetry: state.make_telemetry(now_ms),
+            });
+        }
+        return Err(DistanceStepResult::InProgress);
+    }
+
+    // Anomaly check.
+    if data.has_single_motor_zero_anomaly() {
+        return Err(DistanceStepResult::Failed {
+            reason: "EncoderAnomaly",
+            telemetry: state.make_telemetry(now_ms),
+        });
+    }
+
+    // Accumulate progress.
+    state.last_progress_ms = now_ms;
+    state.zero_progress_samples = 0;
+    state.accumulated_left_revs += data.left_track_avg / types::PULSES_PER_SPROCKET_REV_F32;
+    state.accumulated_right_revs += data.right_track_avg / types::PULSES_PER_SPROCKET_REV_F32;
+
+    Ok(data)
+}
+
+// ── Helper: drain IMU channel and update state ──────────────────────────────────
+
+/// Drain the IMU feedback channel and update heading/curve state.
+/// Returns the latest sample (if any) for use by correction logic.
+fn drain_imu(state: &mut DistanceDriveState) -> Option<crate::task::sensors::imu::ImuMeasurement> {
+    let mut latest: Option<crate::task::sensors::imu::ImuMeasurement> = None;
+    while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
+        latest = Some(m);
+    }
+
+    match state.kind {
+        types::DriveDistanceKind::Straight { .. } => {
+            if state.reference_yaw.is_none()
+                && let Some(sample) = latest
+            {
+                state.reference_yaw = Some(sample.orientation.yaw);
+            }
+        }
+        types::DriveDistanceKind::CurveArc { .. } => {
+            if let Some(measurement) = latest {
+                if let Some(last_yaw) = state.curve_last_yaw_deg {
+                    let mut delta = measurement.orientation.yaw - last_yaw;
+                    if delta > 180.0 {
+                        delta -= 360.0;
+                    } else if delta < -180.0 {
+                        delta += 360.0;
+                    }
+                    state.curve_accumulated_yaw_deg += delta;
+                }
+                state.curve_last_yaw_deg = Some(measurement.orientation.yaw);
+            }
+        }
+    }
+
+    latest
+}
+
+// ── Helper: apply IMU-based corrections to motor speeds ────────────────────────
+
+/// Apply curve-ratio correction or straight heading correction, returning
+/// the final (left, right) motor speeds.
+#[allow(clippy::cast_possible_truncation)]
+fn apply_imu_corrections(
+    state: &DistanceDriveState,
+    latest_imu: Option<crate::task::sensors::imu::ImuMeasurement>,
+    signed_base: i8,
+    now_ms: u64,
+) -> (i8, i8) {
+    #[cfg(not(feature = "telemetry_logs"))]
+    let _ = now_ms;
+
     let mut left_ratio = state.left_ratio;
     let mut right_ratio = state.right_ratio;
 
+    // Curve-arc: adjust ratios based on yaw error.
     if matches!(state.kind, types::DriveDistanceKind::CurveArc { .. }) && state.curve_last_yaw_deg.is_some() {
         let left_cm = state.accumulated_left_revs * types::SPROCKET_CIRCUMFERENCE_CM;
         let right_cm = state.accumulated_right_revs * types::SPROCKET_CIRCUMFERENCE_CM;
@@ -392,95 +495,85 @@ pub(super) async fn run_distance_control_step(state: &mut DistanceDriveState) ->
             types::DriveDirection::Forward => 1.0,
             types::DriveDirection::Backward => -1.0,
         };
-
         let expected_yaw_rad = direction_sign * (right_cm - left_cm) / types::TRACK_WIDTH_CM;
         let actual_yaw_rad = state.curve_accumulated_yaw_deg.to_radians();
         let yaw_error = expected_yaw_rad - actual_yaw_rad;
-        let correction = (types::DISTANCE_CURVE_YAW_KP * yaw_error).clamp(
-            -types::DISTANCE_CURVE_YAW_MAX_CORRECTION,
-            types::DISTANCE_CURVE_YAW_MAX_CORRECTION,
-        );
-
+        let correction = (CURVE_YAW_KP * yaw_error).clamp(-CURVE_YAW_MAX_CORRECTION, CURVE_YAW_MAX_CORRECTION);
         left_ratio = (left_ratio - correction).clamp(0.0, 1.0);
         right_ratio = (right_ratio + correction).clamp(0.0, 1.0);
 
         #[cfg(feature = "telemetry_logs")]
-        {
-            if (now_ms % 200) < 20 {
-                defmt::info!(
-                    "distance_curve: exp_yaw={=f32}rad act_yaw={=f32}rad err={=f32}rad corr={=f32}",
-                    expected_yaw_rad,
-                    actual_yaw_rad,
-                    yaw_error,
-                    correction
-                );
-            }
+        if (now_ms % 200) < 20 {
+            defmt::info!(
+                "distance_curve: exp_yaw={=f32}rad act_yaw={=f32}rad err={=f32}rad corr={=f32}",
+                expected_yaw_rad,
+                actual_yaw_rad,
+                yaw_error,
+                correction
+            );
         }
     }
 
     let left_speed = (f32::from(signed_base) * left_ratio).round() as i8;
     let right_speed = (f32::from(signed_base) * right_ratio).round() as i8;
 
-    let (adjusted_left, adjusted_right) = if matches!(state.kind, types::DriveDistanceKind::Straight { .. }) {
-        if let (Some(ref_yaw), Some(sample)) = (state.reference_yaw, straight_imu_sample) {
-            let current_yaw = sample.orientation.yaw;
-            let mut heading_error = current_yaw - ref_yaw;
-            if heading_error > 180.0 {
-                heading_error -= 360.0;
-            }
-            if heading_error <= -180.0 {
-                heading_error += 360.0;
-            }
-            let max_correction =
-                (f32::from(ramp_speed) * types::STRAIGHT_IMU_CORRECTION_SCALE).min(types::STRAIGHT_IMU_MAX_CORRECTION);
-            let correction = (types::STRAIGHT_IMU_KP * heading_error).clamp(-max_correction, max_correction);
-            // Positive heading_error = drifting counter-clockwise/left → slow right track to correct
-            // Negative heading_error = drifting clockwise/right → slow left track to correct
-            let corrected_left = ((f32::from(left_speed) + correction).round() as i8).clamp(-100, 100);
-            let corrected_right = ((f32::from(right_speed) - correction).round() as i8).clamp(-100, 100);
-            #[cfg(feature = "telemetry_logs")]
-            {
-                if (now_ms % 200) < 20 {
-                    defmt::info!(
-                        "distance_straight: ref={=f32}° cur={=f32}° err={=f32}° corr={=f32}",
-                        ref_yaw,
-                        current_yaw,
-                        heading_error,
-                        correction,
-                    );
-                }
-            }
-            (corrected_left, corrected_right)
-        } else {
-            (left_speed, right_speed)
+    // Straight: apply heading correction on top of base speeds.
+    if matches!(state.kind, types::DriveDistanceKind::Straight { .. })
+        && let (Some(ref_yaw), Some(sample)) = (state.reference_yaw, latest_imu)
+    {
+        let current_yaw = sample.orientation.yaw;
+        let mut heading_error = current_yaw - ref_yaw;
+        if heading_error > 180.0 {
+            heading_error -= 360.0;
+        } else if heading_error <= -180.0 {
+            heading_error += 360.0;
         }
-    } else {
-        (left_speed, right_speed)
-    };
+        let ramp_speed = signed_base.unsigned_abs();
+        let max_correction = (f32::from(ramp_speed) * STRAIGHT_IMU_CORRECTION_SCALE).min(STRAIGHT_IMU_MAX_CORRECTION);
+        let correction = (STRAIGHT_IMU_KP * heading_error).clamp(-max_correction, max_correction);
+        let corrected_left = ((f32::from(left_speed) + correction).round() as i8).clamp(-100, 100);
+        let corrected_right = ((f32::from(right_speed) - correction).round() as i8).clamp(-100, 100);
 
-    state.last_left_speed = adjusted_left;
-    state.last_right_speed = adjusted_right;
+        #[cfg(feature = "telemetry_logs")]
+        if (now_ms % 200) < 20 {
+            defmt::info!(
+                "distance_straight: ref={=f32}° cur={=f32}° err={=f32}° corr={=f32}",
+                ref_yaw,
+                current_yaw,
+                heading_error,
+                correction
+            );
+        }
 
-    motor_driver::send_motor_command(MotorCommand::SetTracks {
-        left_speed: adjusted_left,
-        right_speed: adjusted_right,
-    })
-    .await;
+        return (corrected_left, corrected_right);
+    }
 
-    crate::system::state::motion::set_track_speeds(adjusted_left, adjusted_right).await;
-
-    DistanceStepResult::InProgress
+    (left_speed, right_speed)
 }
 
-/// Stop both tracks and update system state (distance helpers can share this).
-pub(super) async fn distance_stop_motors() {
-    encoder_read::send_command(encoder_read::EncoderCommand::Stop).await;
+// ── Helpers on DistanceDriveState ─────────────────────────────────────────────
 
-    motor_driver::send_motor_command(MotorCommand::SetTracks {
-        left_speed: 0,
-        right_speed: 0,
-    })
-    .await;
+impl DistanceDriveState {
+    /// Build a telemetry snapshot from current state.
+    const fn make_telemetry(&self, now_ms: u64) -> types::CompletionTelemetry {
+        types::CompletionTelemetry::DriveDistance {
+            achieved_left_revs: self.accumulated_left_revs,
+            achieved_right_revs: self.accumulated_right_revs,
+            target_left_revs: self.target_left_revs,
+            target_right_revs: self.target_right_revs,
+            duration_ms: now_ms.saturating_sub(self.started_at_ms),
+        }
+    }
 
-    crate::system::state::motion::set_track_speeds(0, 0).await;
+    /// Compute inner-track progress (the limiting track for completion).
+    fn inner_progress(&self) -> f32 {
+        match self.kind {
+            types::DriveDistanceKind::Straight { .. } => self.accumulated_left_revs.min(self.accumulated_right_revs),
+            types::DriveDistanceKind::CurveArc { .. } => match self.inner_left {
+                Some(true) => self.accumulated_left_revs,
+                Some(false) => self.accumulated_right_revs,
+                None => (self.accumulated_left_revs + self.accumulated_right_revs) * 0.5,
+            },
+        }
+    }
 }

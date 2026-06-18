@@ -474,18 +474,16 @@ async fn init_dmp(sensor: &mut ImuSensor) -> bool {
 /// Build a [`DmpConfig`] for the given fusion mode.
 const fn build_dmp_config(mode: DmpFusionMode) -> DmpConfig {
     match mode {
-        DmpFusionMode::Axis6 => DmpConfig::new()
-            .with_quaternion_6axis(true)
-            .with_raw_accel(true)
-            .with_raw_gyro(true)
-            .with_calibrated_gyro(true)
+        DmpFusionMode::Axis6 => DmpConfig::six_axis()
+            .with_raw_accel()
+            .with_raw_gyro()
+            .with_calibrated_gyro()
             .with_sample_rate(DMP_SAMPLE_RATE_HZ),
-        DmpFusionMode::Axis9 => DmpConfig::new()
-            .with_quaternion_9axis(true)
-            .with_raw_accel(true)
-            .with_raw_gyro(true)
-            .with_calibrated_gyro(true)
-            .with_raw_mag(true)
+        DmpFusionMode::Axis9 => DmpConfig::nine_axis()
+            .with_raw_accel()
+            .with_raw_gyro()
+            .with_calibrated_gyro()
+            .with_raw_mag()
             .with_sample_rate(DMP_SAMPLE_RATE_HZ),
     }
 }

@@ -9,7 +9,7 @@ use embassy_time::{Duration, Timer};
 use crate::{
     system::{
         event::RotaryDirection,
-        state::{CalibrationSelection, DriveMode, TestSelection, calibration, perception},
+        state::{CalibrationSelection, DriveMode, TestSelection, calibration},
     },
     task::{
         autonomous_mode, drive,
@@ -325,11 +325,6 @@ async fn handle_calibrate_menu_press(index: usize) {
 async fn handle_drive_mode_menu_press(index: usize) {
     if let Some(mode) = menu::drive_mode_from_index(index) {
         crate::task::behavior::obstacle::reset_obstacle_state().await;
-        {
-            let mut state = perception::PERCEPTION_STATE.lock().await;
-            state.ultrasonic_reading = None;
-            state.ultrasonic_angle_deg = None;
-        }
         let mut ui = UI_STATE.lock().await;
         ui.mode = UiMode::RunningAutonomous { mode };
         let snapshot = *ui;
@@ -399,11 +394,6 @@ async fn handle_test_menu_press(index: usize) {
         }
         Some(TestSelection::IrUltrasonic) => {
             crate::task::behavior::obstacle::reset_obstacle_state().await;
-            {
-                let mut state = perception::PERCEPTION_STATE.lock().await;
-                state.ultrasonic_reading = None;
-                state.ultrasonic_angle_deg = None;
-            }
             let mut ui = UI_STATE.lock().await;
             ui.mode = UiMode::RunningIrUltrasonicTest;
             let snapshot = *ui;

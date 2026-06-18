@@ -69,10 +69,8 @@ async fn ir_ultrasonic_test_task() {
                     break;
                 }
 
-                let (ir_detected, reading) = {
-                    let state = crate::system::state::perception::PERCEPTION_STATE.lock().await;
-                    (state.obstacle_detected, state.ultrasonic_reading)
-                };
+                let ir_detected = crate::system::state::perception::is_ir_obstacle_detected();
+                let reading = crate::system::state::perception::ultrasonic_reading_copy().await;
 
                 let header = {
                     let mut s: String<20> = String::new();
@@ -114,11 +112,7 @@ async fn ir_ultrasonic_test_task() {
     }
 
     stop_ultrasonic_measurements();
-    {
-        let mut state = crate::system::state::perception::PERCEPTION_STATE.lock().await;
-        state.ultrasonic_reading = None;
-        state.ultrasonic_angle_deg = None;
-    }
+    crate::system::state::perception::clear_ultrasonic_data().await;
     release_testmode();
     IR_ULTRASONIC_TEST_ACTIVE.store(false, Ordering::Relaxed);
 }

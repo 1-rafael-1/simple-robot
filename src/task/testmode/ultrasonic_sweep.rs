@@ -71,11 +71,7 @@ async fn ultrasonic_sweep_test_task() {
     }
 
     stop_ultrasonic_measurements();
-    {
-        let mut state = perception::PERCEPTION_STATE.lock().await;
-        state.ultrasonic_reading = None;
-        state.ultrasonic_angle_deg = None;
-    }
+    perception::clear_ultrasonic_data().await;
     release_testmode();
     ULTRASONIC_SWEEP_TEST_ACTIVE.store(false, Ordering::Relaxed);
 }
