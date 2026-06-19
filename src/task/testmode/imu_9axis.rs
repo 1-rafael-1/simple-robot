@@ -15,9 +15,7 @@ use super::{TestCommand, release_testmode, request_start};
 use crate::task::{
     io::display::{DisplayAction, display_update},
     sensors::imu::{
-        DmpFusionMode, Orientation, get_latest_calibrated_gyro, get_latest_calibrated_mag, get_latest_orientation,
-        get_latest_raw_accel, get_latest_raw_gyro, get_latest_raw_mag, set_dmp_fusion_mode, start_imu_readings,
-        stop_imu_readings,
+        DmpFusionMode, Orientation, get_latest_readings, set_dmp_fusion_mode, start_imu_readings, stop_imu_readings,
     },
 };
 
@@ -75,12 +73,13 @@ async fn imu_test_task() {
                     break;
                 }
 
-                let orientation = get_latest_orientation().await;
-                let gyro = get_latest_calibrated_gyro().await;
-                let mag = get_latest_calibrated_mag().await;
-                let raw_accel = get_latest_raw_accel().await;
-                let raw_gyro = get_latest_raw_gyro().await;
-                let raw_mag = get_latest_raw_mag().await;
+                let r = get_latest_readings().await;
+                let orientation = r.orientation;
+                let gyro = r.calibrated_gyro;
+                let mag = r.calibrated_mag;
+                let raw_accel = r.raw_accel;
+                let raw_gyro = r.raw_gyro;
+                let raw_mag = r.raw_mag;
 
                 if orientation.is_none() && gyro.is_none() && mag.is_none() {
                     missing = missing.saturating_add(1);
