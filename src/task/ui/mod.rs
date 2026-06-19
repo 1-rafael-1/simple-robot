@@ -280,7 +280,7 @@ async fn handle_main_menu_press(index: usize) {
 async fn handle_calibrate_menu_press(index: usize) {
     if let Some(selection) = calibration_selection_from_index(index) {
         set_mode_mutated(UiMode::Calibrating { kind: selection }, |ui| {
-            ui.calibration_complete = false
+            ui.calibration_complete = false;
         })
         .await;
 
