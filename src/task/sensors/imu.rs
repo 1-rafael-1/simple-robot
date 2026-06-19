@@ -29,7 +29,7 @@
 //! # Calibration
 //!
 //! Magnetometer hard/soft-iron and motor-interference correction are applied in
-//! software to the raw mag readings exposed via `LATEST_CALIBRATED_MAG`. The DMP's
+//! software to the raw mag readings exposed via `ImuReadings::calibrated_mag`. The DMP's
 //! own internal calibration engines handle gyroscope and accelerometer bias correction
 //! automatically — no host-injected bias values are needed for those axes.
 //!
@@ -180,23 +180,34 @@ static IMU_CONTROL: Signal<CriticalSectionRawMutex, ImuCommand> = Signal::new();
 /// `true` when `dmp_init_magnetometer` succeeded at start-up; gates `Axis9` usage.
 static MAG_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
-/// Latest DMP-derived orientation snapshot (updated on every valid packet).
-static LATEST_ORIENTATION: Mutex<CriticalSectionRawMutex, Option<Orientation>> = Mutex::new(None);
+/// Latest IMU readings snapshot — one mutex, one accessor.
+static LATEST_READINGS: Mutex<CriticalSectionRawMutex, ImuReadings> = Mutex::new(ImuReadings {
+    orientation: None,
+    calibrated_gyro: None,
+    calibrated_mag: None,
+    raw_accel: None,
+    raw_gyro: None,
+    raw_mag: None,
+});
 
-/// Latest DMP-calibrated gyroscope reading (deg/s, DMP internal bias subtracted).
-static LATEST_CALIBRATED_GYRO: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
-
-/// Latest magnetometer reading with hard/soft-iron + motor-interference correction (µT).
-static LATEST_CALIBRATED_MAG: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
-
-/// Latest raw accelerometer reading before DMP correction (g).
-static LATEST_RAW_ACCEL: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
-
-/// Latest raw gyroscope reading before DMP correction (deg/s).
-static LATEST_RAW_GYRO: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
-
-/// Latest raw magnetometer reading before any host correction (µT).
-static LATEST_RAW_MAG: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
+/// Snapshot of all IMU sensor data updated on every valid DMP packet.
+///
+/// Fields are `None` before the first packet arrives. Magnetometer fields
+/// (`calibrated_mag`, `raw_mag`) remain `None` in `Axis6` fusion mode.
+pub struct ImuReadings {
+    /// DMP-derived orientation.
+    pub orientation: Option<Orientation>,
+    /// DMP-calibrated gyroscope (deg/s, internal bias subtracted).
+    pub calibrated_gyro: Option<Vector3<f32>>,
+    /// Host-corrected magnetometer (µT, hard/soft-iron + motor-interference).
+    pub calibrated_mag: Option<Vector3<f32>>,
+    /// Raw accelerometer (g, before DMP correction).
+    pub raw_accel: Option<Vector3<f32>>,
+    /// Raw gyroscope (deg/s, before DMP correction).
+    pub raw_gyro: Option<Vector3<f32>>,
+    /// Raw magnetometer (µT, before any host correction).
+    pub raw_mag: Option<Vector3<f32>>,
+}
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -221,39 +232,22 @@ pub fn set_dmp_fusion_mode(mode: DmpFusionMode) {
 
 /// Load magnetometer calibration data (hard/soft-iron + motor-interference).
 ///
-/// Applied to `LATEST_CALIBRATED_MAG` on every subsequent DMP packet.
+/// Applied to `ImuReadings::calibrated_mag` on every subsequent DMP packet.
 pub fn load_imu_calibration(calibration: flash_storage::ImuCalibration) {
     IMU_CONTROL.signal(ImuCommand::LoadCalibration(calibration));
 }
 
-/// Return the latest DMP-derived orientation.
-pub async fn get_latest_orientation() -> Option<Orientation> {
-    *LATEST_ORIENTATION.lock().await
-}
-
-/// Return the latest DMP-calibrated gyroscope reading (deg/s).
-pub async fn get_latest_calibrated_gyro() -> Option<Vector3<f32>> {
-    *LATEST_CALIBRATED_GYRO.lock().await
-}
-
-/// Return the latest host-corrected magnetometer reading (µT).
-pub async fn get_latest_calibrated_mag() -> Option<Vector3<f32>> {
-    *LATEST_CALIBRATED_MAG.lock().await
-}
-
-/// Return the latest raw accelerometer reading (g, before DMP correction).
-pub async fn get_latest_raw_accel() -> Option<Vector3<f32>> {
-    *LATEST_RAW_ACCEL.lock().await
-}
-
-/// Return the latest raw gyroscope reading (deg/s, before DMP correction).
-pub async fn get_latest_raw_gyro() -> Option<Vector3<f32>> {
-    *LATEST_RAW_GYRO.lock().await
-}
-
-/// Return the latest raw magnetometer reading (µT, before any correction).
-pub async fn get_latest_raw_mag() -> Option<Vector3<f32>> {
-    *LATEST_RAW_MAG.lock().await
+/// Return a snapshot of all latest IMU readings from a single lock.
+pub async fn get_latest_readings() -> ImuReadings {
+    let r = LATEST_READINGS.lock().await;
+    ImuReadings {
+        orientation: r.orientation,
+        calibrated_gyro: r.calibrated_gyro,
+        calibrated_mag: r.calibrated_mag,
+        raw_accel: r.raw_accel,
+        raw_gyro: r.raw_gyro,
+        raw_mag: r.raw_mag,
+    }
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -348,36 +342,35 @@ fn interpolate_interference(
     }
 }
 
-/// Update all `LATEST_*` statics and drive-task sensor channels from a DMP packet.
+/// Update the shared `LATEST_READINGS` and drive-task sensor channels from a DMP packet.
 async fn update_statics_from_dmp(packet: &icm20948::dmp::DmpData, calibration: Option<&flash_storage::ImuCalibration>) {
+    let mut readings = LATEST_READINGS.lock().await;
+
     // Raw accelerometer -------------------------------------------------------
     if let Some((ax, ay, az)) = packet.raw_accel {
-        let v = Vector3::new(
+        readings.raw_accel = Some(Vector3::new(
             f32::from(ax) * ACCEL_SCALE_G,
             f32::from(ay) * ACCEL_SCALE_G,
             f32::from(az) * ACCEL_SCALE_G,
-        );
-        *LATEST_RAW_ACCEL.lock().await = Some(v);
+        ));
     }
 
     // Raw gyroscope -----------------------------------------------------------
     if let Some((gx, gy, gz)) = packet.raw_gyro {
-        let v = Vector3::new(
+        readings.raw_gyro = Some(Vector3::new(
             f32::from(gx) * GYRO_SCALE_DPS,
             f32::from(gy) * GYRO_SCALE_DPS,
             f32::from(gz) * GYRO_SCALE_DPS,
-        );
-        *LATEST_RAW_GYRO.lock().await = Some(v);
+        ));
     }
 
     // DMP-calibrated gyroscope (bias subtracted by DMP calibration engine) ----
     if let Some((gx, gy, gz)) = packet.calibrated_gyro {
-        let v = Vector3::new(
+        readings.calibrated_gyro = Some(Vector3::new(
             f32::from(gx) * GYRO_SCALE_DPS,
             f32::from(gy) * GYRO_SCALE_DPS,
             f32::from(gz) * GYRO_SCALE_DPS,
-        );
-        *LATEST_CALIBRATED_GYRO.lock().await = Some(v);
+        ));
     }
 
     // Raw magnetometer (Axis9 mode only) --------------------------------------
@@ -387,7 +380,8 @@ async fn update_statics_from_dmp(packet: &icm20948::dmp::DmpData, calibration: O
             f32::from(my) * MAG_SCALE_UT,
             f32::from(mz) * MAG_SCALE_UT,
         );
-        *LATEST_RAW_MAG.lock().await = Some(v);
+        readings.raw_mag = Some(v);
+        drop(readings);
 
         // Forward raw mag to the drive task for the magnetometer calibration procedure.
         drive::send_mag_measurement(v).await;
@@ -401,7 +395,7 @@ async fn update_statics_from_dmp(packet: &icm20948::dmp::DmpData, calibration: O
             mag_cal.y = (v.y - iy - cal.mag_y_bias) * cal.mag_y_scale;
             mag_cal.z = (v.z - iz - cal.mag_z_bias) * cal.mag_z_scale;
         }
-        *LATEST_CALIBRATED_MAG.lock().await = Some(mag_cal);
+        LATEST_READINGS.lock().await.calibrated_mag = Some(mag_cal);
     }
 }
 
@@ -592,7 +586,7 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
                                         let orientation = dmp_quat_to_orientation(quat);
                                         let timestamp_ms = Instant::now().as_millis();
 
-                                        *LATEST_ORIENTATION.lock().await = Some(orientation);
+                                        LATEST_READINGS.lock().await.orientation = Some(orientation);
 
                                         update_statics_from_dmp(&packet, current_calibration.as_ref()).await;
 
