@@ -106,8 +106,7 @@ const TARGET_MOTOR_VOLTAGE: f32 = 6.0;
 /// Get current battery voltage from system state (truly non-blocking)
 /// Returns None if no voltage reading available yet OR if mutex is busy
 fn try_get_battery_voltage() -> Option<f32> {
-    // Use try_lock to avoid blocking - if mutex is busy, just return None
-    power::POWER_STATE.try_lock().ok()?.battery_voltage
+    power::try_get_battery_voltage()
 }
 
 /// Wait for first battery voltage reading from system state

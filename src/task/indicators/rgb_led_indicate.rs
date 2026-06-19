@@ -163,10 +163,7 @@ pub async fn rgb_led_indicate(
         }
 
         // Get current system state
-        let battery_level = {
-            let power_state = power::POWER_STATE.lock().await;
-            power_state.battery_level
-        };
+        let battery_level = power::get_battery_level().await;
         // Calculate PWM duty cycles based on battery level
         if battery_level.is_none() {
             // No battery level info: solid blue
