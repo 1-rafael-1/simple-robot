@@ -344,50 +344,38 @@ async fn update_statics_from_dmp(
     orientation: Option<Orientation>,
     calibration: Option<&flash_storage::ImuCalibration>,
 ) {
-    let mut readings = LATEST_READINGS.lock().await;
-
-    // DMP-derived orientation (none during warm-up) -------------------------
-    if let Some(o) = orientation {
-        readings.orientation = Some(o);
-    }
-
-    // Raw accelerometer -------------------------------------------------------
-    if let Some((ax, ay, az)) = packet.raw_accel {
-        readings.raw_accel = Some(Vector3::new(
+    // ── Precompute all scaled vectors outside the critical section ──────────
+    let raw_accel_opt: Option<Vector3<f32>> = packet.raw_accel.map(|(ax, ay, az)| {
+        Vector3::new(
             f32::from(ax) * ACCEL_SCALE_G,
             f32::from(ay) * ACCEL_SCALE_G,
             f32::from(az) * ACCEL_SCALE_G,
-        ));
-    }
+        )
+    });
 
-    // Raw gyroscope -----------------------------------------------------------
-    if let Some((gx, gy, gz)) = packet.raw_gyro {
-        readings.raw_gyro = Some(Vector3::new(
+    let raw_gyro_opt: Option<Vector3<f32>> = packet.raw_gyro.map(|(gx, gy, gz)| {
+        Vector3::new(
             f32::from(gx) * GYRO_SCALE_DPS,
             f32::from(gy) * GYRO_SCALE_DPS,
             f32::from(gz) * GYRO_SCALE_DPS,
-        ));
-    }
+        )
+    });
 
-    // DMP-calibrated gyroscope (bias subtracted by DMP calibration engine) ----
-    if let Some((gx, gy, gz)) = packet.calibrated_gyro {
-        readings.calibrated_gyro = Some(Vector3::new(
+    let calibrated_gyro_opt: Option<Vector3<f32>> = packet.calibrated_gyro.map(|(gx, gy, gz)| {
+        Vector3::new(
             f32::from(gx) * GYRO_SCALE_DPS,
             f32::from(gy) * GYRO_SCALE_DPS,
             f32::from(gz) * GYRO_SCALE_DPS,
-        ));
-    }
+        )
+    });
 
-    // Raw magnetometer (Axis9 mode only) --------------------------------------
-    if let Some((mx, my, mz)) = packet.raw_mag {
+    // Raw magnetometer with optional host-side calibration ------------------
+    let mag_data: Option<(Vector3<f32>, Vector3<f32>)> = packet.raw_mag.map(|(mx, my, mz)| {
         let v = Vector3::new(
             f32::from(mx) * MAG_SCALE_UT,
             f32::from(my) * MAG_SCALE_UT,
             f32::from(mz) * MAG_SCALE_UT,
         );
-
-        // Compute host-side correction before releasing the lock so callers
-        // of get_latest_readings() see both magnetometer fields updated together.
         let mut mag_cal = v;
         if let Some(cal) = calibration {
             let (left_speed, right_speed) = motion::get_track_speeds_atomic();
@@ -396,13 +384,33 @@ async fn update_statics_from_dmp(
             mag_cal.y = (v.y - iy - cal.mag_y_bias) * cal.mag_y_scale;
             mag_cal.z = (v.z - iz - cal.mag_z_bias) * cal.mag_z_scale;
         }
+        (v, mag_cal)
+    });
 
-        readings.raw_mag = Some(v);
-        readings.calibrated_mag = Some(mag_cal);
-        drop(readings);
+    // ── Commit snapshot under one lock, then release for the async send ────
+    let mut readings = LATEST_READINGS.lock().await;
 
-        // Forward raw mag to the drive task for the magnetometer calibration procedure.
-        drive::send_mag_measurement(v).await;
+    if let Some(o) = orientation {
+        readings.orientation = Some(o);
+    }
+    if let Some(v) = raw_accel_opt {
+        readings.raw_accel = Some(v);
+    }
+    if let Some(v) = raw_gyro_opt {
+        readings.raw_gyro = Some(v);
+    }
+    if let Some(v) = calibrated_gyro_opt {
+        readings.calibrated_gyro = Some(v);
+    }
+    if let Some((raw, cal)) = mag_data {
+        readings.raw_mag = Some(raw);
+        readings.calibrated_mag = Some(cal);
+    }
+    drop(readings);
+
+    // Forward raw mag to the drive task for the magnetometer calibration procedure.
+    if let Some((raw, _cal)) = mag_data {
+        drive::send_mag_measurement(raw).await;
     }
 }
 
