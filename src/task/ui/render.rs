@@ -195,12 +195,11 @@ pub async fn show_line(line: u8, msg: &str) {
 /// Build a snapshot of system info for the UI renderer.
 pub async fn build_system_info_data() -> screens::SystemInfoData {
     // Read Power first (via accessors) to preserve lock order: Power → Calibration.
-    let battery_level = power::get_battery_level().await;
-    let battery_voltage = power::get_battery_voltage().await;
+    let battery = power::get_battery_snapshot().await;
     let calibration_state = calibration::CALIBRATION_STATE.lock().await;
     screens::SystemInfoData {
-        battery_level,
-        battery_voltage,
+        battery_level: battery.level,
+        battery_voltage: battery.voltage,
         motor_calibration_status: calibration_state.motor_calibration_status,
         mag_calibration_status: calibration_state.mag_calibration_status,
         distance_calibration_status: calibration_state.distance_calibration_status,

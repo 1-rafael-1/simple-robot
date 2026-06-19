@@ -3,7 +3,7 @@
 //! Holds calibration status flags and exposes helpers for initialization checks.
 //!
 //! Lock order (when multiple state mutexes are needed):
-//! 1) `POWER_STATE`
+//! 1) power state mutex (use power module accessors)
 //! 2) `CALIBRATION_STATE`
 //! 3) perception mutex (use accessor functions, see `perception` module)
 //! 4) `MOTION_STATE`
