@@ -574,7 +574,10 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
                                 } else {
                                     warn!("DMP mode switch failed — restoring previous {:?}", fusion_mode);
                                     let old_config = build_dmp_config(fusion_mode);
-                                    let _ = apply_dmp_config(sensor, &old_config).await;
+                                    if !apply_dmp_config(sensor, &old_config).await {
+                                        warn!("DMP restore failed — returning to standby");
+                                        continue 'command;
+                                    }
                                 }
                                 fifo_failures = 0;
                             }
