@@ -28,7 +28,7 @@ pub mod state;
 
 use menu::{calibration_selection_from_index, menu_selection_from_index, next_menu_index, test_selection_from_index};
 use render::{render_current_ui, show_line};
-use state::{UI_STATE, UiMode};
+use state::{UI_STATE, UiMode, UiState};
 
 /// Channel for requesting distance calibration drive from the controller task.
 static DIST_CAL_CHANNEL: Channel<CriticalSectionRawMutex, (), 1> = Channel::new();
@@ -265,16 +265,13 @@ async fn handle_main_menu_press(index: usize) {
             set_mode(UiMode::SystemInfo { scroll_offset: 0 }).await;
         }
         crate::system::state::MenuSelection::Calibrate => {
-            UI_STATE.lock().await.calibrate_index = 0;
-            set_mode(UiMode::CalibrateMenu).await;
+            set_mode_mutated(UiMode::CalibrateMenu, |ui| ui.calibrate_index = 0).await;
         }
         crate::system::state::MenuSelection::DriveMode => {
-            UI_STATE.lock().await.drive_mode_index = 0;
-            set_mode(UiMode::DriveModeMenu).await;
+            set_mode_mutated(UiMode::DriveModeMenu, |ui| ui.drive_mode_index = 0).await;
         }
         crate::system::state::MenuSelection::TestMode => {
-            UI_STATE.lock().await.test_index = 0;
-            set_mode(UiMode::TestMenu).await;
+            set_mode_mutated(UiMode::TestMenu, |ui| ui.test_index = 0).await;
         }
     }
 }
@@ -282,11 +279,10 @@ async fn handle_main_menu_press(index: usize) {
 /// Handle a button press while the calibration menu is active.
 async fn handle_calibrate_menu_press(index: usize) {
     if let Some(selection) = calibration_selection_from_index(index) {
-        {
-            let mut ui = UI_STATE.lock().await;
-            ui.calibration_complete = false;
-        }
-        set_mode(UiMode::Calibrating { kind: selection }).await;
+        set_mode_mutated(UiMode::Calibrating { kind: selection }, |ui| {
+            ui.calibration_complete = false
+        })
+        .await;
 
         match selection {
             CalibrationSelection::Motor => {
@@ -395,11 +391,25 @@ async fn handle_running_ultrasonic_sweep_test_press() {
 /// Transition to a new UI mode, lock the state, and render.
 ///
 /// This is the canonical primitive for mode transitions. Public helpers
-/// ([`show_main_menu`], [`show_test_menu`]) delegate here. Callers that
-/// need to mutate additional state fields before rendering should lock
-/// `UI_STATE` separately before calling `set_mode`.
+/// ([`show_main_menu`], [`show_test_menu`]) delegate here. For transitions
+/// that also need to mutate other state fields, use [`set_mode_mutated`]
+/// to keep the mutation inside the same lock.
 async fn set_mode(mode: UiMode) {
     let mut ui = UI_STATE.lock().await;
+    ui.mode = mode;
+    let snapshot = *ui;
+    drop(ui);
+    render_current_ui(&snapshot).await;
+}
+
+/// Transition to a new UI mode with an additional state mutation, all
+/// inside a single lock acquisition.
+///
+/// The closure runs before the mode is written, so it can reset
+/// menu indices or clear flags that the new mode depends on.
+async fn set_mode_mutated(mode: UiMode, mutate: impl FnOnce(&mut UiState)) {
+    let mut ui = UI_STATE.lock().await;
+    mutate(&mut ui);
     ui.mode = mode;
     let snapshot = *ui;
     drop(ui);
