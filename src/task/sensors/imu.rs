@@ -193,7 +193,8 @@ static LATEST_READINGS: Mutex<CriticalSectionRawMutex, ImuReadings> = Mutex::new
 /// Snapshot of all IMU sensor data updated on every valid DMP packet.
 ///
 /// Fields are `None` before the first packet arrives. Magnetometer fields
-/// (`calibrated_mag`, `raw_mag`) remain `None` in `Axis6` fusion mode.
+/// (`calibrated_mag`, `raw_mag`) are `None` before the first `Axis9` packet
+/// arrives and are cleared when switching to `Axis6` fusion mode.
 pub struct ImuReadings {
     /// DMP-derived orientation.
     pub orientation: Option<Orientation>,
@@ -380,13 +381,9 @@ async fn update_statics_from_dmp(packet: &icm20948::dmp::DmpData, calibration: O
             f32::from(my) * MAG_SCALE_UT,
             f32::from(mz) * MAG_SCALE_UT,
         );
-        readings.raw_mag = Some(v);
-        drop(readings);
 
-        // Forward raw mag to the drive task for the magnetometer calibration procedure.
-        drive::send_mag_measurement(v).await;
-
-        // Apply host-side hard/soft-iron + motor-interference correction if calibrated.
+        // Compute host-side correction before releasing the lock so callers
+        // of get_latest_readings() see both magnetometer fields updated together.
         let mut mag_cal = v;
         if let Some(cal) = calibration {
             let (left_speed, right_speed) = motion::get_track_speeds_atomic();
@@ -395,7 +392,13 @@ async fn update_statics_from_dmp(packet: &icm20948::dmp::DmpData, calibration: O
             mag_cal.y = (v.y - iy - cal.mag_y_bias) * cal.mag_y_scale;
             mag_cal.z = (v.z - iz - cal.mag_z_bias) * cal.mag_z_scale;
         }
-        LATEST_READINGS.lock().await.calibrated_mag = Some(mag_cal);
+
+        readings.raw_mag = Some(v);
+        readings.calibrated_mag = Some(mag_cal);
+        drop(readings);
+
+        // Forward raw mag to the drive task for the magnetometer calibration procedure.
+        drive::send_mag_measurement(v).await;
     }
 }
 
@@ -558,6 +561,13 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
                                 let new_config = build_dmp_config(fusion_mode);
                                 if !apply_dmp_config(sensor, &new_config).await {
                                     warn!("DMP mode switch failed — continuing on previous config");
+                                }
+                                // Axis6 never produces magnetometer data — clear
+                                // any stale values left from a previous Axis9 session.
+                                if fusion_mode == DmpFusionMode::Axis6 {
+                                    let mut readings = LATEST_READINGS.lock().await;
+                                    readings.raw_mag = None;
+                                    readings.calibrated_mag = None;
                                 }
                                 fifo_failures = 0;
                             }
