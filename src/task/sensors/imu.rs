@@ -195,6 +195,7 @@ static LATEST_READINGS: Mutex<CriticalSectionRawMutex, ImuReadings> = Mutex::new
 /// Fields are `None` before the first packet arrives. Magnetometer fields
 /// (`calibrated_mag`, `raw_mag`) are `None` before the first `Axis9` packet
 /// arrives and are cleared when switching to `Axis6` fusion mode.
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ImuReadings {
     /// DMP-derived orientation.
     pub orientation: Option<Orientation>,
@@ -240,15 +241,7 @@ pub fn load_imu_calibration(calibration: flash_storage::ImuCalibration) {
 
 /// Return a snapshot of all latest IMU readings from a single lock.
 pub async fn get_latest_readings() -> ImuReadings {
-    let r = LATEST_READINGS.lock().await;
-    ImuReadings {
-        orientation: r.orientation,
-        calibrated_gyro: r.calibrated_gyro,
-        calibrated_mag: r.calibrated_mag,
-        raw_accel: r.raw_accel,
-        raw_gyro: r.raw_gyro,
-        raw_mag: r.raw_mag,
-    }
+    *LATEST_READINGS.lock().await
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -344,8 +337,17 @@ fn interpolate_interference(
 }
 
 /// Update the shared `LATEST_READINGS` and drive-task sensor channels from a DMP packet.
-async fn update_statics_from_dmp(packet: &icm20948::dmp::DmpData, calibration: Option<&flash_storage::ImuCalibration>) {
+async fn update_statics_from_dmp(
+    packet: &icm20948::dmp::DmpData,
+    orientation: Option<Orientation>,
+    calibration: Option<&flash_storage::ImuCalibration>,
+) {
     let mut readings = LATEST_READINGS.lock().await;
+
+    // DMP-derived orientation (none during warm-up) -------------------------
+    if let Some(o) = orientation {
+        readings.orientation = Some(o);
+    }
 
     // Raw accelerometer -------------------------------------------------------
     if let Some((ax, ay, az)) = packet.raw_accel {
@@ -555,19 +557,20 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
                             if new_mode == fusion_mode {
                                 info!("IMU fusion mode already {:?} — no change", fusion_mode);
                             } else {
-                                fusion_mode = new_mode;
-                                info!("Switching DMP fusion mode to {:?}", fusion_mode);
                                 let _ = sensor.dmp_enable(false).await;
-                                let new_config = build_dmp_config(fusion_mode);
-                                if !apply_dmp_config(sensor, &new_config).await {
-                                    warn!("DMP mode switch failed — continuing on previous config");
-                                }
-                                // Axis6 never produces magnetometer data — clear
-                                // any stale values left from a previous Axis9 session.
-                                if fusion_mode == DmpFusionMode::Axis6 {
-                                    let mut readings = LATEST_READINGS.lock().await;
-                                    readings.raw_mag = None;
-                                    readings.calibrated_mag = None;
+                                let new_config = build_dmp_config(new_mode);
+                                if apply_dmp_config(sensor, &new_config).await {
+                                    fusion_mode = new_mode;
+                                    info!("Switched DMP fusion mode to {:?}", fusion_mode);
+                                    // Axis6 never produces magnetometer data — clear
+                                    // any stale values left from a previous Axis9 session.
+                                    if fusion_mode == DmpFusionMode::Axis6 {
+                                        let mut readings = LATEST_READINGS.lock().await;
+                                        readings.raw_mag = None;
+                                        readings.calibrated_mag = None;
+                                    }
+                                } else {
+                                    warn!("DMP mode switch failed — continuing with {:?}", fusion_mode);
                                 }
                                 fifo_failures = 0;
                             }
@@ -596,9 +599,12 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
                                         let orientation = dmp_quat_to_orientation(quat);
                                         let timestamp_ms = Instant::now().as_millis();
 
-                                        LATEST_READINGS.lock().await.orientation = Some(orientation);
-
-                                        update_statics_from_dmp(&packet, current_calibration.as_ref()).await;
+                                        update_statics_from_dmp(
+                                            &packet,
+                                            Some(orientation),
+                                            current_calibration.as_ref(),
+                                        )
+                                        .await;
 
                                         let measurement = ImuMeasurement {
                                             orientation,
@@ -625,7 +631,7 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
                                         raise_event(Events::ImuMeasurementTaken(measurement)).await;
                                     } else {
                                         // Packet present but no quaternion yet (DMP warming up).
-                                        update_statics_from_dmp(&packet, current_calibration.as_ref()).await;
+                                        update_statics_from_dmp(&packet, None, current_calibration.as_ref()).await;
                                     }
                                 }
 
