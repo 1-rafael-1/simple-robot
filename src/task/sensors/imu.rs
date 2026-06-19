@@ -202,7 +202,8 @@ pub struct ImuReadings {
     pub orientation: Option<Orientation>,
     /// DMP-calibrated gyroscope (deg/s, internal bias subtracted).
     pub calibrated_gyro: Option<Vector3<f32>>,
-    /// Host-corrected magnetometer (µT, hard/soft-iron + motor-interference).
+    /// Magnetometer reading (µT). Host-corrected when calibration is loaded;
+    /// otherwise the raw value.
     pub calibrated_mag: Option<Vector3<f32>>,
     /// Raw accelerometer (g, before DMP correction).
     pub raw_accel: Option<Vector3<f32>>,
