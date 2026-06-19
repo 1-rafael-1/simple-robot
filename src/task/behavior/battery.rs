@@ -8,11 +8,7 @@ use crate::{system::state::power, task::indicators::rgb_led_indicate};
 pub async fn handle_battery_measured(level: u8, voltage: f32) {
     debug!("Battery level measured");
 
-    {
-        let mut state = power::POWER_STATE.lock().await;
-        state.battery_voltage = Some(voltage);
-        state.battery_level = Some(level);
-    }
+    power::set_battery(level, voltage).await;
 
     rgb_led_indicate::update_indicator(false);
 }
