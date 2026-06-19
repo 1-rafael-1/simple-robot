@@ -29,7 +29,8 @@
 //! # Calibration
 //!
 //! Magnetometer hard/soft-iron and motor-interference correction are applied in
-//! software to the raw mag readings exposed via `ImuReadings::calibrated_mag`. The DMP's
+//! software; the corrected result is exposed via `ImuReadings::calibrated_mag`
+//! (raw readings are in `raw_mag`). The DMP's
 //! own internal calibration engines handle gyroscope and accelerometer bias correction
 //! automatically — no host-injected bias values are needed for those axes.
 //!
@@ -570,7 +571,9 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
                                         readings.calibrated_mag = None;
                                     }
                                 } else {
-                                    warn!("DMP mode switch failed — continuing with {:?}", fusion_mode);
+                                    warn!("DMP mode switch failed — restoring previous {:?}", fusion_mode);
+                                    let old_config = build_dmp_config(fusion_mode);
+                                    let _ = apply_dmp_config(sensor, &old_config).await;
                                 }
                                 fifo_failures = 0;
                             }
