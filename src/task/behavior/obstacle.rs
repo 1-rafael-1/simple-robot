@@ -29,10 +29,14 @@ pub fn handle_obstacle_detected(source: ObstacleSource, detected: bool) {
         source, detected
     );
 
-    let change = match source {
-        ObstacleSource::Ir => perception::set_ir_obstacle(detected),
-        ObstacleSource::Ultrasonic => perception::set_ultrasonic_obstacle(detected),
-    };
+    match source {
+        ObstacleSource::Ir => {
+            perception::set_ir_obstacle(detected);
+        }
+        ObstacleSource::Ultrasonic => {
+            perception::set_ultrasonic_obstacle(detected);
+        }
+    }
 
     let combined = perception::is_obstacle_detected();
     if combined && coast_obstacle_avoid::is_active() && coast_obstacle_avoid::is_forward_phase() {
@@ -40,9 +44,10 @@ pub fn handle_obstacle_detected(source: ObstacleSource, detected: bool) {
         send_drive_interrupt(InterruptKind::EmergencyBrake);
     }
 
-    if change != perception::ChangeDetected::NoChange {
-        update_obstacle_indicator(combined);
-    }
+    // Always update the indicator — for Ultrasonic the atomics may already
+    // have been set by set_ultrasonic_reading(), causing set_ultrasonic_obstacle()
+    // to return NoChange even though the obstacle state genuinely changed.
+    update_obstacle_indicator(combined);
 }
 
 /// Handle obstacle avoidance completion.

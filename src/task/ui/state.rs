@@ -42,6 +42,8 @@ pub enum UiMode {
     RunningIrUltrasonicTest,
     /// Ultrasonic sweep test mode
     RunningUltrasonicSweepTest,
+    /// Coast-avoid obstacle-detection event-chain test
+    RunningCoastAvoidDetectionTest,
     /// Optional: calibration running state
     Calibrating {
         /// Selected calibration kind

@@ -99,7 +99,7 @@ const ULTRASONIC_MAX_DISTANCE_CM: f64 = 200.0;
 const ULTRASONIC_CENTER_ANGLE_DEG: f32 = 80.0;
 
 /// Obstacle detection threshold in centimeters.
-const ULTRASONIC_OBSTACLE_THRESHOLD_CM: f64 = 15.0;
+const ULTRASONIC_OBSTACLE_THRESHOLD_CM: f64 = 20.0;
 
 /// Builder for configuring and creating a servo instance
 ///

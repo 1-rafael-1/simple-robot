@@ -51,6 +51,9 @@ pub async fn render_current_ui(state: &UiState) {
         UiMode::RunningUltrasonicSweepTest => {
             render_ultrasonic_sweep_test_running().await;
         }
+        UiMode::RunningCoastAvoidDetectionTest => {
+            render_coast_avoid_detection_test_running().await;
+        }
         UiMode::RunningAutonomous { mode } => {
             render_autonomous_running(mode).await;
         }
@@ -131,6 +134,15 @@ pub async fn render_ir_ultrasonic_test_running() {
 pub async fn render_ultrasonic_sweep_test_running() {
     display::display_update(DisplayAction::Clear).await;
     show_line(0, "US Sweep: Press").await;
+}
+
+/// Render the coast-avoid detection test placeholder screen.
+pub async fn render_coast_avoid_detection_test_running() {
+    display::display_update(DisplayAction::Clear).await;
+    show_line(0, "C-A Detect Test").await;
+    show_line(1, "IR: ----").await;
+    show_line(2, "US: ----").await;
+    show_line(3, "=> ----").await;
 }
 
 /// Render the autonomous drive mode running screen.

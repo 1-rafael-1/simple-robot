@@ -67,6 +67,8 @@ pub enum TestSelection {
     IrUltrasonic,
     /// Ultrasonic sweep test
     UltrasonicSweep,
+    /// Coast-avoid obstacle-detection event-chain test
+    CoastAvoidDetection,
 }
 
 /// Calibration submenu selections

@@ -274,6 +274,7 @@ async fn handle_rotary_turned(direction: RotaryDirection) {
         | UiMode::RunningBasicMotorTest
         | UiMode::RunningIrUltrasonicTest
         | UiMode::RunningUltrasonicSweepTest
+        | UiMode::RunningCoastAvoidDetectionTest
         | UiMode::RunningAutonomous { .. }
         | UiMode::Calibrating { .. } => {}
         UiMode::EnteringDistance { value } => {
@@ -314,6 +315,7 @@ async fn handle_rotary_button_pressed() {
         UiMode::RunningBasicMotorTest => handle_running_basic_motor_test_press().await,
         UiMode::RunningIrUltrasonicTest => handle_running_ir_ultrasonic_test_press().await,
         UiMode::RunningUltrasonicSweepTest => handle_running_ultrasonic_sweep_test_press().await,
+        UiMode::RunningCoastAvoidDetectionTest => handle_running_coast_avoid_detection_test_press().await,
         UiMode::RunningAutonomous { .. } => handle_ui_back().await,
         UiMode::RunningTurnsTest | UiMode::RunningStraightDriveTest | UiMode::RunningArcDriveTest => {}
         UiMode::EnteringDistance { value } => handle_distance_entry_press(value).await,
@@ -374,6 +376,10 @@ async fn handle_ui_back() {
         }
         UiMode::RunningUltrasonicSweepTest => {
             testmode::stop_ultrasonic_sweep_test_mode();
+            show_test_menu().await;
+        }
+        UiMode::RunningCoastAvoidDetectionTest => {
+            testmode::stop_coast_avoid_detection_test();
             show_test_menu().await;
         }
         UiMode::RunningAutonomous { mode } => {
@@ -482,6 +488,11 @@ async fn handle_test_menu_press(index: usize) {
             set_mode(UiMode::RunningUltrasonicSweepTest).await;
             testmode::start_ultrasonic_sweep_test_mode().await;
         }
+        Some(TestSelection::CoastAvoidDetection) => {
+            crate::task::behavior::obstacle::reset_obstacle_state().await;
+            set_mode(UiMode::RunningCoastAvoidDetectionTest).await;
+            testmode::start_coast_avoid_detection_test().await;
+        }
         None => {
             show_main_menu().await;
         }
@@ -515,6 +526,12 @@ async fn handle_running_ir_ultrasonic_test_press() {
 /// Handle a button press while the ultrasonic sweep test mode is active.
 async fn handle_running_ultrasonic_sweep_test_press() {
     testmode::stop_ultrasonic_sweep_test_mode();
+    show_test_menu().await;
+}
+
+/// Handle a button press while the coast-avoid detection test mode is active.
+async fn handle_running_coast_avoid_detection_test_press() {
+    testmode::stop_coast_avoid_detection_test();
     show_test_menu().await;
 }
 
