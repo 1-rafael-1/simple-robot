@@ -7,8 +7,8 @@
 //! A single [`ui_controller_task`] owns all UI rendering. It selects over two sources:
 //! 1. **`UiEvent` channel** — rotary encoder input, lifecycle events (testing/calibration
 //!    completed, show-main-menu requests). Sent by the orchestrator and initialization.
-//! 2. **15 Hz timer** — drives autonomous-mode refresh by reading perception atomics
-//!    lock-free and re-rendering when the obstacle state changes.
+//! 2. **15 Hz timer** — drives autonomous-mode refresh by reading perception state
+//!    and re-rendering only when the displayed values change.
 //!
 //! Test modes spawn their own display tasks (following the IMU test pattern) and do not
 //! route through this controller.
@@ -20,8 +20,8 @@ use embassy_time::{Duration, Ticker, Timer};
 
 use crate::{
     system::{
-        event::RotaryDirection,
-        state::{CalibrationSelection, DriveMode, TestSelection, calibration},
+        event::{RotaryDirection, UltrasonicReading},
+        state::{CalibrationSelection, DriveMode, TestSelection, calibration, perception},
     },
     task::{
         autonomous_mode, drive,
@@ -64,10 +64,7 @@ pub enum UiEvent {
 }
 
 /// Channel carrying [`UiEvent`]s into the UI controller task.
-/// Capacity 4 is sufficient for human-timescale rotary input and lifecycle
-/// events.  The controller drains the channel at 15 Hz, so the worst-case
-/// queue depth is a button press + hold-start + hold-end + `ShowMainMenu`
-/// arriving before the next tick.
+/// Capacity 4 is sufficient for human-timescale rotary input and lifecycle events.
 static UI_EVENT_CHANNEL: Channel<CriticalSectionRawMutex, UiEvent, 4> = Channel::new();
 
 /// Send an event to the UI controller task (async to avoid dropping).
@@ -101,13 +98,14 @@ pub fn init_ui(spawner: Spawner) {
 #[embassy_executor::task]
 async fn ui_controller_task() {
     let mut ticker = Ticker::every(Duration::from_millis(AUTONOMOUS_REFRESH_INTERVAL_MS));
+    let mut last_perception: Option<LastPerceptionState> = None;
     loop {
         match select(UI_EVENT_CHANNEL.receiver().receive(), ticker.next()).await {
             Either::First(event) => {
                 dispatch_ui_event(event).await;
             }
             Either::Second(()) => {
-                autonomous_refresh_tick().await;
+                autonomous_refresh_tick(&mut last_perception).await;
             }
         }
     }
@@ -140,19 +138,50 @@ async fn dispatch_ui_event(event: UiEvent) {
     }
 }
 
-/// 15 Hz tick: re-render when in autonomous mode if perception state changed.
-async fn autonomous_refresh_tick() {
-    let mode = {
+/// Perception values relevant to the autonomous running display.
+struct LastPerceptionState {
+    /// Whether the IR sensor reports an obstacle.
+    ir_detected: bool,
+    /// Whether any sensor reports an obstacle.
+    obstacle_detected: bool,
+    /// Latest ultrasonic distance reading, if available.
+    ultrasonic_reading: Option<UltrasonicReading>,
+    /// Latest ultrasonic servo angle, if available.
+    ultrasonic_angle: Option<f32>,
+}
+
+/// 15 Hz tick: re-render the autonomous screen only when displayed perception values change.
+async fn autonomous_refresh_tick(last: &mut Option<LastPerceptionState>) {
+    let snapshot = {
         let ui = UI_STATE.lock().await;
-        ui.mode
+        *ui
     };
 
-    if matches!(mode, UiMode::RunningAutonomous { .. }) {
-        let ui = UI_STATE.lock().await;
-        let snapshot = *ui;
-        drop(ui);
-        render_current_ui(&snapshot).await;
+    if !matches!(snapshot.mode, UiMode::RunningAutonomous { .. }) {
+        return;
     }
+
+    let ir = perception::is_ir_obstacle_detected();
+    let obs = perception::is_obstacle_detected();
+    let (us_reading, us_angle) = perception::ultrasonic_sweep_snapshot().await;
+
+    if let Some(prev) = last
+        && ir == prev.ir_detected
+        && obs == prev.obstacle_detected
+        && us_reading == prev.ultrasonic_reading
+        && us_angle == prev.ultrasonic_angle
+    {
+        return;
+    }
+
+    *last = Some(LastPerceptionState {
+        ir_detected: ir,
+        obstacle_detected: obs,
+        ultrasonic_reading: us_reading,
+        ultrasonic_angle: us_angle,
+    });
+
+    render_current_ui(&snapshot).await;
 }
 
 // ── Calibration controller ───────────────────────────────────────────────────────
