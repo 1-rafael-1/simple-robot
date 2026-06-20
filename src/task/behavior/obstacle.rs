@@ -8,7 +8,6 @@ use crate::{
         autonomous_mode::coast_obstacle_avoid,
         drive::{InterruptKind, send_drive_interrupt},
         indicators::rgb_led_indicate::update_obstacle_indicator,
-        ui::{self, state::UiMode},
     },
 };
 
@@ -16,14 +15,6 @@ use crate::{
 pub async fn reset_obstacle_state() {
     perception::reset_all().await;
     update_obstacle_indicator(false);
-
-    let ui_mode = {
-        let ui_state = crate::task::ui::state::UI_STATE.lock().await;
-        ui_state.mode
-    };
-    if matches!(ui_mode, UiMode::RunningAutonomous { .. }) {
-        ui::refresh().await;
-    }
 }
 
 /// Handle obstacle detection status changes.
@@ -32,7 +23,7 @@ pub async fn reset_obstacle_state() {
 /// an `EmergencyBrake` interrupt is sent to the drive task so that the active
 /// `DriveDistance` command resolves immediately as `Cancelled`.  The
 /// coast-and-avoid loop will then run its avoidance maneuver and resume.
-pub async fn handle_obstacle_detected(source: ObstacleSource, detected: bool) {
+pub fn handle_obstacle_detected(source: ObstacleSource, detected: bool) {
     info!(
         "Obstacle detection status changed: source={:?} detected={}",
         source, detected
@@ -51,14 +42,6 @@ pub async fn handle_obstacle_detected(source: ObstacleSource, detected: bool) {
 
     if change != perception::ChangeDetected::NoChange {
         update_obstacle_indicator(combined);
-
-        let ui_mode = {
-            let ui_state = crate::task::ui::state::UI_STATE.lock().await;
-            ui_state.mode
-        };
-        if matches!(ui_mode, UiMode::RunningAutonomous { .. }) {
-            ui::refresh().await;
-        }
     }
 }
 

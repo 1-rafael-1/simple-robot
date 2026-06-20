@@ -136,7 +136,7 @@ pub async fn render_ultrasonic_sweep_test_running() {
 /// Render the autonomous drive mode running screen.
 pub async fn render_autonomous_running(mode: DriveMode) {
     let ir_detected = perception::is_ir_obstacle_detected();
-    let ultrasonic_reading = perception::ultrasonic_reading_copy().await;
+    let (ultrasonic_reading, ultrasonic_angle) = perception::ultrasonic_sweep_snapshot().await;
     let obstacle_detected = perception::is_obstacle_detected();
 
     let mode_label = match mode {
@@ -149,17 +149,17 @@ pub async fn render_autonomous_running(mode: DriveMode) {
     let ir_label = if ir_detected { "IR: detect" } else { "IR: clear" };
     let _ = rows[1].push_str(ir_label);
 
-    match ultrasonic_reading {
-        Some(UltrasonicReading::Distance(cm)) => {
-            let _ = core::fmt::write(&mut rows[2], format_args!("US:{cm:>5.1}cm"));
+    match (ultrasonic_reading, ultrasonic_angle) {
+        (Some(UltrasonicReading::Distance(cm)), Some(a)) => {
+            let _ = core::fmt::write(&mut rows[2], format_args!("US:{cm:>5.1}cm @{a:>3.0}"));
         }
-        Some(UltrasonicReading::Timeout) => {
-            let _ = rows[2].push_str("US: timeout");
+        (Some(UltrasonicReading::Timeout), Some(a)) => {
+            let _ = core::fmt::write(&mut rows[2], format_args!("US:timeout @{a:>3.0}"));
         }
-        Some(UltrasonicReading::Error) => {
+        (Some(UltrasonicReading::Error), _) => {
             let _ = rows[2].push_str("US: error");
         }
-        None => {
+        _ => {
             let _ = rows[2].push_str("US: ----");
         }
     }

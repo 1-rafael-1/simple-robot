@@ -13,7 +13,7 @@ use crate::{
         io::{display, flash_storage},
         motor_driver,
         sensors::imu,
-        ui,
+        ui::{self, UiEvent},
     },
 };
 
@@ -156,7 +156,7 @@ pub async fn handle_imu_calibration_flags_loaded(flags: Option<flash_storage::Im
     }
 
     if ui::ui_initialized().await {
-        ui::refresh().await;
+        ui::send_ui_event(UiEvent::ShowMainMenu).await;
     }
 
     check_initialization_complete().await;
@@ -178,7 +178,7 @@ async fn check_initialization_complete() {
     };
 
     if should_show_menu && !ui::ui_is_calibrating().await {
-        ui::show_main_menu().await;
+        ui::send_ui_event(UiEvent::ShowMainMenu).await;
     }
 }
 

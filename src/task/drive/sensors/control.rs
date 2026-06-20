@@ -20,25 +20,22 @@
 //! *receives* their output. Together they form the full sensor infrastructure
 //! used by the drive task.
 
-use crate::{
-    system::event::{Events, raise_event},
-    task::{
-        drive::types,
-        sensors::{
-            encoders::{self as encoder_read},
-            imu::{self, DEFAULT_FUSION_MODE},
-        },
+use crate::task::{
+    drive::types,
+    sensors::{
+        encoders::{self as encoder_read},
+        imu::{self, DEFAULT_FUSION_MODE},
     },
 };
 
 /// Start IMU streaming for rotation intents.
-pub async fn start_rotation_imu() {
-    raise_event(Events::StartStopMotionDataCollection(true)).await;
+pub fn start_rotation_imu() {
+    imu::start_imu_readings();
 }
 
 /// Stop IMU streaming for rotation intents.
-pub async fn stop_rotation_imu() {
-    raise_event(Events::StartStopMotionDataCollection(false)).await;
+pub fn stop_rotation_imu() {
+    imu::stop_imu_readings();
 }
 
 /// Start IMU streaming for all distance drive intents.
@@ -46,14 +43,14 @@ pub async fn stop_rotation_imu() {
 /// IMU feedback is used for heading correction on straight drives and
 /// yaw-based curve correction on arc drives. The DMP fusion mode is set
 /// to the system default (6-axis gyro + accel) before streaming begins.
-pub async fn start_distance_imu(_kind: &types::DriveDistanceKind) {
+pub fn start_distance_imu(_kind: &types::DriveDistanceKind) {
     imu::set_dmp_fusion_mode(DEFAULT_FUSION_MODE);
-    raise_event(Events::StartStopMotionDataCollection(true)).await;
+    imu::start_imu_readings();
 }
 
 /// Stop IMU streaming for all distance drive intents.
-pub async fn stop_distance_imu(_kind: &types::DriveDistanceKind) {
-    raise_event(Events::StartStopMotionDataCollection(false)).await;
+pub fn stop_distance_imu(_kind: &types::DriveDistanceKind) {
+    imu::stop_imu_readings();
 }
 
 /// Start encoder sampling for distance intents.

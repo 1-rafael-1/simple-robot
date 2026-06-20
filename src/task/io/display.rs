@@ -54,7 +54,8 @@ pub enum TextStyle {
 
 /// Display actions that can be requested by other tasks
 pub enum DisplayAction {
-    /// Show a sensor sweep pattern with distance (cm) and angle (degrees)
+    /// Show a sensor sweep pattern with distance (cm) and angle (degrees) —
+    /// draws the radar arc, sweep line, and accumulated detection points.
     ShowSweep(Option<f64>, f32),
     /// Show a text message on the display (bold)
     ShowText(String<20>, u8),

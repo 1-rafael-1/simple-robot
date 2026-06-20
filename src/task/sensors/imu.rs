@@ -9,7 +9,8 @@
 //! The module operates in two states:
 //! 1. Standby — not reading
 //! 2. Active — DMP FIFO is polled every `POLL_INTERVAL`; each packet that contains
-//!    a quaternion raises an `ImuMeasurementTaken` event and updates shared state.
+//!    a quaternion updates shared state and forwards the measurement to the
+//!    drive task via `try_send_imu_measurement`.
 //!
 //! # Fusion modes
 //!
@@ -60,10 +61,7 @@ use nalgebra::Vector3;
 
 use crate::{
     I2cBusShared,
-    system::{
-        event::{Events, raise_event},
-        state::motion,
-    },
+    system::state::motion,
     task::{drive, io::flash_storage},
 };
 
@@ -643,7 +641,11 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
                                             }
                                         }
 
-                                        raise_event(Events::ImuMeasurementTaken(measurement)).await;
+                                        // Forward to the drive task's IMU feedback channel (capacity 16).
+                                        // The rotation control loop drains it each ~10 ms; dropping a
+                                        // 50 Hz sample when the channel is full is lossy but harmless —
+                                        // the next sample arrives in 20 ms.
+                                        let _ = drive::try_send_imu_measurement(measurement);
                                     } else {
                                         // Packet present but no quaternion yet (DMP warming up).
                                         update_statics_from_dmp(&packet, None, current_calibration.as_ref()).await;

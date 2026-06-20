@@ -8,7 +8,7 @@
 //!
 //! The encoder task operates independently from motor control:
 //! - **Sensing**: Reads encoder pulse counts at configurable intervals
-//! - **Events**: Publishes measurements via the event system
+//! - **Data channel**: Publishes measurements directly to the drive task via `try_send_encoder_measurement`
 //! - **Commands**: Accepts control commands (start/stop/reset)
 //! - **Power Management**: Can be stopped when not needed
 //!
@@ -67,7 +67,7 @@ use embassy_rp::pwm::Pwm;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Timer};
 
-use crate::system::event::{Events, raise_event};
+use crate::task::drive;
 
 /// Commands for encoder reading control
 #[derive(Debug, Clone, Copy)]
@@ -223,7 +223,9 @@ pub async fn encoder_read(
                 // No command, wait for sampling interval
                 timeout.await;
                 let measurement = encoders.read_all();
-                raise_event(Events::EncoderMeasurementTaken(measurement)).await;
+                // The drive task holds the encoder mutex only during calibration;
+                // dropping a reading then is benign — the drive loop isn't consuming them.
+                let _ = drive::try_send_encoder_measurement(measurement);
             }
         } else {
             // Not sampling, wait for start command

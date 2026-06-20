@@ -154,9 +154,11 @@ pub async fn reset_all() {
     state.obstacle_threshold_cm = DEFAULT_OBSTACLE_THRESHOLD_CM;
 }
 
-/// Return a copy of the latest ultrasonic reading, if any.
-pub async fn ultrasonic_reading_copy() -> Option<UltrasonicReading> {
-    STATE.lock().await.ultrasonic_reading
+/// Return the latest ultrasonic reading and servo angle from a single lock
+/// acquisition, so the two values are from the same measurement.
+pub async fn ultrasonic_sweep_snapshot() -> (Option<UltrasonicReading>, Option<f32>) {
+    let state = STATE.lock().await;
+    (state.ultrasonic_reading, state.ultrasonic_angle_deg)
 }
 
 /// Override the obstacle detection distance threshold (cm).

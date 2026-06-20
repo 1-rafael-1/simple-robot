@@ -70,7 +70,7 @@ async fn ir_ultrasonic_test_task() {
                 }
 
                 let ir_detected = crate::system::state::perception::is_ir_obstacle_detected();
-                let reading = crate::system::state::perception::ultrasonic_reading_copy().await;
+                let (reading, angle) = crate::system::state::perception::ultrasonic_sweep_snapshot().await;
 
                 let header = {
                     let mut s: String<20> = String::new();
@@ -86,17 +86,17 @@ async fn ir_ultrasonic_test_task() {
 
                 let line2 = {
                     let mut s: String<20> = String::new();
-                    match reading {
-                        Some(crate::system::event::UltrasonicReading::Distance(cm)) => {
-                            let _ = core::fmt::write(&mut s, format_args!("US: {cm:>6.1} cm"));
+                    match (reading, angle) {
+                        (Some(crate::system::event::UltrasonicReading::Distance(cm)), Some(a)) => {
+                            let _ = core::fmt::write(&mut s, format_args!("US:{cm:>5.1}cm @{a:>3.0}"));
                         }
-                        Some(crate::system::event::UltrasonicReading::Timeout) => {
-                            let _ = s.push_str("US: timeout");
+                        (Some(crate::system::event::UltrasonicReading::Timeout), Some(a)) => {
+                            let _ = core::fmt::write(&mut s, format_args!("US:timeout @{a:>3.0}"));
                         }
-                        Some(crate::system::event::UltrasonicReading::Error) => {
+                        (Some(crate::system::event::UltrasonicReading::Error), _) => {
                             let _ = s.push_str("US: error");
                         }
-                        None => {
+                        _ => {
                             let _ = s.push_str("US: ---- cm");
                         }
                     }

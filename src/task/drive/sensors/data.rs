@@ -2,8 +2,8 @@
 //!
 //! This module owns all static sensor data channels and the functions that
 //! write into or read from them. It is the *data plane* of the sensor
-//! infrastructure: measurements flow in from sensor tasks (via the orchestrator)
-//! and are stored here so that drive control loops can read them on demand.
+//! infrastructure: measurements flow in directly from sensor tasks and are
+//! stored here so that drive control loops can read them on demand.
 //!
 //! # Channel design
 //!

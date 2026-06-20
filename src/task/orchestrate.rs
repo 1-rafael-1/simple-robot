@@ -13,7 +13,10 @@ use defmt::info;
 
 use crate::{
     system::event::{Events, wait},
-    task::{behavior, initialization, ui},
+    task::{
+        behavior, initialization,
+        ui::{self, UiEvent},
+    },
 };
 
 /// Main coordination task that implements the system's event loop.
@@ -34,30 +37,19 @@ async fn handle_event(event: Events) {
         Events::CalibrationDataLoaded(kind, data) => initialization::handle_calibration_data_loaded(kind, data).await,
         Events::ImuCalibrationFlagsLoaded(flags) => initialization::handle_imu_calibration_flags_loaded(flags).await,
         Events::ObstacleDetected { source, detected } => {
-            behavior::obstacle::handle_obstacle_detected(source, detected).await;
+            behavior::obstacle::handle_obstacle_detected(source, detected);
         }
         Events::ObstacleAvoidanceAttempted => behavior::obstacle::handle_obstacle_avoidance_attempted().await,
         Events::BatteryMeasured { level, voltage } => behavior::battery::handle_battery_measured(level, voltage).await,
         Events::RCButtonPressed(button_id) => behavior::input::handle_button_pressed(button_id).await,
         Events::ButtonHoldStart(button_id) => behavior::input::handle_button_hold_start(button_id).await,
         Events::ButtonHoldEnd(button_id) => behavior::input::handle_button_hold_end(button_id).await,
-        Events::RotaryTurned(direction) => ui::handle_rotary_turned(direction).await,
-        Events::RotaryButtonPressed => ui::handle_rotary_button_pressed().await,
-        Events::RotaryButtonHoldStart => ui::handle_rotary_button_hold_start().await,
-        Events::RotaryButtonHoldEnd => ui::handle_rotary_button_hold_end(),
-        Events::TestingCompleted => ui::handle_testing_completed().await,
-        Events::EncoderMeasurementTaken(measurement) => {
-            behavior::sensor_events::handle_encoder_measurement(measurement);
-        }
-        Events::UltrasonicSweepReadingTaken(reading, angle) => {
-            behavior::sensor_events::handle_ultrasonic_sweep_reading(reading, angle).await;
-        }
-        Events::ImuMeasurementTaken(measurement) => {
-            behavior::sensor_events::handle_imu_measurement(measurement);
-        }
-
-        Events::StartStopMotionDataCollection(start) => behavior::motion::handle_start_stop_motion_data(start),
-        Events::CalibrationCompleted => ui::handle_calibration_completed().await,
+        Events::RotaryTurned(direction) => ui::send_ui_event(UiEvent::RotaryTurned(direction)).await,
+        Events::RotaryButtonPressed => ui::send_ui_event(UiEvent::RotaryButtonPressed).await,
+        Events::RotaryButtonHoldStart => ui::send_ui_event(UiEvent::RotaryButtonHoldStart).await,
+        Events::RotaryButtonHoldEnd => ui::send_ui_event(UiEvent::RotaryButtonHoldEnd).await,
+        Events::TestingCompleted => ui::send_ui_event(UiEvent::TestingCompleted).await,
+        Events::CalibrationCompleted => ui::send_ui_event(UiEvent::CalibrationCompleted).await,
         Events::CalibrationStatus {
             header,
             line1,
