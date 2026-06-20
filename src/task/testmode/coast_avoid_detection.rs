@@ -3,7 +3,8 @@
 //! Spawned on demand, this test mirrors the exact sensor configuration and
 //! perception-state reads that coast-avoid uses during the forward-drive phase.
 //! It lets you verify that IR→perception→combined→would-trigger-EmergencyBrake
-//! works while the robot is stationary (no motor PWM noise).
+//! works while the robot is held stationary, with motors running to reproduce
+//! PWM noise conditions.
 //!
 //! If IR detection works here but not during actual coast-avoid driving, the
 //! culprit is almost certainly electrical noise from the motors coupling into
