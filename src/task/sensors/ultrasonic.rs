@@ -6,7 +6,7 @@
 
 use core::time::Duration;
 
-use defmt::{error, info};
+use defmt::{debug, error, info};
 use defmt_rtt as _;
 use embassy_futures::select::{Either, select};
 use embassy_rp::{
