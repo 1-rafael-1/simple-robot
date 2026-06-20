@@ -39,7 +39,7 @@ pub mod screens;
 pub mod state;
 
 use menu::{calibration_selection_from_index, menu_selection_from_index, next_menu_index, test_selection_from_index};
-use render::{render_current_ui, show_line};
+use render::{render_autonomous_running_from_values, render_current_ui, show_line};
 use state::{UI_STATE, UiMode, UiState};
 
 // ── UI event channel ────────────────────────────────────────────────────────────
@@ -64,23 +64,12 @@ pub enum UiEvent {
 }
 
 /// Channel carrying [`UiEvent`]s into the UI controller task.
-/// Capacity 8 should be sufficient for human-timescale rotary input and lifecycle events.
-static UI_EVENT_CHANNEL: Channel<CriticalSectionRawMutex, UiEvent, 8> = Channel::new();
+/// Capacity 64 ensures the orchestrator never blocks on UI delivery.
+static UI_EVENT_CHANNEL: Channel<CriticalSectionRawMutex, UiEvent, 64> = Channel::new();
 
-/// Send an event to the UI controller task, waiting if the channel is full.
-///
-/// Use only outside the orchestrator's event loop (e.g. during initialisation)
-/// to avoid back-pressuring the system event channel.
+/// Send an event to the UI controller task.
 pub async fn send_ui_event(event: UiEvent) {
     UI_EVENT_CHANNEL.sender().send(event).await;
-}
-
-/// Try to send an event to the UI controller task without blocking.
-///
-/// Silently drops the event if the channel is full.
-/// Use this from the orchestrator so the system event loop never stalls on UI delivery.
-pub fn try_send_ui_event(event: UiEvent) {
-    let _ = UI_EVENT_CHANNEL.sender().try_send(event);
 }
 
 /// 15 Hz refresh interval for autonomous-mode re-rendering (ms).
@@ -192,7 +181,11 @@ async fn autonomous_refresh_tick(last: &mut Option<LastPerceptionState>) {
         ultrasonic_angle: us_angle,
     });
 
-    render_current_ui(&snapshot).await;
+    // Extract mode from snapshot — we already confirmed RunningAutonomous above.
+    let UiMode::RunningAutonomous { mode } = snapshot.mode else {
+        return;
+    };
+    render_autonomous_running_from_values(mode, ir, obs, us_reading, us_angle).await;
 }
 
 // ── Calibration controller ───────────────────────────────────────────────────────

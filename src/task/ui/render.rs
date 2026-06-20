@@ -138,7 +138,27 @@ pub async fn render_autonomous_running(mode: DriveMode) {
     let ir_detected = perception::is_ir_obstacle_detected();
     let (ultrasonic_reading, ultrasonic_angle) = perception::ultrasonic_sweep_snapshot().await;
     let obstacle_detected = perception::is_obstacle_detected();
+    render_autonomous_running_from_values(
+        mode,
+        ir_detected,
+        obstacle_detected,
+        ultrasonic_reading,
+        ultrasonic_angle,
+    )
+    .await;
+}
 
+/// Render the autonomous screen from pre-fetched perception values.
+///
+/// Avoids re-reading perception so the caller can guarantee the rendered
+/// values match its cached state for change detection.
+pub async fn render_autonomous_running_from_values(
+    mode: DriveMode,
+    ir_detected: bool,
+    obstacle_detected: bool,
+    ultrasonic_reading: Option<UltrasonicReading>,
+    ultrasonic_angle: Option<f32>,
+) {
     let mode_label = match mode {
         DriveMode::CoastAndAvoid => "Coast & Avoid",
     };
