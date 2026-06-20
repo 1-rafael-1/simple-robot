@@ -47,6 +47,7 @@ pub const fn test_selection_from_index(index: usize) -> Option<TestSelection> {
         5 => Some(TestSelection::BasicMotor),
         6 => Some(TestSelection::IrUltrasonic),
         7 => Some(TestSelection::UltrasonicSweep),
+        8 => Some(TestSelection::CoastAvoidDetection),
         _ => None,
     }
 }

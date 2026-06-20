@@ -288,7 +288,7 @@
       "internal_id": "",
       "mfg": "",
       "mpn": "",
-      "sch_revision": ""
+      "sch_revision": "6"
     },
     "layer_pairs": [],
     "layer_presets": [],
@@ -799,7 +799,7 @@
       {
         "filename": "simple-robot.kicad_sch",
         "name": "simple-robot",
-        "uuid": "00000000-0000-0000-0000-000000000000"
+        "uuid": "bab01379-5d77-437e-95b1-5e737eb23384"
       }
     ],
     "used_designators": "",
@@ -808,7 +808,7 @@
   "sheets": [
     [
       "bab01379-5d77-437e-95b1-5e737eb23384",
-      "Root"
+      "simple-robot"
     ]
   ],
   "text_variables": {},

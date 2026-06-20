@@ -9,6 +9,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 
 pub mod arc_drive;
 pub mod basic_motor;
+pub mod coast_avoid_detection;
 pub mod imu_6axis;
 pub mod imu_9axis;
 pub mod ir_ultrasonic;
@@ -18,6 +19,7 @@ pub mod ultrasonic_sweep;
 
 pub use arc_drive::start_arc_drive_test;
 pub use basic_motor::{start_basic_motor_test_mode, stop_basic_motor_test_mode};
+pub use coast_avoid_detection::{start_coast_avoid_detection_test, stop_coast_avoid_detection_test};
 pub use imu_6axis::{start_imu6_test_mode, stop_imu6_test_mode};
 pub use imu_9axis::{start_imu_test_mode, stop_imu_test_mode};
 pub use ir_ultrasonic::{start_ir_ultrasonic_test_mode, stop_ir_ultrasonic_test_mode};
@@ -44,6 +46,8 @@ pub(super) enum TestCommand {
     UltrasonicSweep,
     /// Spawn the basic motor test.
     BasicMotor,
+    /// Spawn the coast-avoid obstacle-detection event-chain test.
+    CoastAvoidDetection,
 }
 
 /// Tracks whether any testmode is currently active.
@@ -90,6 +94,7 @@ async fn testmode_controller(spawner: Spawner) {
             TestCommand::IrUltrasonic => ir_ultrasonic::spawn(spawner),
             TestCommand::UltrasonicSweep => ultrasonic_sweep::spawn(spawner),
             TestCommand::BasicMotor => basic_motor::spawn(spawner),
+            TestCommand::CoastAvoidDetection => coast_avoid_detection::spawn(spawner),
         }
     }
 }

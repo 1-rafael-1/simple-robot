@@ -22,7 +22,7 @@ use crate::system::event::{Events, ObstacleSource, raise_event};
 const DEBOUNCE_DELAY: Duration = Duration::from_millis(100);
 
 /// Channel used by the port expander to signal IR state changes
-static IR_SIGNAL_CHANNEL: Channel<CriticalSectionRawMutex, bool, 4> = Channel::new();
+static IR_SIGNAL_CHANNEL: Channel<CriticalSectionRawMutex, bool, 16> = Channel::new();
 
 /// Signal IR obstacle state changes from the port expander task
 pub async fn signal_ir_obstacle(state: bool) {

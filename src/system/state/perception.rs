@@ -31,9 +31,9 @@ static COMBINED_DETECTED: AtomicBool = AtomicBool::new(false);
 /// Default obstacle distance threshold (cm). Used by `set_ultrasonic_reading` to
 /// auto-detect obstacles from raw distance readings.
 ///
-/// Matches the ultrasonic sensor task's `ULTRASONIC_OBSTACLE_THRESHOLD_CM` (15 cm)
+/// Matches the ultrasonic sensor task's `ULTRASONIC_OBSTACLE_THRESHOLD_CM` (20 cm)
 /// so lock-free readers see the same obstacle state the event system produces.
-const DEFAULT_OBSTACLE_THRESHOLD_CM: f64 = 15.0;
+const DEFAULT_OBSTACLE_THRESHOLD_CM: f64 = 20.0;
 
 /// Mutex-guarded state holding ultrasonic readings and threshold.
 static STATE: Mutex<CriticalSectionRawMutex, PerceptionState> = Mutex::new(PerceptionState {
