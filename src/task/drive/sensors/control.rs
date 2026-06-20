@@ -1,7 +1,7 @@
 //! Sensor lifecycle helpers for drive intents.
 //!
 //! This module is the *control plane* of the sensor infrastructure: it issues
-//! commands to sensor tasks (raise system events, send encoder commands) to
+//! commands to sensor tasks (start/stop IMU streaming, send encoder commands) to
 //! start and stop IMU and encoder sampling as required by each drive intent.
 //!
 //! # Lifecycle rules

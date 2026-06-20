@@ -12,7 +12,7 @@
 //! # Channel Design
 //! - Multi-producer: Any task can send events
 //! - Single-consumer: Orchestrator task processes all events
-//! - Bounded capacity: 10 events maximum to prevent memory exhaustion
+//! - Bounded capacity: 64 events maximum to prevent memory exhaustion
 //! - Async operation: Non-blocking event handling
 //!
 //! # Usage Example

@@ -643,8 +643,8 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
 
                                         // Forward to the drive task's IMU feedback channel (capacity 16).
                                         // The rotation control loop drains it each ~10 ms; dropping a
-                                        // 50 Hz sample when the channel is full is lossy but harmless —
-                                        // the next sample arrives in 20 ms.
+                                        // 100 Hz sample when the channel is full is lossy but harmless —
+                                        // the next sample arrives in 10 ms.
                                         let _ = drive::try_send_imu_measurement(measurement);
                                     } else {
                                         // Packet present but no quaternion yet (DMP warming up).

@@ -4,14 +4,14 @@
 //!
 //! # Architecture
 //!
-//! A single [`ui_controller_task`] owns all UI rendering. It selects over two sources:
+//! The [`ui_controller_task`] owns most UI rendering. It selects over two sources:
 //! 1. **`UiEvent` channel** — rotary encoder input, lifecycle events (testing/calibration
 //!    completed, show-main-menu requests). Sent by the orchestrator and initialization.
 //! 2. **15 Hz timer** — drives autonomous-mode refresh by reading perception state
 //!    and re-rendering only when the displayed values change.
 //!
-//! Test modes spawn their own display tasks (following the IMU test pattern) and do not
-//! route through this controller.
+//! Test modes and calibration flows spawn their own display tasks and render
+//! directly, bypassing the controller.
 
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
