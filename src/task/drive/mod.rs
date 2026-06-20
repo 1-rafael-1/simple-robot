@@ -56,7 +56,7 @@
 //! # Data Flow
 //!
 //! - Commands are sent by orchestrator or other tasks.
-//! - Sensor feedback is forwarded by orchestrator into dedicated channels.
+//! - Sensor feedback flows directly from sensor tasks into dedicated channels.
 //! - Motor commands are issued to `motor_driver`.
 //!
 //! This task does NOT consume the system event channel. Forwarding avoids
@@ -141,8 +141,8 @@ pub use types::{
 ///
 /// This is a high-level control task that:
 /// - Receives drive commands via queue.
-/// - Receives encoder feedback via channel (from orchestrator).
-/// - Receives IMU feedback via channel (from orchestrator); orientation is calibrated when the IMU task has loaded calibration data.
+/// - Receives encoder feedback via channel (from encoder task).
+/// - Receives IMU feedback via channel (from IMU task); orientation is calibrated when the IMU task has loaded calibration data.
 /// - Receives interrupts via signal.
 /// - Sends motor commands to the `motor_driver` task.
 /// - Coordinates calibration procedures.

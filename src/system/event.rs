@@ -18,10 +18,10 @@
 //! # Usage Example
 //! ```rust
 //! // Sending an event
-//! event::send(Events::ButtonPressed(ButtonId::A)).await;
+//! raise_event(Events::RCButtonPressed(RCButtonId::A)).await;
 //!
 //! // Receiving an event (in orchestrator)
-//! let event = event::wait().await;
+//! let event = wait().await;
 //! ```
 
 use defmt::Format;

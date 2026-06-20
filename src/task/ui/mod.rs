@@ -64,12 +64,23 @@ pub enum UiEvent {
 }
 
 /// Channel carrying [`UiEvent`]s into the UI controller task.
-/// Capacity 4 is sufficient for human-timescale rotary input and lifecycle events.
-static UI_EVENT_CHANNEL: Channel<CriticalSectionRawMutex, UiEvent, 4> = Channel::new();
+/// Capacity 8 should be sufficient for human-timescale rotary input and lifecycle events.
+static UI_EVENT_CHANNEL: Channel<CriticalSectionRawMutex, UiEvent, 8> = Channel::new();
 
-/// Send an event to the UI controller task (async to avoid dropping).
+/// Send an event to the UI controller task, waiting if the channel is full.
+///
+/// Use only outside the orchestrator's event loop (e.g. during initialisation)
+/// to avoid back-pressuring the system event channel.
 pub async fn send_ui_event(event: UiEvent) {
     UI_EVENT_CHANNEL.sender().send(event).await;
+}
+
+/// Try to send an event to the UI controller task without blocking.
+///
+/// Silently drops the event if the channel is full.
+/// Use this from the orchestrator so the system event loop never stalls on UI delivery.
+pub fn try_send_ui_event(event: UiEvent) {
+    let _ = UI_EVENT_CHANNEL.sender().try_send(event);
 }
 
 /// 15 Hz refresh interval for autonomous-mode re-rendering (ms).
