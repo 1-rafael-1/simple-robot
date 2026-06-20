@@ -6,7 +6,7 @@
 
 use core::time::Duration;
 
-use defmt::{error, info};
+use defmt::{debug, error, info};
 use defmt_rtt as _;
 use embassy_futures::select::{Either, select};
 use embassy_rp::{
@@ -20,7 +20,10 @@ use hcsr04_async::{Config, DistanceUnit, Hcsr04, Now, TemperatureUnit};
 use moving_median::MovingMedian;
 use panic_probe as _;
 
-use crate::system::event::{Events, ObstacleSource, UltrasonicReading, raise_event};
+use crate::system::{
+    event::{Events, ObstacleSource, UltrasonicReading, raise_event},
+    state::perception,
+};
 
 /// Commands for ultrasonic sweep control
 enum UltrasonicSweepCommand {
@@ -422,7 +425,7 @@ pub async fn ultrasonic_sweep(
                         error!("{}", e);
                     }
                     Err(_) => {
-                        info!("Ultrasonic measurement timed out");
+                        debug!("Ultrasonic measurement timed out");
                     }
                 }
             }
@@ -453,8 +456,8 @@ pub async fn ultrasonic_sweep(
                 }
             }
 
-            // Send reading event to orchestration task
-            raise_event(Events::UltrasonicSweepReadingTaken(reading, measurement_angle)).await;
+            // Update perception state directly — the UI poll loop reads from here.
+            perception::set_ultrasonic_reading(Some(reading), measurement_angle).await;
 
             // Update angle and check for direction change
             if sweeping {

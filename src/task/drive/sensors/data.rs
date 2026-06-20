@@ -2,15 +2,15 @@
 //!
 //! This module owns all static sensor data channels and the functions that
 //! write into or read from them. It is the *data plane* of the sensor
-//! infrastructure: measurements flow in from sensor tasks (via the orchestrator)
-//! and are stored here so that drive control loops can read them on demand.
+//! infrastructure: measurements flow in directly from sensor tasks and are
+//! stored here so that drive control loops can read them on demand.
 //!
 //! # Channel design
 //!
 //! - **Encoder measurements** are stored in a mutex-guarded `Option` so the
 //!   drive task always reads the latest value rather than draining a queue.
 //! - **IMU measurements** are queued (capacity 16) to buffer bursts during
-//!   calibration sequences at 50 Hz sampling. These measurements carry
+//!   calibration sequences at 100 Hz sampling. These measurements carry
 //!   calibrated orientation when the IMU task has loaded calibration data.
 //! - **Raw IMU axes** (magnetometer, gyroscope, accelerometer) are stored as
 //!   mutex-guarded `Option`s, written by the IMU task before correction and
@@ -34,14 +34,14 @@ use crate::task::sensors::{encoders::EncoderMeasurement, imu::ImuMeasurement};
 
 /// Latest encoder measurement.
 ///
-/// The orchestrator forwards encoder measurements here. Drive control loops
+/// The encoder task forwards measurements here. Drive control loops
 /// read the latest value on demand rather than draining a queue, ensuring
 /// they always see fresh data even if they miss intermediate samples.
 pub static LATEST_ENCODER_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<EncoderMeasurement>> = Mutex::new(None);
 
-/// Channel for receiving IMU measurements from the orchestrator.
+/// Channel for receiving IMU measurements from the IMU task.
 ///
-/// Capacity of 16 buffers bursts during calibration sequences at 50 Hz
+/// Capacity of 16 buffers bursts during calibration sequences at 100 Hz
 /// sampling. The rotation control loop drains this channel each tick.
 const IMU_FEEDBACK_QUEUE_SIZE: usize = 16;
 
@@ -56,12 +56,12 @@ pub static IMU_FEEDBACK_CHANNEL: Channel<CriticalSectionRawMutex, ImuMeasurement
 /// calibration routine to measure motor-interference effects.
 pub static LATEST_MAG_MEASUREMENT: Mutex<CriticalSectionRawMutex, Option<Vector3<f32>>> = Mutex::new(None);
 
-// ── Public write functions (called by orchestrator / IMU task) ────────────────
+// ── Public write functions (called by encoder / IMU task) ────────────────
 
 /// Try to update the latest encoder measurement without blocking.
 ///
 /// Returns `true` if the update succeeded, `false` if the mutex is currently
-/// held by the drive task. Used by the orchestrator to avoid blocking when
+/// held by the drive task. Used by the encoder task to avoid blocking when
 /// the drive task holds the mutex during calibration.
 pub fn try_send_encoder_measurement(measurement: EncoderMeasurement) -> bool {
     LATEST_ENCODER_MEASUREMENT.try_lock().is_ok_and(|mut latest| {
@@ -73,7 +73,7 @@ pub fn try_send_encoder_measurement(measurement: EncoderMeasurement) -> bool {
 /// Try to send an IMU measurement to the drive task without blocking.
 ///
 /// Returns `true` if sent, `false` if the channel is full. Used by the
-/// orchestrator to avoid blocking; IMU measurements arrive at 50 Hz so
+/// IMU task to avoid blocking; IMU measurements arrive at 100 Hz so
 /// dropping occasional readings during heavy load is acceptable. The
 /// orientation data is calibrated when the IMU task has loaded calibration.
 pub fn try_send_imu_measurement(measurement: ImuMeasurement) -> bool {
@@ -144,7 +144,7 @@ pub async fn clear_mag_measurement() {
 /// Measure the average magnetometer reading over `samples` samples.
 ///
 /// Used during IMU calibration to obtain a stable baseline and to measure
-/// motor-interference effects. Waits for fresh data at ~50 Hz.
+/// motor-interference effects. Waits for fresh data at ~100 Hz.
 pub async fn measure_mag_average(samples: u16) -> Vector3<f32> {
     let mut sum = Vector3::<f64>::new(0.0, 0.0, 0.0);
     let mut count = 0u16;

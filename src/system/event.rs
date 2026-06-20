@@ -12,32 +12,29 @@
 //! # Channel Design
 //! - Multi-producer: Any task can send events
 //! - Single-consumer: Orchestrator task processes all events
-//! - Bounded capacity: 10 events maximum to prevent memory exhaustion
+//! - Bounded capacity: 64 events maximum to prevent memory exhaustion
 //! - Async operation: Non-blocking event handling
 //!
 //! # Usage Example
 //! ```rust
 //! // Sending an event
-//! event::send(Events::ButtonPressed(ButtonId::A)).await;
+//! raise_event(Events::RCButtonPressed(RCButtonId::A)).await;
 //!
 //! // Receiving an event (in orchestrator)
-//! let event = event::wait().await;
+//! let event = wait().await;
 //! ```
 
 use defmt::Format;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
-use crate::task::{
-    io::flash_storage,
-    sensors::{encoders::EncoderMeasurement, imu::ImuMeasurement},
-};
+use crate::task::io::flash_storage;
 
 /// Multi-producer, single-consumer event channel
 ///
-/// Capacity of 10 events provides good balance between:
-/// - Memory usage
-/// - Event processing latency
-/// - System responsiveness
+/// Capacity of 64 events provides headroom for multiple producers raising
+/// events concurrently (e.g. button presses arriving while calibration
+/// status updates are still in flight). The orchestrator drains the channel
+/// sequentially, so the queue only grows during transient bursts.
 pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Events, 64> = Channel::new();
 
 /// Sends an event to the system channel
@@ -145,30 +142,11 @@ pub enum Events {
     /// Testing sequence finished
     TestingCompleted,
 
-    /// Encoder measurement completed
-    /// - Contains latest pulse counts and timing
-    /// - Used for speed adjustments and calibration
-    EncoderMeasurementTaken(EncoderMeasurement),
-
-    /// Ultrasonic sensor reading received
-    /// - Contains distance measurements and servo angle
-    /// - used for display and obstacle detection
-    /// - TODO: Use for autonomous navigation
-    UltrasonicSweepReadingTaken(UltrasonicReading, f32),
-
-    /// IMU measurement data available
-    /// - Contains orientation and timestamp
-    /// - Used for navigation and stabilization
-    ImuMeasurementTaken(ImuMeasurement),
-
     /// Precise rotation completed
 
     // /// Motion correction needed
     // /// - Signals that the robot needs to correct its current drive settings
     // MotionCorrectionRequired(MotionCorrectionInstruction),
-    /// Start or stop motion data collection
-    /// - Signals that the robot must start or stop motion data collection
-    StartStopMotionDataCollection(bool),
 
     /// Calibration status update
     /// - Triggered during calibration procedures to update display

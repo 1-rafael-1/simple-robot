@@ -1,15 +1,27 @@
 //! UI controller module.
 //!
 //! Owns UI state, user interactions, and view rendering logic.
+//!
+//! # Architecture
+//!
+//! The [`ui_controller_task`] owns most UI rendering. It selects over two sources:
+//! 1. **`UiEvent` channel** — rotary encoder input, lifecycle events (testing/calibration
+//!    completed, show-main-menu requests). Sent by the orchestrator and initialization.
+//! 2. **15 Hz timer** — drives autonomous-mode refresh by reading perception state
+//!    and re-rendering only when the displayed values change.
+//!
+//! Test modes and calibration flows spawn their own display tasks and render
+//! directly, bypassing the controller.
 
 use embassy_executor::Spawner;
+use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Ticker, Timer};
 
 use crate::{
     system::{
-        event::RotaryDirection,
-        state::{CalibrationSelection, DriveMode, TestSelection, calibration},
+        event::{RotaryDirection, UltrasonicReading},
+        state::{CalibrationSelection, DriveMode, TestSelection, calibration, perception},
     },
     task::{
         autonomous_mode, drive,
@@ -27,8 +39,43 @@ pub mod screens;
 pub mod state;
 
 use menu::{calibration_selection_from_index, menu_selection_from_index, next_menu_index, test_selection_from_index};
-use render::{render_current_ui, show_line};
+use render::{render_autonomous_running_from_values, render_current_ui, show_line};
 use state::{UI_STATE, UiMode, UiState};
+
+// ── UI event channel ────────────────────────────────────────────────────────────
+
+/// Events delivered to the UI controller task from the orchestrator and initialisation.
+#[derive(Debug, Clone, Copy)]
+pub enum UiEvent {
+    /// Rotary encoder turned (clockwise / counter-clockwise).
+    RotaryTurned(RotaryDirection),
+    /// Rotary encoder button short press.
+    RotaryButtonPressed,
+    /// Rotary encoder button hold started.
+    RotaryButtonHoldStart,
+    /// Rotary encoder button hold ended.
+    RotaryButtonHoldEnd,
+    /// Testing sequence finished — show main menu.
+    TestingCompleted,
+    /// Calibration procedure finished — enable exit.
+    CalibrationCompleted,
+    /// Request to show the main menu (from initialisation).
+    ShowMainMenu,
+}
+
+/// Channel carrying [`UiEvent`]s into the UI controller task.
+/// Capacity 64 ensures the orchestrator never blocks on UI delivery.
+static UI_EVENT_CHANNEL: Channel<CriticalSectionRawMutex, UiEvent, 64> = Channel::new();
+
+/// Send an event to the UI controller task.
+pub async fn send_ui_event(event: UiEvent) {
+    UI_EVENT_CHANNEL.sender().send(event).await;
+}
+
+/// 15 Hz refresh interval for autonomous-mode re-rendering (ms).
+const AUTONOMOUS_REFRESH_INTERVAL_MS: u64 = 67;
+
+// ── Distance calibration channel ─────────────────────────────────────────────────
 
 /// Channel for requesting distance calibration drive from the controller task.
 static DIST_CAL_CHANNEL: Channel<CriticalSectionRawMutex, (), 1> = Channel::new();
@@ -38,11 +85,110 @@ static DIST_CAL_CHANNEL: Channel<CriticalSectionRawMutex, (), 1> = Channel::new(
 static PREVIOUS_DISTANCE_FACTOR: embassy_sync::mutex::Mutex<CriticalSectionRawMutex, Option<f32>> =
     embassy_sync::mutex::Mutex::new(None);
 
-/// Initialise the UI calibration controller (spawned once at boot).
+/// Initialise the UI (spawns the controller task and calibration controller).
 #[allow(clippy::unwrap_used)]
 pub fn init_ui(spawner: Spawner) {
     spawner.spawn(calibration_controller(spawner).unwrap());
+    spawner.spawn(ui_controller_task().unwrap());
 }
+
+// ── UI controller task ───────────────────────────────────────────────────────────
+
+/// Main UI task — dispatches [`UiEvent`]s and runs the 15 Hz autonomous refresh loop.
+#[embassy_executor::task]
+async fn ui_controller_task() {
+    let mut ticker = Ticker::every(Duration::from_millis(AUTONOMOUS_REFRESH_INTERVAL_MS));
+    let mut last_perception: Option<LastPerceptionState> = None;
+    loop {
+        match select(UI_EVENT_CHANNEL.receiver().receive(), ticker.next()).await {
+            Either::First(event) => {
+                dispatch_ui_event(event).await;
+            }
+            Either::Second(()) => {
+                autonomous_refresh_tick(&mut last_perception).await;
+            }
+        }
+    }
+}
+
+/// Route a [`UiEvent`] to the appropriate handler.
+async fn dispatch_ui_event(event: UiEvent) {
+    match event {
+        UiEvent::RotaryTurned(direction) => {
+            if !ui_initialized().await {
+                return;
+            }
+            handle_rotary_turned(direction).await;
+        }
+        UiEvent::RotaryButtonPressed => {
+            if !ui_initialized().await {
+                return;
+            }
+            handle_rotary_button_pressed().await;
+        }
+        UiEvent::RotaryButtonHoldStart => {
+            if !ui_initialized().await {
+                return;
+            }
+            handle_rotary_button_hold_start().await;
+        }
+        UiEvent::RotaryButtonHoldEnd => handle_rotary_button_hold_end(),
+        UiEvent::TestingCompleted | UiEvent::ShowMainMenu => show_main_menu().await,
+        UiEvent::CalibrationCompleted => handle_calibration_completed().await,
+    }
+}
+
+/// Perception values relevant to the autonomous running display.
+struct LastPerceptionState {
+    /// Whether the IR sensor reports an obstacle.
+    ir_detected: bool,
+    /// Whether any sensor reports an obstacle.
+    obstacle_detected: bool,
+    /// Latest ultrasonic distance reading, if available.
+    ultrasonic_reading: Option<UltrasonicReading>,
+    /// Latest ultrasonic servo angle, if available.
+    ultrasonic_angle: Option<f32>,
+}
+
+/// 15 Hz tick: re-render the autonomous screen only when displayed perception values change.
+async fn autonomous_refresh_tick(last: &mut Option<LastPerceptionState>) {
+    let snapshot = {
+        let ui = UI_STATE.lock().await;
+        *ui
+    };
+
+    if !matches!(snapshot.mode, UiMode::RunningAutonomous { .. }) {
+        return;
+    }
+
+    let ir = perception::is_ir_obstacle_detected();
+    let obs = perception::is_obstacle_detected();
+    let (us_reading, us_angle) = perception::ultrasonic_sweep_snapshot().await;
+
+    if let Some(prev) = last
+        && ir == prev.ir_detected
+        && obs == prev.obstacle_detected
+        && us_reading == prev.ultrasonic_reading
+        && us_angle == prev.ultrasonic_angle
+    {
+        return;
+    }
+
+    *last = Some(LastPerceptionState {
+        ir_detected: ir,
+        obstacle_detected: obs,
+        ultrasonic_reading: us_reading,
+        ultrasonic_angle: us_angle,
+    });
+
+    // Extract mode from snapshot — we already confirmed RunningAutonomous above.
+    let UiMode::RunningAutonomous { mode } = snapshot.mode else {
+        return;
+    };
+    render_autonomous_running_from_values(mode, ir, obs, us_reading, us_angle).await;
+}
+
+// ── Calibration controller ───────────────────────────────────────────────────────
 
 /// Controller task: waits for distance calibration requests and spawns the drive.
 #[embassy_executor::task]
@@ -65,12 +211,10 @@ pub async fn ui_is_calibrating() -> bool {
     matches!(ui.mode, UiMode::Calibrating { .. })
 }
 
-/// Handle rotary encoder turns.
-pub async fn handle_rotary_turned(direction: RotaryDirection) {
-    if !ui_initialized().await {
-        return;
-    }
+// ── Private handlers ─────────────────────────────────────────────────────────────
 
+/// Handle rotary encoder turns.
+async fn handle_rotary_turned(direction: RotaryDirection) {
     let mode = {
         let ui = UI_STATE.lock().await;
         ui.mode
@@ -138,7 +282,6 @@ pub async fn handle_rotary_turned(direction: RotaryDirection) {
                 RotaryDirection::CounterClockwise => (value + 1).min(200),
             };
             let mut ui = UI_STATE.lock().await;
-            // Re-read to avoid TOCTOU — value may have changed.
             if let UiMode::EnteringDistance { value: current } = &mut ui.mode {
                 *current = new_value;
             }
@@ -149,11 +292,7 @@ pub async fn handle_rotary_turned(direction: RotaryDirection) {
 }
 
 /// Handle rotary encoder button press.
-pub async fn handle_rotary_button_pressed() {
-    if !ui_initialized().await {
-        return;
-    }
-
+async fn handle_rotary_button_pressed() {
     let ui_snapshot = {
         let ui = UI_STATE.lock().await;
         *ui
@@ -182,11 +321,7 @@ pub async fn handle_rotary_button_pressed() {
 }
 
 /// Handle rotary encoder button hold start.
-pub async fn handle_rotary_button_hold_start() {
-    if !ui_initialized().await {
-        return;
-    }
-
+async fn handle_rotary_button_hold_start() {
     let mode = {
         let ui = UI_STATE.lock().await;
         ui.mode
@@ -200,23 +335,18 @@ pub async fn handle_rotary_button_hold_start() {
 }
 
 /// Handle rotary encoder button hold end.
-pub const fn handle_rotary_button_hold_end() {
+const fn handle_rotary_button_hold_end() {
     // No-op for now.
 }
 
-/// Handle testing completion by returning to the main menu.
-pub async fn handle_testing_completed() {
-    show_main_menu().await;
-}
-
 /// Handle calibration completion by enabling exit via button press.
-pub async fn handle_calibration_completed() {
+async fn handle_calibration_completed() {
     let mut ui = UI_STATE.lock().await;
     ui.calibration_complete = true;
 }
 
 /// Handle a UI back action based on the current mode.
-pub async fn handle_ui_back() {
+async fn handle_ui_back() {
     let mode = {
         let ui = UI_STATE.lock().await;
         ui.mode
@@ -426,17 +556,9 @@ pub async fn show_main_menu() {
     set_mode(UiMode::MainMenu).await;
 }
 
-/// Refresh the current UI view by re-rendering the latest state.
-pub async fn refresh() {
-    let ui = UI_STATE.lock().await;
-    let snapshot = *ui;
-    drop(ui);
-    render_current_ui(&snapshot).await;
-}
-
 // ── Distance calibration flow ────────────────────────────────────────────────────
 
-/// Handle a button press while the distance entry screen is active.
+/// Handle a button press while entering a distance calibration value.
 async fn handle_distance_entry_press(value: u8) {
     if value == 0 {
         // Cancel — restore the pre-calibration factor and return to main menu.
@@ -472,11 +594,7 @@ async fn handle_distance_entry_press(value: u8) {
     show_main_menu().await;
 }
 
-/// Run the distance calibration procedure: countdown → auto-drive → entry screen.
-///
-/// The countdown runs in the orchestrator context (yields via `Timer::after`).
-/// The drive is spawned as a separate task so the orchestrator stays free to
-/// forward encoder and IMU events to the drive control loop.
+/// Run the distance calibration procedure.
 async fn run_distance_calibration() {
     // Countdown.
     display_update(DisplayAction::Clear).await;
@@ -499,16 +617,13 @@ async fn run_distance_calibration() {
         flash_storage::set_distance_factor(1.0).await;
     }
 
-    // Request the controller to spawn the drive task (non-blocking send).
+    // Request the controller to spawn the drive task.
     DIST_CAL_CHANNEL.send(()).await;
 }
 
-/// Spawned task: submit the 150cm drive, wait for completion, then transition
-/// to the distance entry screen.
+/// Drive-task half of the distance calibration flow.
 #[embassy_executor::task]
 async fn calibration_drive_task() {
-    use crate::task::drive::{DriveAction, DriveCommand, DriveDirection, DriveDistanceKind, DriveQueueBuilder};
-
     async fn abort_calibration(message: &str) {
         // Restore the pre-calibration factor on failure.
         if let Some(previous) = { PREVIOUS_DISTANCE_FACTOR.lock().await.take() } {
@@ -519,12 +634,12 @@ async fn calibration_drive_task() {
         show_main_menu().await;
     }
 
-    let mut queue = DriveQueueBuilder::new();
+    let mut queue = drive::DriveQueueBuilder::new();
 
     if queue
-        .push_abort_on_fail(DriveCommand::Drive(DriveAction::DriveDistance {
-            kind: DriveDistanceKind::Straight { distance_cm: 150.0 },
-            direction: DriveDirection::Forward,
+        .push_abort_on_fail(drive::DriveCommand::Drive(drive::DriveAction::DriveDistance {
+            kind: drive::DriveDistanceKind::Straight { distance_cm: 150.0 },
+            direction: drive::DriveDirection::Forward,
             speed: 70,
         }))
         .is_err()
@@ -534,7 +649,7 @@ async fn calibration_drive_task() {
     }
 
     if queue
-        .push_abort_on_fail(DriveCommand::Drive(DriveAction::Brake))
+        .push_abort_on_fail(drive::DriveCommand::Drive(drive::DriveAction::Brake))
         .is_err()
     {
         abort_calibration("Queue full").await;
@@ -542,7 +657,7 @@ async fn calibration_drive_task() {
     }
 
     // Let the robot settle after braking, then release motors.
-    let _ = queue.push(DriveCommand::Drive(DriveAction::Coast));
+    let _ = queue.push(drive::DriveCommand::Drive(drive::DriveAction::Coast));
 
     match queue.submit().await {
         Ok(_) => {

@@ -125,7 +125,7 @@ Functions under `task/behavior/` that react to specific events. Domain logic liv
 The `task/ui/` module tree. Owns the display rendering, menu navigation, and UI state (`UiMode` enum). Receives rotary encoder events from the orchestrator.
 
 **Sensor Tasks**
-Embassy tasks that interface with hardware sensors (`task/sensors/`): IMU read loop, encoder read loop, IR obstacle polling, ultrasonic sweep/servo control. Communicate outward only via `raise_event`.
+Embassy tasks that interface with hardware sensors (`task/sensors/`): IMU read loop, encoder read loop, IR obstacle polling, ultrasonic sweep/servo control. Measurement data flows point-to-point via direct channels into the drive subsystem or perception state (bypassing the event bus). Semantic events (obstacle detection, button presses) still flow through the system event channel via `raise_event`.
 
 **IO Modules**
 Hardware abstraction tasks under `task/io/`: display driver, flash storage (calibration persistence), port expander driver. Use channel-based command APIs.

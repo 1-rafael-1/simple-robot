@@ -131,7 +131,7 @@ impl RotationState {
         motion: types::RotationMotion,
         completion_requested: bool,
     ) -> (super::state::ActiveIntent, types::IntentSetup) {
-        lifecycle::start_rotation_imu().await;
+        lifecycle::start_rotation_imu();
         clear_imu_measurements();
 
         motor_driver::send_motor_command(MotorCommand::SetTracks {

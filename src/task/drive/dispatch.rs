@@ -378,7 +378,7 @@ async fn execute_intent_setup(setup: IntentSetup) {
             // RotationState::init() already started IMU streaming.
         }
         IntentSetup::DistanceImuAndEncoder => {
-            lifecycle::start_distance_imu(&types::DriveDistanceKind::Straight { distance_cm: 0.0 }).await;
+            lifecycle::start_distance_imu(&types::DriveDistanceKind::Straight { distance_cm: 0.0 });
             lifecycle::start_encoder_sampling(distance::CONTROL_INTERVAL_MS, true).await;
         }
         IntentSetup::EncoderSettle => {
@@ -391,7 +391,7 @@ async fn execute_intent_setup(setup: IntentSetup) {
 pub(super) async fn execute_intent_teardown(teardown: IntentTeardown) {
     match teardown {
         IntentTeardown::RotationImu => {
-            lifecycle::stop_rotation_imu().await;
+            lifecycle::stop_rotation_imu();
         }
         IntentTeardown::DistanceImuAndMotors => {
             // Stop motors first (safety: covers failure paths where the controller
@@ -403,7 +403,7 @@ pub(super) async fn execute_intent_teardown(teardown: IntentTeardown) {
             .await;
             motion::set_track_speeds(0, 0).await;
             lifecycle::stop_encoder_sampling().await;
-            lifecycle::stop_distance_imu(&types::DriveDistanceKind::Straight { distance_cm: 0.0 }).await;
+            lifecycle::stop_distance_imu(&types::DriveDistanceKind::Straight { distance_cm: 0.0 });
         }
         IntentTeardown::EncoderSettle => {
             lifecycle::stop_encoder_sampling().await;

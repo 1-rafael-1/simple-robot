@@ -56,7 +56,7 @@
 //! # Data Flow
 //!
 //! - Commands are sent by orchestrator or other tasks.
-//! - Sensor feedback is forwarded by orchestrator into dedicated channels.
+//! - Sensor feedback flows directly from sensor tasks into dedicated channels.
 //! - Motor commands are issued to `motor_driver`.
 //!
 //! This task does NOT consume the system event channel. Forwarding avoids
@@ -141,18 +141,21 @@ pub use types::{
 ///
 /// This is a high-level control task that:
 /// - Receives drive commands via queue.
-/// - Receives encoder feedback via channel (from orchestrator).
-/// - Receives IMU feedback via channel (from orchestrator); orientation is calibrated when the IMU task has loaded calibration data.
+/// - Receives encoder feedback via channel (from encoder task).
+/// - Receives IMU feedback via channel (from IMU task); orientation is calibrated when the IMU task has loaded calibration data.
 /// - Receives interrupts via signal.
 /// - Sends motor commands to the `motor_driver` task.
 /// - Coordinates calibration procedures.
 ///
 /// # Sensor Data Flow
 ///
-/// Sensor tasks → Events → Orchestrator → Drive task (this) → Motor driver
+/// Point-to-point measurements:   Sensor tasks → drive channels → Drive task
+/// Semantic events:               Sensor tasks → Events → Orchestrator → Drive commands
+/// Both paths converge at:        Drive task → Motor driver
 ///
-/// The orchestrator forwards relevant sensor events to this task via dedicated
-/// channels rather than having this task consume system events directly.
+/// IMU and encoder measurements flow directly from sensor tasks into dedicated
+/// channels (`IMU_FEEDBACK_CHANNEL`, `LATEST_ENCODER_MEASUREMENT`) without
+/// passing through the orchestrator or the system event channel.
 #[embassy_executor::task]
 pub async fn drive() {
     // Initialise per-task state.
