@@ -13,7 +13,10 @@ use crate::{
         event::UltrasonicReading,
         state::{CalibrationSelection, DriveMode, calibration, perception, power},
     },
-    task::io::display::{self, DisplayAction},
+    task::{
+        autonomous_mode::attempt_straight_line,
+        io::display::{self, DisplayAction},
+    },
 };
 
 /// Render the current UI view based on the UI state.
@@ -60,8 +63,8 @@ pub async fn render_current_ui(state: &UiState) {
         UiMode::Calibrating { kind } => {
             render_calibrating(kind).await;
         }
-        UiMode::EnteringDistance { .. } => {
-            // Rendering handled by the rotary-turn handler — this arm exists
+        UiMode::EnteringDistance { .. } | UiMode::EnteringAttemptStraightDistance { .. } => {
+            // Rendering handled by the rotary-turn handlers — this arm exists
             // for exhaustiveness but should not be reached via render_current_ui.
         }
     }
@@ -171,8 +174,53 @@ pub async fn render_autonomous_running_from_values(
     ultrasonic_reading: Option<UltrasonicReading>,
     ultrasonic_angle: Option<f32>,
 ) {
+    // ── AttemptStraightLine has a custom display with travel/drift info ──
+    if mode == DriveMode::AttemptStraightLine {
+        let display_state = attempt_straight_line::DISPLAY_STATE.lock().await;
+        let mut rows: [String<20>; 4] = core::array::from_fn(|_| String::new());
+        let _ = rows[0].push_str("Attempt Straight");
+
+        let _ = core::fmt::write(
+            &mut rows[1],
+            format_args!(
+                "Travel: {:.0}/{:.0} cm",
+                display_state.progress_cm,
+                f32::from(display_state.target_cm)
+            ),
+        );
+
+        let drift_dir = if display_state.drift_deg >= 0.0 { "R" } else { "L" };
+        let _ = core::fmt::write(
+            &mut rows[2],
+            format_args!("Drift: {:.1}{}", display_state.drift_deg.abs(), drift_dir),
+        );
+        // Release the mutex guard early to avoid holding it across display I/O.
+        drop(display_state);
+
+        match (ultrasonic_reading, ultrasonic_angle) {
+            (Some(UltrasonicReading::Distance(cm)), Some(a)) => {
+                let _ = core::fmt::write(&mut rows[3], format_args!("US:{cm:>5.1}cm @{a:>3.0}"));
+            }
+            (Some(UltrasonicReading::Timeout), Some(a)) => {
+                let _ = core::fmt::write(&mut rows[3], format_args!("US:timeout @{a:>3.0}"));
+            }
+            (Some(UltrasonicReading::Error), _) => {
+                let _ = rows[3].push_str("US: error");
+            }
+            _ => {
+                let _ = rows[3].push_str("US: ----");
+            }
+        }
+
+        if !display::display_try_update(DisplayAction::ShowLines(rows.clone())) {
+            display::display_update(DisplayAction::ShowLines(rows)).await;
+        }
+        return;
+    }
+
     let mode_label = match mode {
         DriveMode::CoastAndAvoid => "Coast & Avoid",
+        DriveMode::AttemptStraightLine => "Attempt Straight",
     };
 
     let mut rows: [String<20>; 4] = core::array::from_fn(|_| String::new());

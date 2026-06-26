@@ -66,18 +66,45 @@ Encoder-based correction that equalises left/right track speeds to prevent veeri
 **Ramp-Down**
 Progressive speed reduction as a distance or rotation command approaches its target. Prevents overshoot.
 
+**Sweep**
+A full 0–160° pass of the ultrasonic sensor on its servo, producing one distance reading per 1° of angle. Used to build a spatial picture for gap analysis.
+_Avoid_: Scan, radar pass
+
+**Gap**
+A contiguous angular arc within a sweep where the ultrasonic sensor reads clear (no obstacle within 15 cm). A valid gap has at least 30 cm lateral width at its constriction depth, is flanked by obstacles on both sides, and lies within ±90° of the robot's forward center. The robot drives through a gap by rotating to its midpoint angle and driving straight.
+_Avoid_: Opening, corridor, path
+
+**Constriction Depth**
+The minimum distance reading across the angles that make up a gap. Determines how far the robot can safely travel through that gap before it must re-sweep.
+_Avoid_: Minimum range, bottleneck distance
+
+**Leg**
+One rotation-then-straight-drive maneuver through a selected gap. A leg's length is the constriction depth (minus 10 cm safety margin), or the remaining target distance if shorter. The robot's accumulated drift and total forward progress are updated after each leg.
+_Avoid_: Step, segment, hop
+
+**Accumulated Drift**
+The signed sum of all deviation angles taken so far during an Attempt Straight Line run. Positive = right, negative = left. The correction target for the next leg is `-drift`, so the robot strives to return toward the ideal unobstructed course.
+_Avoid_: Heading error, offset sum
+
+**Correction Angle**
+The ideal gap midpoint angle that would cancel the accumulated drift (= `-drift`). The gap closest to this angle is preferred when choosing the next leg.
+_Avoid_: Recovery angle, compensation heading
+
 ## Modes
 
 **RC Mode** (Remote Control)
 Direct teleoperation via remote control buttons. The operator steers.
 
 **Autonomous Mode**
-The robot drives itself. Currently one variant: coast-and-avoid.
+The robot drives itself. Two variants: coast-and-avoid and attempt-straight-line.
 
 **Coast-and-Avoid**
 An autonomous mode: drive forward until an obstacle is detected (via IR or ultrasonic), then back up and turn a random angle before resuming. Has two phases:
 - **Forward phase**: driving forward at constant speed, obstacle detection is armed.
 - **Avoidance phase**: backing up and turning after an obstacle interrupt.
+
+**Attempt Straight Line**
+An autonomous mode: travel toward a user-set target distance (100–1000 cm) while avoiding obstacles to approximate the endpoint an unobstructed straight line would have reached. The robot sweeps the ultrasonic sensor 0–160°, finds gaps through obstacles, drives a leg toward the best gap, and repeats until the target distance is reached or no forward progress is possible. Accumulated drift is tracked across legs so later legs correct past deviations.
 
 **Test Mode**
 Interactive hardware tests accessible from the menu: motor test, encoder test, IMU display (6-axis and 9-axis), ultrasonic sweep, IR+ultrasonic live display, turn accuracy test, straight drive test, arc drive test.

@@ -99,6 +99,10 @@ pub enum Events {
     /// - Used to coordinate next movement decision
     ObstacleAvoidanceAttempted,
 
+    /// Ultrasonic buffered sweep completed (0–160° pass).
+    /// The sweep buffer ([`SWEEP_BUFFER`]) is now fully populated.
+    UltrasonicSweepCompleted,
+
     /// Battery measurement (level percentage and raw voltage)
     /// - level: 0-100 percent, triggers LED color updates
     /// - voltage: raw voltage in volts, used for motor driver voltage compensation
