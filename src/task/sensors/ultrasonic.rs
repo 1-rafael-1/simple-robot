@@ -113,8 +113,11 @@ const ULTRASONIC_MEDIAN_WINDOW_SIZE: usize = 3;
 /// Slight inaccuracy acceptable as we care more about consistent readings
 const ULTRASONIC_TEMPERATURE: f64 = 21.5;
 
-/// Maximum supported ultrasonic distance in centimeters
-const ULTRASONIC_MAX_DISTANCE_CM: f64 = 200.0;
+/// Maximum supported ultrasonic distance in centimeters.
+///
+/// Used by gap analysis to cap drive legs so the robot never drives
+/// beyond what the sensor can see.
+pub const ULTRASONIC_MAX_DISTANCE_CM: f64 = 200.0;
 
 /// Center angle for forward-looking ultrasonic mode.
 const ULTRASONIC_CENTER_ANGLE_DEG: f32 = 80.0;

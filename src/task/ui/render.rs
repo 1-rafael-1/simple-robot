@@ -180,7 +180,10 @@ pub async fn render_autonomous_running_from_values(
         let progress = display_state.progress_cm;
         let target = f32::from(display_state.target_cm);
         let drift = display_state.drift_deg;
+        let label = display_state.state_label;
         drop(display_state);
+
+        let is_finished = label == "Target reached" || label == "Blocked - finished";
 
         // Draw radar first so it never flickers away (ShowSweep clears y=16..64).
         // Then overlay a compact header on line 0 (y=0..16, above the radar).
@@ -191,23 +194,29 @@ pub async fn render_autonomous_running_from_values(
             };
             display::display_update(DisplayAction::ShowSweep(dist, a)).await;
 
-            let drift_dir = if drift >= 0.0 { "R" } else { "L" };
             let mut header: String<20> = String::new();
-            let _ = core::fmt::write(
-                &mut header,
-                format_args!("T:{progress:.0}/{target:.0} D:{}{drift_dir}", drift.abs()),
-            );
+            if is_finished {
+                let _ = header.push_str(label);
+            } else {
+                let drift_dir = if drift >= 0.0 { "R" } else { "L" };
+                let _ = core::fmt::write(
+                    &mut header,
+                    format_args!("T:{progress:.0}/{target:.0} D:{}{drift_dir}", drift.abs()),
+                );
+            }
             display::display_update(DisplayAction::ShowText(header, 0)).await;
             return;
         }
 
         // Fallback when no US data: show full text-only display.
         let mut rows: [String<20>; 4] = core::array::from_fn(|_| String::new());
-        let _ = rows[0].push_str("Attempt Straight");
+        let _ = rows[0].push_str(label);
         let _ = core::fmt::write(&mut rows[1], format_args!("Travel: {progress:.0}/{target:.0} cm"));
-        let drift_dir = if drift >= 0.0 { "R" } else { "L" };
-        let _ = core::fmt::write(&mut rows[2], format_args!("Drift: {:.1}{}", drift.abs(), drift_dir));
-        let _ = rows[3].push_str("US: ----");
+        if !is_finished {
+            let drift_dir = if drift >= 0.0 { "R" } else { "L" };
+            let _ = core::fmt::write(&mut rows[2], format_args!("Drift: {:.1}{}", drift.abs(), drift_dir));
+            let _ = rows[3].push_str("US: ----");
+        }
         if !display::display_try_update(DisplayAction::ShowLines(rows.clone())) {
             display::display_update(DisplayAction::ShowLines(rows)).await;
         }

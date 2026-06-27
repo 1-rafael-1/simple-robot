@@ -356,7 +356,8 @@ fn extract_progress_cm(completion: &crate::task::drive::types::DriveQueueComplet
         })
 }
 
-/// Clean up and exit the mode, showing the finish message for 2 seconds.
+/// Clean up and exit the mode, showing the finish message until the user
+/// dismisses it with the encoder button.
 async fn finish(label: &'static str) {
     // Update display state with final message.
     {
@@ -367,8 +368,11 @@ async fn finish(label: &'static str) {
     Timer::after(Duration::from_millis(200)).await;
     autonomous_mode::release_autonomous_mode();
 
-    // Wait 2 seconds to show the final message on the display.
-    Timer::after(Duration::from_secs(2)).await;
+    // Wait for the user to dismiss by pressing the encoder button.
+    // `handle_ui_back()` calls `stop()`, which sets ACTIVE to false.
+    while ACTIVE.load(Ordering::Relaxed) {
+        Timer::after(Duration::from_millis(100)).await;
+    }
 
     // Return to main menu.
     send_ui_event(UiEvent::ShowMainMenu).await;
