@@ -18,7 +18,7 @@
 /// - Length represents maximum range (200cm)
 ///
 /// Distance Points:
-/// - Supplied by callers via `ShowSweepFromBuffer` as a pre-computed list of `SweepPoint` values
+/// - Supplied by callers via `ShowSweepFromBuffer` as a pre-computed list of `ObstaclePoint` values
 /// - Each point carries angle (0–160°) and distance (cm)
 /// - Position: polar to cartesian conversion from sweep angle
 /// - Points are rendered as pixels; no accumulation or eviction in the display task
@@ -270,28 +270,30 @@ struct SweepCoords {
 /// (`angle_deg`, `distance_cm`) to display-space cartesian coordinates
 /// using the current sweep angle for the line and each point for pixels.
 fn compute_sweep_coords(points: &ultrasonic::SweepPoints, current_angle: f32) -> SweepCoords {
-    let display_angle = current_angle + 10.0;
-    let rad_angle = display_angle.to_radians();
+    // All `as i32` casts below are safe: RADIUS=45 bounds the magnitude,
+    // and CENTER_X=64 keeps results within i32 range.
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-    let line_end_x = CENTER_X + (RADIUS as f32 * rad_angle.cos()) as i32;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-    let line_end_y = CENTER_Y - (RADIUS as f32 * rad_angle.sin()) as i32;
+    {
+        let display_angle = current_angle + 10.0;
+        let rad_angle = display_angle.to_radians();
+        let line_end_x = CENTER_X + (RADIUS as f32 * rad_angle.cos()) as i32;
+        let line_end_y = CENTER_Y - (RADIUS as f32 * rad_angle.sin()) as i32;
 
-    let mut pixels: HeaplessVec<Point, 32> = HeaplessVec::new();
-    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-    for point in points {
-        let scaled_distance = (point.distance_cm / MAX_DISTANCE_CM) * f64::from(RADIUS);
-        let point_rad_angle = (point.angle_deg + 10.0).to_radians();
-        let px = CENTER_X + (scaled_distance * f64::from(point_rad_angle.cos())) as i32;
-        let py = CENTER_Y - (scaled_distance * f64::from(point_rad_angle.sin())) as i32;
-        if (0..DISPLAY_WIDTH).contains(&px) && (DISPLAY_HEADER_HEIGHT..DISPLAY_HEIGHT).contains(&py) {
-            let _ = pixels.push(Point::new(px, py));
+        let mut pixels: HeaplessVec<Point, 32> = HeaplessVec::new();
+        for point in points {
+            let scaled_distance = (point.distance_cm / MAX_DISTANCE_CM) * f64::from(RADIUS);
+            let point_rad_angle = (point.angle_deg + 10.0).to_radians();
+            let px = CENTER_X + (scaled_distance * f64::from(point_rad_angle.cos())) as i32;
+            let py = CENTER_Y - (scaled_distance * f64::from(point_rad_angle.sin())) as i32;
+            if (0..DISPLAY_WIDTH).contains(&px) && (DISPLAY_HEADER_HEIGHT..DISPLAY_HEIGHT).contains(&py) {
+                let _ = pixels.push(Point::new(px, py));
+            }
         }
-    }
 
-    SweepCoords {
-        line_end: Point::new(line_end_x, line_end_y),
-        pixels,
+        SweepCoords {
+            line_end: Point::new(line_end_x, line_end_y),
+            pixels,
+        }
     }
 }
 

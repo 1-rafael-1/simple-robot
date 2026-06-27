@@ -176,12 +176,11 @@ pub async fn render_autonomous_running_from_values(
 ) {
     // ── AttemptStraightLine has a custom display with travel/drift info ──
     if mode == DriveMode::AttemptStraightLine {
-        let display_state = attempt_straight_line::DISPLAY_STATE.lock().await;
+        let display_state = attempt_straight_line::display_state_snapshot().await;
         let progress = display_state.progress_cm;
         let target = f32::from(display_state.target_cm);
         let drift = display_state.drift_deg;
         let label = display_state.state_label;
-        drop(display_state);
 
         let is_finished = label == "Target reached" || label == "Blocked - finished";
 

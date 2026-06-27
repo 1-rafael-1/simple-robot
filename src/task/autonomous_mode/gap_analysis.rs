@@ -26,7 +26,7 @@ const MAX_HEADING_OFFSET_DEG: f32 = 90.0;
 // ── Types ───────────────────────────────────────────────────────────────────
 
 /// Result of gap analysis: either a chosen gap or blocked.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, defmt::Format)]
 pub struct GapDecision {
     /// Servo midpoint angle of the chosen gap (degrees, 0–160).
     pub servo_midpoint_deg: f32,
@@ -132,15 +132,16 @@ pub fn analyze_gaps(
     // A reading is "clear" only when `None` (timeout — no echo).
     // Any `Some(d)` means an object was detected — an obstacle to navigate around.
 
-    // Maximum number of arcs: alternating clear/obstacle across 161 entries
-    // gives at most 81 arcs.
+    // After cone correction, obstacles have at least 3° width, so the
+    // worst-case alternating pattern yields ~40 clear arcs.  A capacity
+    // of 64 is safe with margin while keeping the stack allocation small.
     let mut arcs_buf = [ClearArc {
         start_angle: 0,
         end_angle: 0,
         constriction_depth_mm: 0,
         left_flank_distance_mm: 0,
         right_flank_distance_mm: 0,
-    }; 81];
+    }; 64];
     let mut arc_count: usize = 0;
 
     let mut i: usize = 0;

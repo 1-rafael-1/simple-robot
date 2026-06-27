@@ -46,6 +46,7 @@ pub static SWEEP_COMPLETED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 // ── Display state ─────────────────────────────────────────────────────────────
 
 /// Shared state visible to the UI for display updates.
+#[derive(Clone, Copy)]
 pub struct ModeDisplayState {
     /// Total forward progress in cm.
     pub progress_cm: f32,
@@ -58,12 +59,20 @@ pub struct ModeDisplayState {
 }
 
 /// Public display state for the UI to read live progress/drift values.
-pub static DISPLAY_STATE: Mutex<CriticalSectionRawMutex, ModeDisplayState> = Mutex::new(ModeDisplayState {
+static DISPLAY_STATE: Mutex<CriticalSectionRawMutex, ModeDisplayState> = Mutex::new(ModeDisplayState {
     progress_cm: 0.0,
     target_cm: 0,
     drift_deg: 0.0,
     state_label: "Idle",
 });
+
+/// Return a snapshot of the current display state.
+///
+/// The UI calls this instead of locking `DISPLAY_STATE` directly, keeping the
+/// Mutex private and reducing coupling to the mode's internal layout.
+pub async fn display_state_snapshot() -> ModeDisplayState {
+    *DISPLAY_STATE.lock().await
+}
 
 // ── Mode entry constants ──────────────────────────────────────────────────────
 

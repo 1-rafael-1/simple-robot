@@ -231,7 +231,7 @@ pub enum DriveQueueSubmitError {
 }
 
 /// Rotation direction for precise turning
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, defmt::Format)]
 pub enum RotationDirection {
     /// Clockwise rotation (right turn)
     Clockwise,

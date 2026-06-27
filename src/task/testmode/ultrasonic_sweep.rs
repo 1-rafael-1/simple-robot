@@ -79,13 +79,11 @@ async fn ultrasonic_sweep_test_task() {
 
                 // Only render when we have an angle
                 if let Some(a) = angle {
-                    display::display_update(DisplayAction::ShowSweepFromBuffer { current_angle: a }).await;
-
                     // Compute nearest and farthest obstacle distances for header
+                    // before the display update so the header read happens first.
                     let mut header: String<20> = String::new();
                     let mut nearest: Option<f64> = None;
                     let mut farthest: Option<f64> = None;
-                    // Re-read points for header computation
                     let points = ultrasonic::sweep_buffer_points().await;
                     for p in &points {
                         if nearest.is_none_or(|n| p.distance_cm < n) {
@@ -106,6 +104,7 @@ async fn ultrasonic_sweep_test_task() {
                     }
 
                     display::display_update(DisplayAction::ShowText(header, 0)).await;
+                    display::display_update(DisplayAction::ShowSweepFromBuffer { current_angle: a }).await;
                 }
             }
         }
