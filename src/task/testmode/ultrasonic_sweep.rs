@@ -14,10 +14,10 @@ use heapless::String;
 
 use super::{TestCommand, release_testmode, request_start};
 use crate::{
-    system::{event::UltrasonicReading, state::perception},
+    system::state::perception,
     task::{
-        io::display::{DisplayAction, display_update},
-        sensors::ultrasonic::{start_ultrasonic_sweep, stop_ultrasonic_measurements},
+        io::display::{self, DisplayAction},
+        sensors::ultrasonic::{self, start_ultrasonic_sweep, stop_ultrasonic_measurements},
     },
 };
 
@@ -54,17 +54,12 @@ pub(super) fn spawn(spawner: Spawner) {
 #[embassy_executor::task]
 async fn ultrasonic_sweep_test_task() {
     start_ultrasonic_sweep();
-    display_update(DisplayAction::Clear).await;
+    display::display_update(DisplayAction::Clear).await;
 
     // Clear any pending stop signal so the next test doesn't end immediately.
     while ULTRASONIC_SWEEP_TEST_STOP_SIGNAL.signaled() {
         ULTRASONIC_SWEEP_TEST_STOP_SIGNAL.wait().await;
     }
-
-    // Track the last rendered angle so we don't send duplicate ShowSweep
-    // calls at the same servo position (which flips the display direction
-    // tracker and wipes newly added points).
-    let mut last_render_angle: Option<f32> = None;
 
     loop {
         match select(
@@ -79,17 +74,38 @@ async fn ultrasonic_sweep_test_task() {
                     break;
                 }
 
-                // Read latest perception data and render sweep display.
-                let (reading, angle) = perception::ultrasonic_sweep_snapshot().await;
+                // Read current servo angle for the sweep line
+                let (_reading, angle) = perception::ultrasonic_sweep_snapshot().await;
 
-                // Only send ShowSweep when the angle actually changed.
-                // At 10 Hz the display timer often ticks twice per ultrasonic
-                // sweep step; a duplicate call at the same angle causes the
-                // direction tracker to flip and the retain filter to erase
-                // the point that was just added.
-                if last_render_angle != angle {
-                    render_sweep_display(reading, angle).await;
-                    last_render_angle = angle;
+                // Only render when we have an angle
+                if let Some(a) = angle {
+                    display::display_update(DisplayAction::ShowSweepFromBuffer { current_angle: a }).await;
+
+                    // Compute nearest and farthest obstacle distances for header
+                    let mut header: String<20> = String::new();
+                    let mut nearest: Option<f64> = None;
+                    let mut farthest: Option<f64> = None;
+                    // Re-read points for header computation
+                    let points = ultrasonic::sweep_buffer_points().await;
+                    for p in &points {
+                        if nearest.is_none_or(|n| p.distance_cm < n) {
+                            nearest = Some(p.distance_cm);
+                        }
+                        if farthest.is_none_or(|f| p.distance_cm > f) {
+                            farthest = Some(p.distance_cm);
+                        }
+                    }
+
+                    match (nearest, farthest) {
+                        (Some(n), Some(f)) => {
+                            let _ = core::fmt::write(&mut header, format_args!("n{n:.0}cm | f{f:.0}cm"));
+                        }
+                        _ => {
+                            let _ = header.push_str("nNone | fNone");
+                        }
+                    }
+
+                    display::display_update(DisplayAction::ShowText(header, 0)).await;
                 }
             }
         }
@@ -99,35 +115,4 @@ async fn ultrasonic_sweep_test_task() {
     perception::clear_ultrasonic_data().await;
     release_testmode();
     ULTRASONIC_SWEEP_TEST_ACTIVE.store(false, Ordering::Relaxed);
-}
-
-/// Render the ultrasonic sweep display from the latest perception data.
-async fn render_sweep_display(reading: Option<UltrasonicReading>, angle: Option<f32>) {
-    // Radar sweep graphic — needs both distance and angle.
-    match (reading, angle) {
-        (Some(UltrasonicReading::Distance(distance)), Some(a)) => {
-            display_update(DisplayAction::ShowSweep(Some(distance), a)).await;
-        }
-        (Some(UltrasonicReading::Timeout) | None, Some(a)) => {
-            display_update(DisplayAction::ShowSweep(None, a)).await;
-        }
-        _ => {} // No angle yet — skip sweep graphic.
-    }
-
-    let mut header: String<20> = String::new();
-    match (reading, angle) {
-        (Some(UltrasonicReading::Distance(distance)), Some(a)) => {
-            let _ = core::fmt::write(&mut header, format_args!("US:{distance:>5.1} A:{a:>3.0}"));
-        }
-        (Some(UltrasonicReading::Timeout), Some(a)) => {
-            let _ = core::fmt::write(&mut header, format_args!("US:timeout A:{a:>3.0}"));
-        }
-        (Some(UltrasonicReading::Error), _) => {
-            let _ = header.push_str("US:error");
-        }
-        _ => {
-            let _ = header.push_str("US:---- cm");
-        }
-    }
-    display_update(DisplayAction::ShowText(header, 0)).await;
 }

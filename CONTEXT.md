@@ -23,7 +23,7 @@ Four motor encoders (left-front, left-rear, right-front, right-rear). Report pul
 Two TB6612FNG motor driver carriers (one per track). Controlled via PWM for speed and direction.
 
 **OLED**
-SSD1306 I2C display (4 lines × 20 characters). Primary user interface for menus, sensor readouts, and status.
+SSD1306 I2C display (128×64 pixels). Primary user interface for menus, sensor readouts, and status. The top 16 px show text (4 lines × 20 characters); the bottom 48 px render a radar sweep visualization showing obstacle positions from the sweep buffer.
 
 **Rotary Encoder**
 EC11 rotary encoder with push button. The main user input for menu navigation and selection. A/B quadrature signals on Pico GPIO 22/23 via PIO; push button on port expander Port 1 bit 7.
@@ -67,11 +67,35 @@ Encoder-based correction that equalises left/right track speeds to prevent veeri
 Progressive speed reduction as a distance or rotation command approaches its target. Prevents overshoot.
 
 **Sweep**
-A full 0–160° pass of the ultrasonic sensor on its servo, producing one distance reading per 1° of angle. Used to build a spatial picture for gap analysis.
+A full 0–160° pass of the ultrasonic sensor on its servo, producing one distance reading per 1° of angle. Obstacle positions in the sweep buffer are corrected for the sensor's 30° detection cone (see Sweep Correction). Used to build a spatial picture for gap analysis.
 _Avoid_: Scan, radar pass
 
+**Sweep Correction**
+Algorithm applied to each contiguous obstacle run in a sweep that compensates for the ultrasonic sensor's 30° detection cone. Subtracts 15° from each edge of the run and splits runs into separate obstacles when a >40% distance jump is detected. Corrected positions overwrite the raw readings in the sweep buffer.
+_Avoid_: Cone compensation, de-widening
+
+**Obstacle Run**
+A contiguous sequence of Some(distance) readings within a sweep, bounded by Timeout/Error readings or sweep boundaries (0° or 160°). Each run is independently corrected by Sweep Correction.
+_Avoid_: Detection block, contiguous hit
+
+**Distance Discontinuity**
+A >40% jump in reported distance between consecutive angles within an obstacle run. Signals that two physically separate obstacles at different distances are merging into one run due to the 30° cone overlap. Causes the run to be split into sub-runs before correction.
+_Avoid_: Range jump, depth break
+
+**Sweep Buffer**
+A shared `[Option<u16>; 161]` array (`SWEEP_BUFFER`) indexed by servo angle (0–160°). Each entry holds a distance reading in millimeters (`Some`) or a timeout/error marker (`None`). Written by the ultrasonic task during sweeps after cone correction; read by gap analysis and the display for rendering.
+_Avoid_: Radar buffer, scan buffer
+
+**ObstaclePoint**
+A data struct carrying a single corrected obstacle detection: `angle_deg: f32` (servo angle, 0–160°) and `distance_cm: f64` (distance in centimeters). Extracted from the sweep buffer by `sweep_buffer_points()` for consumers that need point-level data (e.g., display rendering).
+_Avoid_: SweepPoint, detection point
+
+**SweepPoints**
+A fixed-capacity list of `ObstaclePoint` values (max 32). Returned by `sweep_buffer_points()` — the canonical conversion from the raw sweep buffer to consumer-friendly obstacle coordinates. Capacity is bounded because a 161° sweep produces at most ~54 corrected obstacles (3° minimum width), and 32 points saturate a 128×64 display.
+_Avoid_: Point list, obstacle list
+
 **Gap**
-A contiguous angular arc within a sweep where the ultrasonic sensor reads clear (no obstacle within 15 cm). A valid gap has at least 30 cm lateral width at its constriction depth, is flanked by obstacles on both sides, and lies within ±90° of the robot's forward center. The robot drives through a gap by rotating to its midpoint angle and driving straight.
+A contiguous angular arc within a corrected sweep where the ultrasonic sensor reads clear (no obstacle within 15 cm). A valid gap has at least 30 cm lateral width at its constriction depth, is flanked by obstacles on both sides, and lies within ±90° of the robot's forward center. The robot drives through a gap by rotating to its midpoint angle and driving straight.
 _Avoid_: Opening, corridor, path
 
 **Constriction Depth**

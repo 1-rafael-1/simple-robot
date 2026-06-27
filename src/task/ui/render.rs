@@ -185,14 +185,10 @@ pub async fn render_autonomous_running_from_values(
 
         let is_finished = label == "Target reached" || label == "Blocked - finished";
 
-        // Draw radar first so it never flickers away (ShowSweep clears y=16..64).
+        // Draw radar first so it never flickers away (ShowSweepFromBuffer clears y=16..64).
         // Then overlay a compact header on line 0 (y=0..16, above the radar).
         if let Some(a) = ultrasonic_angle {
-            let dist = match ultrasonic_reading {
-                Some(UltrasonicReading::Distance(d)) => Some(d),
-                _ => None,
-            };
-            display::display_update(DisplayAction::ShowSweep(dist, a)).await;
+            display::display_update(DisplayAction::ShowSweepFromBuffer { current_angle: a }).await;
 
             let mut header: String<20> = String::new();
             if is_finished {
