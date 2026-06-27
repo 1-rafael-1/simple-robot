@@ -63,6 +63,7 @@ pub fn start_ultrasonic_fixed(angle_deg: f32) {
 }
 
 /// Start fixed-angle ultrasonic readings with obstacle detection enabled.
+#[allow(dead_code)]
 pub fn start_ultrasonic_fixed_obstacle_detect(angle_deg: f32) {
     US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartFixed {
         angle_deg,

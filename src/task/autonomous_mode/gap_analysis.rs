@@ -100,8 +100,8 @@ pub fn analyze_gaps(
 ) -> Option<GapDecision> {
     // ── Step 1 & 2: Classify each angle and extract contiguous clear arcs ──
     //
-    // A reading is "clear" when Some(d) with d > OBSTACLE_THRESHOLD_MM.
-    // None (timeout/error) is treated as obstacle for safety.
+    // A reading is "clear" when None (timeout — no echo returned) or
+    // Some(d) with d > OBSTACLE_THRESHOLD_MM.
 
     // Maximum number of arcs: alternating clear/obstacle across 161 entries
     // gives at most 81 arcs.
@@ -211,10 +211,13 @@ pub fn analyze_gaps(
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-/// A reading is "clear" when `Some(d)` with `d > OBSTACLE_THRESHOLD_MM`.
-/// `None` (timeout/error) is treated as obstacle for safety.
+/// A reading is "clear" when it is `None` (timeout — no echo returned, so no
+/// obstacle within sensor range) or `Some(d)` with `d > OBSTACLE_THRESHOLD_MM`.
 const fn is_clear(reading: Option<u16>) -> bool {
-    matches!(reading, Some(d) if d > OBSTACLE_THRESHOLD_MM)
+    match reading {
+        Some(d) => d > OBSTACLE_THRESHOLD_MM,
+        None => true,
+    }
 }
 
 /// Build a `GapDecision` from a chosen `ClearArc`.

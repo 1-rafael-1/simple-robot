@@ -177,41 +177,37 @@ pub async fn render_autonomous_running_from_values(
     // ── AttemptStraightLine has a custom display with travel/drift info ──
     if mode == DriveMode::AttemptStraightLine {
         let display_state = attempt_straight_line::DISPLAY_STATE.lock().await;
-        let mut rows: [String<20>; 4] = core::array::from_fn(|_| String::new());
-        let _ = rows[0].push_str("Attempt Straight");
-
-        let _ = core::fmt::write(
-            &mut rows[1],
-            format_args!(
-                "Travel: {:.0}/{:.0} cm",
-                display_state.progress_cm,
-                f32::from(display_state.target_cm)
-            ),
-        );
-
-        let drift_dir = if display_state.drift_deg >= 0.0 { "R" } else { "L" };
-        let _ = core::fmt::write(
-            &mut rows[2],
-            format_args!("Drift: {:.1}{}", display_state.drift_deg.abs(), drift_dir),
-        );
-        // Release the mutex guard early to avoid holding it across display I/O.
+        let progress = display_state.progress_cm;
+        let target = f32::from(display_state.target_cm);
+        let drift = display_state.drift_deg;
         drop(display_state);
 
-        match (ultrasonic_reading, ultrasonic_angle) {
-            (Some(UltrasonicReading::Distance(cm)), Some(a)) => {
-                let _ = core::fmt::write(&mut rows[3], format_args!("US:{cm:>5.1}cm @{a:>3.0}"));
-            }
-            (Some(UltrasonicReading::Timeout), Some(a)) => {
-                let _ = core::fmt::write(&mut rows[3], format_args!("US:timeout @{a:>3.0}"));
-            }
-            (Some(UltrasonicReading::Error), _) => {
-                let _ = rows[3].push_str("US: error");
-            }
-            _ => {
-                let _ = rows[3].push_str("US: ----");
-            }
+        // Draw radar first so it never flickers away (ShowSweep clears y=16..64).
+        // Then overlay a compact header on line 0 (y=0..16, above the radar).
+        if let Some(a) = ultrasonic_angle {
+            let dist = match ultrasonic_reading {
+                Some(UltrasonicReading::Distance(d)) => Some(d),
+                _ => None,
+            };
+            display::display_update(DisplayAction::ShowSweep(dist, a)).await;
+
+            let drift_dir = if drift >= 0.0 { "R" } else { "L" };
+            let mut header: String<20> = String::new();
+            let _ = core::fmt::write(
+                &mut header,
+                format_args!("T:{progress:.0}/{target:.0} D:{}{drift_dir}", drift.abs()),
+            );
+            display::display_update(DisplayAction::ShowText(header, 0)).await;
+            return;
         }
 
+        // Fallback when no US data: show full text-only display.
+        let mut rows: [String<20>; 4] = core::array::from_fn(|_| String::new());
+        let _ = rows[0].push_str("Attempt Straight");
+        let _ = core::fmt::write(&mut rows[1], format_args!("Travel: {progress:.0}/{target:.0} cm"));
+        let drift_dir = if drift >= 0.0 { "R" } else { "L" };
+        let _ = core::fmt::write(&mut rows[2], format_args!("Drift: {:.1}{}", drift.abs(), drift_dir));
+        let _ = rows[3].push_str("US: ----");
         if !display::display_try_update(DisplayAction::ShowLines(rows.clone())) {
             display::display_update(DisplayAction::ShowLines(rows)).await;
         }

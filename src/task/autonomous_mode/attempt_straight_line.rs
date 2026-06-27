@@ -29,7 +29,7 @@ use crate::task::{
         DriveQueueBuilder, DriveQueueSubmitError, InterruptKind, send_drive_command, send_drive_interrupt,
         types::{RotationMotion, SPROCKET_CIRCUMFERENCE_CM},
     },
-    sensors::ultrasonic::{self, start_ultrasonic_fixed_obstacle_detect, stop_ultrasonic_measurements},
+    sensors::ultrasonic::{self, start_ultrasonic_centered_obstacle_detect, stop_ultrasonic_measurements},
     ui::{UiEvent, send_ui_event},
 };
 
@@ -275,8 +275,9 @@ pub async fn attempt_straight_line_task(target_distance_cm: u16) {
                     break "Error: queue full";
                 }
 
-                // Set ultrasonic to fixed-angle at gap midpoint with obstacle detection.
-                start_ultrasonic_fixed_obstacle_detect(gap.servo_midpoint_deg);
+                // Set ultrasonic to center with obstacle detection for emergency
+                // braking during the forward drive phase.
+                start_ultrasonic_centered_obstacle_detect();
 
                 let completion = match queue.submit().await {
                     Ok(completion) => completion,
