@@ -36,15 +36,13 @@ use embedded_graphics::{
     primitives::{Arc, Line, PrimitiveStyle, Rectangle},
     text::{Baseline, Text},
 };
-use heapless::String;
-use heapless::Vec as HeaplessVec;
+use heapless::{String, Vec as HeaplessVec};
 use micromath::F32Ext;
 use ssd1306_async::{
     I2CDisplayInterface, Ssd1306, i2c_interface::I2CInterface, mode::BufferedGraphicsMode, prelude::*,
 };
 
-use crate::I2cBusShared;
-use crate::task::sensors::ultrasonic;
+use crate::{I2cBusShared, task::sensors::ultrasonic};
 
 /// Text style for display rendering
 pub enum TextStyle {

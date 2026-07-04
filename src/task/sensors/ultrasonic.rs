@@ -21,11 +21,13 @@ use heapless::Vec as HeaplessVec;
 use moving_median::MovingMedian;
 use panic_probe as _;
 
-use crate::system::{
-    event::{Events, ObstacleSource, UltrasonicReading, raise_event},
-    state::perception,
+use crate::{
+    system::{
+        event::{Events, ObstacleSource, UltrasonicReading, raise_event},
+        state::perception,
+    },
+    task::sensors::ultrasonic_correction,
 };
-use crate::task::sensors::ultrasonic_correction;
 
 /// Commands for ultrasonic sweep control
 enum UltrasonicSweepCommand {

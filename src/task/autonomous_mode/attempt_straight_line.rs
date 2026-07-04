@@ -22,15 +22,18 @@ use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
 use embassy_time::{Duration, Timer, with_timeout};
 
-use crate::task::{
-    autonomous_mode::{self, gap_analysis},
-    drive::{
-        CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind,
-        DriveQueueBuilder, DriveQueueSubmitError, InterruptKind, send_drive_command, send_drive_interrupt,
-        types::{RotationMotion, SPROCKET_CIRCUMFERENCE_CM},
+use crate::{
+    system::state::calibration,
+    task::{
+        autonomous_mode::{self, gap_analysis},
+        drive::{
+            CompletionStatus, CompletionTelemetry, DriveAction, DriveCommand, DriveDirection, DriveDistanceKind,
+            DriveQueueBuilder, DriveQueueSubmitError, InterruptKind, send_drive_command, send_drive_interrupt,
+            types::{RotationMotion, SPROCKET_CIRCUMFERENCE_CM},
+        },
+        sensors::ultrasonic::{self, start_ultrasonic_centered_obstacle_detect, stop_ultrasonic_measurements},
+        ui::{UiEvent, send_ui_event},
     },
-    sensors::ultrasonic::{self, start_ultrasonic_centered_obstacle_detect, stop_ultrasonic_measurements},
-    ui::{UiEvent, send_ui_event},
 };
 
 // ── Active flag ───────────────────────────────────────────────────────────────
@@ -182,6 +185,10 @@ pub async fn attempt_straight_line_task(target_distance_cm: u16) {
         ds.state_label = "Starting...";
     }
 
+    // Read distance calibration factor once — it doesn't change during operation —
+    // so reverse conversion from revs → cm produces accurate progress.
+    let distance_factor = calibration::get_distance_factor().await;
+
     let mut accumulated_drift: f32 = 0.0;
     let mut total_progress_cm: f32 = 0.0;
     let mut state = State::Sweeping;
@@ -299,7 +306,7 @@ pub async fn attempt_straight_line_task(target_distance_cm: u16) {
                 // Extract partial progress from telemetry regardless of status.
                 // Cancellation (EmergencyBrake) still returns DriveDistance telemetry
                 // with achieved_revs from the partial leg.
-                let progress = extract_progress_cm(&completion);
+                let progress = extract_progress_cm(&completion, distance_factor);
                 total_progress_cm += progress;
 
                 // Update accumulated drift: offset from center (80°).
@@ -348,7 +355,13 @@ pub async fn attempt_straight_line_task(target_distance_cm: u16) {
 /// progress is extracted even for cancelled legs where `EmergencyBrake` interrupted
 /// a `DriveDistance` intent — `cancellation_telemetry()` returns
 /// `CompletionTelemetry::DriveDistance` with the actual achieved revolutions.
-fn extract_progress_cm(completion: &crate::task::drive::types::DriveQueueCompletion) -> f32 {
+/// Extract forward progress in cm from a `DriveQueueCompletion`.
+///
+/// `distance_factor` is the calibration factor read from `CALIBRATION_STATE`.
+/// It is applied *in reverse* so the cm reported here matches the cm originally
+/// requested by the drive command (which multiplies by the same factor when
+/// converting cm → target revolutions).
+fn extract_progress_cm(completion: &crate::task::drive::types::DriveQueueCompletion, distance_factor: f32) -> f32 {
     completion
         .last_step_completion
         .as_ref()
@@ -359,7 +372,14 @@ fn extract_progress_cm(completion: &crate::task::drive::types::DriveQueueComplet
                 ..
             } => {
                 let avg_revs = (achieved_left_revs + achieved_right_revs) / 2.0;
-                avg_revs * SPROCKET_CIRCUMFERENCE_CM
+                // Drive commands multiply target revs by distance_factor, so
+                // divide here to recover the true physical cm travelled.
+                // Guard against division by zero (should never happen with valid calibration).
+                if distance_factor > 0.0 {
+                    avg_revs * SPROCKET_CIRCUMFERENCE_CM / distance_factor
+                } else {
+                    avg_revs * SPROCKET_CIRCUMFERENCE_CM
+                }
             }
             _ => 0.0,
         })
