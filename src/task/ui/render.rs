@@ -179,7 +179,8 @@ pub async fn render_autonomous_running_from_values(
         let display_state = attempt_straight_line::display_state_snapshot().await;
         let progress = display_state.progress_cm;
         let target = f32::from(display_state.target_cm);
-        let drift = display_state.drift_deg;
+        let heading = display_state.heading_deg;
+        let offset = display_state.offset_cm;
         let label = display_state.state_label;
 
         let is_finished = label == "Target reached" || label == "Blocked - finished";
@@ -193,11 +194,7 @@ pub async fn render_autonomous_running_from_values(
             if is_finished {
                 let _ = header.push_str(label);
             } else {
-                let drift_dir = if drift >= 0.0 { "R" } else { "L" };
-                let _ = core::fmt::write(
-                    &mut header,
-                    format_args!("T:{progress:.0}/{target:.0} D:{}{drift_dir}", drift.abs()),
-                );
+                let _ = core::fmt::write(&mut header, format_args!("T:{progress:.0}/{target:.0} H:{heading:.0}"));
             }
             display::display_update(DisplayAction::ShowText(header, 0)).await;
             return;
@@ -208,8 +205,7 @@ pub async fn render_autonomous_running_from_values(
         let _ = rows[0].push_str(label);
         let _ = core::fmt::write(&mut rows[1], format_args!("Travel: {progress:.0}/{target:.0} cm"));
         if !is_finished {
-            let drift_dir = if drift >= 0.0 { "R" } else { "L" };
-            let _ = core::fmt::write(&mut rows[2], format_args!("Drift: {:.1}{}", drift.abs(), drift_dir));
+            let _ = core::fmt::write(&mut rows[2], format_args!("Hdg: {heading:.1} Off: {offset:.1}"));
             let _ = rows[3].push_str("US: ----");
         }
         if !display::display_try_update(DisplayAction::ShowLines(rows.clone())) {

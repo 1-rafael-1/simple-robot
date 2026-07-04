@@ -12,7 +12,7 @@ use crate::task::{drive::types::RotationDirection, sensors::ultrasonic::ULTRASON
 /// Maximum sensing distance in mm, derived from the ultrasonic module.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 const MAX_SENSING_DISTANCE_MM: u16 = (ULTRASONIC_MAX_DISTANCE_CM * 10.0) as u16;
-/// Minimum width for a valid gap in mm (30 cm).
+/// Minimum width for a valid gap in mm (30 cm) — Pass 1.
 const MIN_GAP_WIDTH_MM: u16 = 300;
 /// If no constriction exceeds this, the path is blocked (10 cm).
 const NO_PATH_THRESHOLD_MM: u16 = 100;
@@ -22,6 +22,25 @@ const SAFETY_MARGIN_CM: f32 = 10.0;
 const CENTER_ANGLE_DEG: f32 = 80.0;
 /// Maximum heading offset from center (±90°).
 const MAX_HEADING_OFFSET_DEG: f32 = 90.0;
+/// Hysteresis threshold in degrees (±15° from previous gap midpoint).
+const HYSTERESIS_THRESHOLD_DEG: f32 = 15.0;
+
+// ── Scoring weights ─────────────────────────────────────────────────────────
+
+/// Weight for constriction depth (primary: make forward progress).
+const DEPTH_WEIGHT: f32 = 0.35;
+/// Weight for heading alignment (secondary: maintain direction).
+const HEADING_WEIGHT: f32 = 0.30;
+/// Weight for gap width (safety margin).
+const WIDTH_WEIGHT: f32 = 0.15;
+/// Weight for hysteresis (prevent oscillation).
+const HYST_WEIGHT: f32 = 0.10;
+/// Weight for alignment within the gap (centering reduces scrape risk).
+const ALIGN_WEIGHT: f32 = 0.10;
+/// Penalty weight for boundary arcs (unknown space beyond sweep edge).
+const BOUNDARY_WEIGHT: f32 = 0.05;
+/// Relaxed minimum width in mm (25 cm) — Passes 2–3.
+const RELAXED_MIN_WIDTH_MM: f32 = 250.0;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -106,6 +125,96 @@ impl ClearArc {
     }
 }
 
+// ── Scoring helpers ─────────────────────────────────────────────────────────
+
+/// Cosine falloff: 1.0 at 0° offset, ~0.0 at 90° offset.
+fn heading_score(midpoint_deg: f32, desired_heading_deg: f32) -> f32 {
+    libm::cosf((midpoint_deg - desired_heading_deg).to_radians())
+}
+
+/// Linear depth score, capped at 1.0.
+fn depth_score(arc: ClearArc) -> f32 {
+    let depth = f32::from(arc.effective_constriction_mm());
+    (depth / f32::from(MAX_SENSING_DISTANCE_MM)).min(1.0)
+}
+
+/// Linear width score: 0.0 at `min_width`, 1.0 at `2 × min_width`, saturates above.
+fn width_score(arc: ClearArc, min_width_mm: f32) -> f32 {
+    if min_width_mm <= 0.0 {
+        return 1.0;
+    }
+    ((arc.lateral_width_mm() - min_width_mm) / min_width_mm).clamp(0.0, 1.0)
+}
+
+/// Binary hysteresis bonus: 1.0 if within ±15° of the previous gap midpoint.
+fn hysteresis_score(midpoint_deg: f32, prev_midpoint_deg: Option<f32>) -> f32 {
+    if let Some(prev) = prev_midpoint_deg
+        && (midpoint_deg - prev).abs() <= HYSTERESIS_THRESHOLD_DEG
+    {
+        return 1.0;
+    }
+    0.0
+}
+
+/// Alignment within the gap: 1.0 when centered on the desired heading,
+/// decreasing as the midpoint diverges from desired relative to the arc span.
+fn alignment_score(midpoint_deg: f32, desired_heading_deg: f32, span_deg: f32) -> f32 {
+    let span = span_deg.max(1.0);
+    (1.0 - (midpoint_deg - desired_heading_deg).abs() / span).clamp(0.0, 1.0)
+}
+
+// ── Pass helper ─────────────────────────────────────────────────────────────
+
+/// Run one pass of the fallback cascade: filter arcs by width, boundary policy,
+/// and heading limit; score survivors with all factors; return the best arc.
+///
+/// Returns the winning `ClearArc`, or `None` if no valid arc survived filtering.
+fn scored_pass(
+    arcs: &[ClearArc],
+    desired_heading_deg: f32,
+    prev_gap_midpoint_deg: Option<f32>,
+    min_width_mm: f32,
+    allow_boundary: bool,
+) -> Option<ClearArc> {
+    let mut best_arc: Option<ClearArc> = None;
+    let mut best_score = f32::NEG_INFINITY;
+
+    for &arc in arcs {
+        // ── Filtering ──
+        if !allow_boundary && arc.is_boundary() {
+            continue;
+        }
+        if !arc.within_heading_limit() {
+            continue;
+        }
+        if arc.lateral_width_mm() < min_width_mm {
+            continue;
+        }
+
+        // ── Scoring ──
+        let midpoint = arc.midpoint_deg();
+        let score = DEPTH_WEIGHT * depth_score(arc)
+            + HEADING_WEIGHT * heading_score(midpoint, desired_heading_deg)
+            + WIDTH_WEIGHT * width_score(arc, min_width_mm)
+            + HYST_WEIGHT * hysteresis_score(midpoint, prev_gap_midpoint_deg)
+            + ALIGN_WEIGHT * alignment_score(midpoint, desired_heading_deg, arc.span_deg());
+
+        let penalty = if allow_boundary && arc.is_boundary() {
+            BOUNDARY_WEIGHT
+        } else {
+            0.0
+        };
+        let final_score = score - penalty;
+
+        if final_score > best_score {
+            best_score = final_score;
+            best_arc = Some(arc);
+        }
+    }
+
+    best_arc
+}
+
 // ── Main algorithm ──────────────────────────────────────────────────────────
 
 /// Analyze the sweep buffer and return the best gap decision, or `None` if no path.
@@ -113,20 +222,37 @@ impl ClearArc {
 /// # Arguments
 /// * `buffer` — 161-entry array indexed by servo angle (0–160°), `Some(mm)` for
 ///   valid reading, `None` for timeout/error.
-/// * `correction_angle_deg` — the desired correction angle in servo space
-///   (derived from accumulated drift: `80 - drift` where drift is signed,
-///   positive=right).
+/// * `robot_x_cm`, `robot_y_cm` — current estimated position in world frame.
+/// * `target_x_cm` — target X coordinate (always `(target_cm, 0)` in world frame).
+/// * `robot_heading_deg` — current estimated heading in world-frame degrees.
+/// * `prev_gap_midpoint_deg` — previous gap midpoint for hysteresis (None on first sweep).
 /// * `remaining_target_cm` — remaining distance to target in cm.
 ///
 /// # Returns
 /// * `Some(GapDecision)` if a valid gap or fallback path exists.
-/// * `None` if no forward progress is possible (no constriction >10 cm).
+/// * `None` if no forward progress is possible.
 #[must_use]
+#[allow(clippy::similar_names)]
 pub fn analyze_gaps(
     buffer: &[Option<u16>; 161],
-    correction_angle_deg: f32,
+    robot_x_cm: f32,
+    robot_y_cm: f32,
+    target_x_cm: f32,
+    _robot_heading_deg: f32,
+    prev_gap_midpoint_deg: Option<f32>,
     remaining_target_cm: f32,
 ) -> Option<GapDecision> {
+    // ── Compute desired heading from odometry ──────────────────────────────
+    //
+    // World frame: target is at (target_x_cm, 0).  Desired world heading is
+    // atan2 from current position toward the target.  Then map to servo space:
+    //   servo center (80°) = world heading 0°
+    //   servo > 80° = left (CCW, negative world heading)
+    //   servo < 80° = right (CW, positive world heading)
+
+    let desired_heading_world_rad = libm::atan2f(-robot_y_cm, target_x_cm - robot_x_cm);
+    let desired_heading_deg = (80.0 - desired_heading_world_rad.to_degrees()).clamp(0.0, 160.0);
+
     // ── Step 1 & 2: Classify each angle and extract contiguous clear arcs ──
     //
     // A reading is "clear" only when `None` (timeout — no echo).
@@ -201,64 +327,87 @@ pub fn analyze_gaps(
 
     let arcs = &arcs_buf[..arc_count];
 
-    // ── Step 3–6: Filter to valid gaps ─────────────────────────────────────
+    // ── Serially-constrained fallback cascade ──────────────────────────────
     //
-    // Valid gaps: not boundary, within heading limit, lateral width ≥ MIN_GAP_WIDTH_MM.
+    // Each pass relaxes exactly one constraint.  If a pass finds a gap, stop.
 
-    let mut best_idx: Option<usize> = None;
-    let mut best_score: f32 = 0.0;
-
-    for (idx, arc) in arcs.iter().enumerate() {
-        if arc.is_boundary() {
-            continue;
-        }
-        if !arc.within_heading_limit() {
-            continue;
-        }
-        if arc.lateral_width_mm() < f32::from(MIN_GAP_WIDTH_MM) {
-            continue;
-        }
-
-        let score = (arc.midpoint_deg() - correction_angle_deg).abs();
-
-        let replace = best_idx.is_none_or(|prev_idx| {
-            if score < best_score {
-                true
-            } else if (score - best_score).abs() < f32::EPSILON {
-                // Tie-break: gap with midpoint closest to CENTER_ANGLE_DEG.
-                let current_tb = (arc.midpoint_deg() - CENTER_ANGLE_DEG).abs();
-                let best_tb = (arcs[prev_idx].midpoint_deg() - CENTER_ANGLE_DEG).abs();
-                current_tb < best_tb
-            } else {
-                false
-            }
-        });
-
-        if replace {
-            best_idx = Some(idx);
-            best_score = score;
-        }
+    // Pass 1 — Primary: full width (300 mm), no boundary arcs.
+    if let Some(gap) = scored_pass(
+        arcs,
+        desired_heading_deg,
+        prev_gap_midpoint_deg,
+        f32::from(MIN_GAP_WIDTH_MM),
+        false,
+    ) {
+        return Some(build_decision(gap, remaining_target_cm));
     }
 
-    // ── Step 7–8: Compute decision for the chosen gap ──────────────────────
-
-    if let Some(idx) = best_idx {
-        return Some(build_decision(arcs[idx], remaining_target_cm));
+    // Pass 2 — Relax width: 250 mm, no boundary arcs.
+    if let Some(gap) = scored_pass(
+        arcs,
+        desired_heading_deg,
+        prev_gap_midpoint_deg,
+        RELAXED_MIN_WIDTH_MM,
+        false,
+    ) {
+        return Some(build_decision(gap, remaining_target_cm));
     }
 
-    // ── Step 9: Fallback — longest constriction among all arcs ─────────────
+    // Pass 3 — Allow boundary arcs: 250 mm, boundary arcs incur BOUNDARY_WEIGHT penalty.
+    if let Some(gap) = scored_pass(
+        arcs,
+        desired_heading_deg,
+        prev_gap_midpoint_deg,
+        RELAXED_MIN_WIDTH_MM,
+        true,
+    ) {
+        return Some(build_decision(gap, remaining_target_cm));
+    }
 
-    // `arc_count > 0` was already checked above, so `max_by_key` on a
-    // non-empty slice always returns `Some`; `?` is safe here.
+    // Pass 4 — Last resort: any arc with constriction > 100 mm (no scoring, just depth).
+    // `arc_count > 0` was already checked above, so `max_by_key` always returns `Some`.
     let best_fallback = arcs.iter().max_by_key(|arc| arc.effective_constriction_mm())?;
-
     if best_fallback.effective_constriction_mm() > NO_PATH_THRESHOLD_MM {
         return Some(build_decision(*best_fallback, remaining_target_cm));
     }
 
-    // ── Step 10: No path ──────────────────────────────────────────────────
-
     None
+}
+
+// ── Odometry ────────────────────────────────────────────────────────────────
+
+/// Pure per-leg dead-reckoning update.
+///
+/// Rotation is applied **first** (heading changes), then forward drive happens
+/// along the new heading.
+///
+/// # Arguments
+/// * `x_cm`, `y_cm` — current position in cm (world frame, target is at `(target_cm, 0)`).
+/// * `heading_deg` — current heading in world-frame degrees.
+/// * `rotation_deg` — rotation amount in degrees (always positive).
+/// * `direction` — rotation direction (`Clockwise` → heading increases).
+/// * `distance_cm` — forward distance driven in cm.
+#[must_use]
+pub fn update_odometry(
+    x_cm: f32,
+    y_cm: f32,
+    heading_deg: f32,
+    rotation_deg: f32,
+    direction: RotationDirection,
+    distance_cm: f32,
+) -> (f32, f32, f32) {
+    // Apply rotation to heading first.
+    let new_heading_deg = match direction {
+        RotationDirection::Clockwise => heading_deg + rotation_deg,
+        RotationDirection::CounterClockwise => heading_deg - rotation_deg,
+    };
+
+    // Forward drive along the new heading.
+    let heading_rad = new_heading_deg.to_radians();
+    let new_x = x_cm + distance_cm * libm::cosf(heading_rad);
+    let new_y = y_cm + distance_cm * libm::sinf(heading_rad);
+
+    (new_x, new_y, new_heading_deg)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

@@ -55,8 +55,10 @@ pub struct ModeDisplayState {
     pub progress_cm: f32,
     /// Target distance in cm.
     pub target_cm: u16,
-    /// Accumulated drift in degrees (positive=right, negative=left).
-    pub drift_deg: f32,
+    /// Estimated current heading in world-frame degrees.
+    pub heading_deg: f32,
+    /// Absolute lateral offset from the original straight line (cm).
+    pub offset_cm: f32,
     /// Current state label for display.
     pub state_label: &'static str,
 }
@@ -65,7 +67,8 @@ pub struct ModeDisplayState {
 static DISPLAY_STATE: Mutex<CriticalSectionRawMutex, ModeDisplayState> = Mutex::new(ModeDisplayState {
     progress_cm: 0.0,
     target_cm: 0,
-    drift_deg: 0.0,
+    heading_deg: 0.0,
+    offset_cm: 0.0,
     state_label: "Idle",
 });
 
@@ -168,7 +171,7 @@ pub const fn target_preset_cm() -> u16 {
 // ── Task ──────────────────────────────────────────────────────────────────────
 
 #[embassy_executor::task]
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::similar_names)]
 pub async fn attempt_straight_line_task(target_distance_cm: u16) {
     info!("attempt-straight: activated, target {} cm", target_distance_cm);
 
@@ -181,7 +184,8 @@ pub async fn attempt_straight_line_task(target_distance_cm: u16) {
         let mut ds = DISPLAY_STATE.lock().await;
         ds.progress_cm = 0.0;
         ds.target_cm = target_distance_cm;
-        ds.drift_deg = 0.0;
+        ds.heading_deg = 0.0;
+        ds.offset_cm = 0.0;
         ds.state_label = "Starting...";
     }
 
@@ -189,7 +193,10 @@ pub async fn attempt_straight_line_task(target_distance_cm: u16) {
     // so reverse conversion from revs → cm produces accurate progress.
     let distance_factor = calibration::get_distance_factor().await;
 
-    let mut accumulated_drift: f32 = 0.0;
+    let mut robot_x_cm: f32 = 0.0;
+    let mut robot_y_cm: f32 = 0.0;
+    let mut robot_heading_deg: f32 = 0.0;
+    let mut prev_gap_midpoint_deg: Option<f32> = None;
     let mut total_progress_cm: f32 = 0.0;
     let mut state = State::Sweeping;
 
@@ -233,10 +240,17 @@ pub async fn attempt_straight_line_task(target_distance_cm: u16) {
                 info!("attempt-straight: deciding");
 
                 let remaining = f32::from(target_distance_cm) - total_progress_cm;
-                let correction_angle = 80.0 - accumulated_drift;
 
                 let buffer = ultrasonic::SWEEP_BUFFER.lock().await;
-                let decision = gap_analysis::analyze_gaps(&buffer, correction_angle, remaining);
+                let decision = gap_analysis::analyze_gaps(
+                    &buffer,
+                    robot_x_cm,
+                    robot_y_cm,
+                    f32::from(target_distance_cm),
+                    robot_heading_deg,
+                    prev_gap_midpoint_deg,
+                    remaining,
+                );
                 drop(buffer);
 
                 decision.map_or_else(
@@ -249,6 +263,7 @@ pub async fn attempt_straight_line_task(target_distance_cm: u16) {
                             "attempt-straight: gap chosen, mid={}, rot={}, drive={} cm",
                             gap.servo_midpoint_deg, gap.rotation_degrees, gap.drive_distance_cm
                         );
+                        prev_gap_midpoint_deg = Some(gap.servo_midpoint_deg);
                         State::Driving(gap)
                     },
                 )
@@ -309,15 +324,22 @@ pub async fn attempt_straight_line_task(target_distance_cm: u16) {
                 let progress = extract_progress_cm(&completion, distance_factor);
                 total_progress_cm += progress;
 
-                // Update accumulated drift: offset from center (80°).
-                let offset = 80.0 - gap.servo_midpoint_deg;
-                accumulated_drift += offset;
+                // Update odometry: rotation first, then forward drive along new heading.
+                (robot_x_cm, robot_y_cm, robot_heading_deg) = gap_analysis::update_odometry(
+                    robot_x_cm,
+                    robot_y_cm,
+                    robot_heading_deg,
+                    gap.rotation_degrees,
+                    gap.rotation_direction,
+                    progress,
+                );
 
                 // Update display state.
                 {
                     let mut ds = DISPLAY_STATE.lock().await;
                     ds.progress_cm = total_progress_cm;
-                    ds.drift_deg = accumulated_drift;
+                    ds.heading_deg = robot_heading_deg;
+                    ds.offset_cm = libm::fabsf(robot_y_cm);
                 }
 
                 let leg_status = if matches!(completion.status, CompletionStatus::Success) {
@@ -327,8 +349,12 @@ pub async fn attempt_straight_line_task(target_distance_cm: u16) {
                 };
 
                 info!(
-                    "attempt-straight: leg {} (progress {} cm, total {} cm, drift {})",
-                    leg_status, progress, total_progress_cm, accumulated_drift
+                    "attempt-straight: leg {} (progress {} cm, total {} cm, heading {} deg, offset {} cm)",
+                    leg_status,
+                    progress,
+                    total_progress_cm,
+                    robot_heading_deg,
+                    libm::fabsf(robot_y_cm)
                 );
 
                 if !ACTIVE.load(Ordering::Relaxed) {
