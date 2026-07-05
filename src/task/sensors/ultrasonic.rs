@@ -132,55 +132,89 @@ async fn teardown_obstacle_detection(enabled: &mut bool, last_detected: &mut Opt
     *enabled = false;
 }
 
+/// Outcome of a single sweep-angle advance step.
+#[derive(PartialEq)]
+enum SweepEvent {
+    /// Sweep continues in the same direction.
+    Continue,
+    /// Direction reversed (hit a boundary).
+    Reversed,
+    /// Buffered sweep completed.
+    Completed,
+}
+
 /// Advance the sweep angle and handle boundary reversals.
 ///
-/// Returns `true` if a buffered sweep completed (caller should switch to
-/// center angle and raise `UltrasonicSweepCompleted`).
+/// Returns:
+/// - `SweepEvent::Completed` if a buffered sweep finished (caller should
+///   switch to center angle and raise `UltrasonicSweepCompleted`).
+/// - `SweepEvent::Reversed` if the direction reversed at a boundary.
+/// - `SweepEvent::Continue` otherwise.
 fn advance_sweep_angle(
     angle: &mut f32,
     angle_increment: &mut f32,
     max_degree_rotation: f32,
     buffered_sweep_active: &mut bool,
-) -> bool {
+) -> SweepEvent {
     *angle += *angle_increment;
     if *angle >= max_degree_rotation {
         if *buffered_sweep_active {
             *buffered_sweep_active = false;
             *angle = ULTRASONIC_CENTER_ANGLE_DEG;
-            return true;
+            return SweepEvent::Completed;
         }
         *angle = max_degree_rotation;
         *angle_increment = -*angle_increment;
+        SweepEvent::Reversed
     } else if *angle <= 0.0 {
         *angle = 0.0;
         *angle_increment = -*angle_increment;
+        SweepEvent::Reversed
+    } else {
+        SweepEvent::Continue
     }
-    false
 }
 
-/// Read the corrected sweep buffer and return all detected obstacle points.
+/// Read the corrected sweep buffer and return one representative point per
+/// obstacle.
 ///
-/// Each `Some(distance_mm)` entry in `SWEEP_BUFFER` at angle index `i`
-/// becomes an `ObstaclePoint { angle_deg: i as f32, distance_cm: distance_mm as f64 / 10.0 }`.
+/// Contiguous `Some` entries (each obstacle run after cone correction) are
+/// compressed into a single `ObstaclePoint` at the run's midpoint angle with
+/// the minimum distance observed across the run.
 ///
-/// **Capacity:** Returns at most 32 obstacle points. In practice a 161° sweep
-/// can produce at most ~54 corrected obstacles (3° minimum width per obstacle
-/// after cone correction), so 32 points is ample for a 128×64 display where
-/// individual pixels begin to merge at higher densities.
+/// **Capacity:** Returns at most 32 obstacle points, which is ample — each
+/// run maps to exactly one point regardless of its angular width.
 pub async fn sweep_buffer_points() -> SweepPoints {
     let buffer = SWEEP_BUFFER.lock().await;
     let mut points: SweepPoints = HeaplessVec::new();
-    for (i, entry) in buffer.iter().enumerate() {
-        if let Some(distance_mm) = entry {
+    let mut i = 0;
+    while i < 161 {
+        if let Some(distance_mm) = buffer[i] {
+            // Start of a contiguous obstacle run
+            let run_start = i;
+            let mut min_dist = distance_mm;
+            i += 1;
+            while i < 161 {
+                if let Some(d) = buffer[i] {
+                    min_dist = min_dist.min(d);
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            let run_end = i - 1;
+            #[allow(clippy::cast_precision_loss, clippy::manual_midpoint)]
+            let midpoint_deg = (run_start as f32 + run_end as f32) / 2.0;
             #[allow(clippy::cast_precision_loss)]
             let point = ObstaclePoint {
-                angle_deg: i as f32,
-                #[allow(clippy::cast_precision_loss)]
-                distance_cm: f64::from(*distance_mm) / 10.0,
+                angle_deg: midpoint_deg,
+                distance_cm: f64::from(min_dist) / 10.0,
             };
             if points.push(point).is_err() {
                 break; // Buffer full (32 points)
             }
+        } else {
+            i += 1;
         }
     }
     drop(buffer);
@@ -620,15 +654,17 @@ pub async fn ultrasonic_sweep(
             // Update angle and check for direction change
             if sweeping || buffered_sweep_active {
                 let max_degree_rotation = servo.max_degree_rotation;
-                let completed = advance_sweep_angle(
+                let event = advance_sweep_angle(
                     &mut angle,
                     &mut angle_increment,
                     max_degree_rotation,
                     &mut buffered_sweep_active,
                 );
-                close_obstacle_run(&mut run_start, previous_angle_index).await;
-                previous_reading = None;
-                if completed {
+                if event != SweepEvent::Continue {
+                    close_obstacle_run(&mut run_start, previous_angle_index).await;
+                    previous_reading = None;
+                }
+                if event == SweepEvent::Completed {
                     servo.rotate_float(angle);
                     raise_event(Events::UltrasonicSweepCompleted).await;
                     continue 'command;

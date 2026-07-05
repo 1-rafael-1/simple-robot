@@ -212,6 +212,7 @@ pub async fn attempt_straight_line_task(target_distance_cm: u16) {
                     ds.state_label = "Sweeping...";
                 }
                 info!("attempt-straight: sweeping");
+                SWEEP_COMPLETED.reset();
                 ultrasonic::start_buffered_sweep();
 
                 // Wait for sweep completion, polling ACTIVE so we can abort cleanly.

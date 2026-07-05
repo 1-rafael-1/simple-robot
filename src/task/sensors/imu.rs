@@ -360,7 +360,7 @@ async fn update_statics_from_dmp(
     });
 
     #[allow(clippy::cast_precision_loss)]
-    // raw values are i32 but unikely tha f32 conversion loses precision at noinal values to be expected here
+    // raw values are i32 but unlikely that f32 conversion loses precision at nominal values to be expected here
     let calibrated_gyro_opt: Option<Vector3<f32>> = packet.calibrated_gyro.map(|(gx, gy, gz)| {
         Vector3::new(
             gx as f32 * GYRO_SCALE_DPS,

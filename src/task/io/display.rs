@@ -149,7 +149,7 @@ const MAX_DISTANCE_CM: f64 = 200.0;
 ///   y = `center_y` + radius * sin(`angle_rad`)
 ///
 /// ## Sweep Point Rendering
-/// - Points arrive pre-computed from the sweep buffer via `SweepPoint` structs
+/// - Points arrive pre-computed from the sweep buffer via `ObstaclePoint` structs
 /// - Scale input distance (0–200cm) to display radius (0–45px):
 ///   scaled = (distance/`MAX_DISTANCE_CM`) * RADIUS
 /// - Calculate point position using scaled distance:
