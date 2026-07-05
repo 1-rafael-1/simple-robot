@@ -5,7 +5,7 @@ use defmt::info;
 use crate::{
     system::{event::ObstacleSource, state::perception},
     task::{
-        autonomous_mode::coast_obstacle_avoid,
+        autonomous_mode::{attempt_straight_line, coast_obstacle_avoid},
         drive::{InterruptKind, send_drive_interrupt},
         indicators::rgb_led_indicate::update_obstacle_indicator,
     },
@@ -41,6 +41,13 @@ pub fn handle_obstacle_detected(source: ObstacleSource, detected: bool) {
     let combined = perception::is_obstacle_detected();
     if combined && coast_obstacle_avoid::is_active() && coast_obstacle_avoid::is_forward_phase() {
         info!("coast-avoid forward phase — issuing EmergencyBrake");
+        send_drive_interrupt(InterruptKind::EmergencyBrake);
+    } else if combined && attempt_straight_line::is_active() {
+        // During the DRIVING phase of attempt-straight-line, ultrasonic obstacle
+        // detection is armed (via start_ultrasonic_centered_obstacle_detect).
+        // IR events may also fire.  In both cases, an EmergencyBrake interrupt
+        // cancels the active DriveDistance leg so the robot stops and re-sweeps.
+        info!("attempt-straight drive phase — issuing EmergencyBrake");
         send_drive_interrupt(InterruptKind::EmergencyBrake);
     }
 

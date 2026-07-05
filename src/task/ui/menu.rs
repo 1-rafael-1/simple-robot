@@ -20,6 +20,7 @@ pub const fn menu_selection_from_index(index: usize) -> MenuSelection {
 pub const fn drive_mode_from_index(index: usize) -> Option<DriveMode> {
     match index {
         0 => Some(DriveMode::CoastAndAvoid),
+        1 => Some(DriveMode::AttemptStraightLine),
         _ => None,
     }
 }

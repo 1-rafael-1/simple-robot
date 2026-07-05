@@ -24,7 +24,8 @@ use crate::{
         state::{CalibrationSelection, DriveMode, TestSelection, calibration, perception},
     },
     task::{
-        autonomous_mode, drive,
+        autonomous_mode::{self, attempt_straight_line},
+        drive,
         io::{
             display::{DisplayAction, display_update},
             flash_storage,
@@ -289,6 +290,22 @@ async fn handle_rotary_turned(direction: RotaryDirection) {
             drop(ui);
             render_entering_distance(new_value).await;
         }
+        UiMode::EnteringAttemptStraightDistance { value } => {
+            let step = attempt_straight_line::target_step_cm();
+            let min = attempt_straight_line::target_min_cm();
+            let max = attempt_straight_line::target_max_cm();
+            let new_value = match direction {
+                RotaryDirection::Clockwise => value.saturating_sub(step),
+                RotaryDirection::CounterClockwise => (value + step).min(max),
+            }
+            .max(min);
+            let mut ui = UI_STATE.lock().await;
+            if let UiMode::EnteringAttemptStraightDistance { value: current } = &mut ui.mode {
+                *current = new_value;
+            }
+            drop(ui);
+            render_entering_attempt_straight_distance(new_value).await;
+        }
     }
 }
 
@@ -319,6 +336,9 @@ async fn handle_rotary_button_pressed() {
         UiMode::RunningAutonomous { .. } => handle_ui_back().await,
         UiMode::RunningTurnsTest | UiMode::RunningStraightDriveTest | UiMode::RunningArcDriveTest => {}
         UiMode::EnteringDistance { value } => handle_distance_entry_press(value).await,
+        UiMode::EnteringAttemptStraightDistance { value } => {
+            handle_attempt_straight_distance_entry_press(value).await;
+        }
     }
 }
 
@@ -387,6 +407,9 @@ async fn handle_ui_back() {
                 DriveMode::CoastAndAvoid => {
                     autonomous_mode::coast_obstacle_avoid::stop();
                 }
+                DriveMode::AttemptStraightLine => {
+                    attempt_straight_line::stop();
+                }
             }
             show_main_menu().await;
         }
@@ -440,10 +463,16 @@ async fn handle_calibrate_menu_press(index: usize) {
 async fn handle_drive_mode_menu_press(index: usize) {
     if let Some(mode) = menu::drive_mode_from_index(index) {
         crate::task::behavior::obstacle::reset_obstacle_state().await;
-        set_mode(UiMode::RunningAutonomous { mode }).await;
-
         match mode {
+            DriveMode::AttemptStraightLine => {
+                let preset = attempt_straight_line::target_preset_cm();
+                let mut ui = UI_STATE.lock().await;
+                ui.mode = UiMode::EnteringAttemptStraightDistance { value: preset };
+                drop(ui);
+                render_entering_attempt_straight_distance(preset).await;
+            }
             DriveMode::CoastAndAvoid => {
+                set_mode(UiMode::RunningAutonomous { mode }).await;
                 autonomous_mode::coast_obstacle_avoid::start().await;
             }
         }
@@ -701,4 +730,26 @@ async fn render_entering_distance(value: u8) {
     }
     show_line(2, "Turn to adj").await;
     show_line(3, "Press to save").await;
+}
+
+// ── Attempt-straight-line distance entry flow ───────────────────────────────────
+
+/// Handle a button press while entering an attempt-straight-line target distance.
+async fn handle_attempt_straight_distance_entry_press(value: u16) {
+    let mode = DriveMode::AttemptStraightLine;
+    set_mode(UiMode::RunningAutonomous { mode }).await;
+    attempt_straight_line::start(value).await;
+}
+
+/// Render the attempt-straight-line distance entry screen.
+async fn render_entering_attempt_straight_distance(value: u16) {
+    display_update(DisplayAction::Clear).await;
+    show_line(0, "Enter distance:").await;
+    {
+        let mut s: heapless::String<20> = heapless::String::new();
+        let _ = core::fmt::write(&mut s, format_args!("  {value} cm"));
+        display_update(DisplayAction::ShowText(s, 1)).await;
+    }
+    show_line(2, "Turn to adj").await;
+    show_line(3, "Press to start").await;
 }

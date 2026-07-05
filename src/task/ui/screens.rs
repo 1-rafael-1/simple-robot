@@ -22,7 +22,7 @@ pub const MAX_LINE_LEN: usize = 20;
 pub const MAIN_MENU_ITEMS: [&str; 4] = ["System Info", "Calibrate", "Drive Mode", "Test Mode"];
 
 /// Drive mode submenu entries.
-pub const DRIVE_MODE_MENU_ITEMS: [&str; 2] = ["Coast & Avoid", "Back"];
+pub const DRIVE_MODE_MENU_ITEMS: [&str; 3] = ["Coast & Avoid", "Attempt Straight", "Back"];
 
 /// Test mode submenu entries.
 pub const TEST_MENU_ITEMS: [&str; 10] = [

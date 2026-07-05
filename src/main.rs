@@ -171,6 +171,8 @@ fn main() -> ! {
     let i2c0 = p.I2C0;
     let pin_scl = p.PIN_13;
     let pin_sda = p.PIN_12;
+
+    // --- Port expander interrupt pin
     let pin_pe_int = p.PIN_20;
 
     // note: the order of PIO inits is important, PIO0 must be initialized before PIO1 or PIO1 will not work

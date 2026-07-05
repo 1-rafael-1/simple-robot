@@ -46,6 +46,9 @@ pub enum MenuSelection {
 pub enum DriveMode {
     /// Coast until obstacle detected, then back up and turn randomly
     CoastAndAvoid,
+    /// Attempt to travel toward a user-defined target distance by
+    /// sweeping, finding gaps, and correcting drift.
+    AttemptStraightLine,
 }
 
 /// Test submenu selections

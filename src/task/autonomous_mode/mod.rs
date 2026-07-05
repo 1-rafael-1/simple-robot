@@ -7,13 +7,20 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
+pub mod attempt_straight_line;
 pub mod coast_obstacle_avoid;
+pub mod gap_analysis;
 
 #[derive(Clone, Copy)]
 /// Command sent to the autonomous mode controller.
 pub(super) enum AutonomousCommand {
     /// Spawn coast-and-avoid autonomous mode task.
     CoastObstacleAvoid,
+    /// Spawn attempt-straight-line autonomous mode task with a target distance.
+    AttemptStraightLine {
+        /// Target travel distance in cm (100–1000).
+        target_distance_cm: u16,
+    },
 }
 
 /// Tracks whether any autonomous mode is currently active.
@@ -53,6 +60,9 @@ async fn autonomous_mode_controller(spawner: Spawner) {
     loop {
         match AUTONOMOUS_MODE_COMMAND.receive().await {
             AutonomousCommand::CoastObstacleAvoid => coast_obstacle_avoid::spawn(spawner),
+            AutonomousCommand::AttemptStraightLine { target_distance_cm } => {
+                attempt_straight_line::spawn(spawner, target_distance_cm);
+            }
         }
     }
 }

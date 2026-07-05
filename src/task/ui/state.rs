@@ -54,6 +54,11 @@ pub enum UiMode {
         /// Current entered value in cm (preset to 150, range [0, 200]).
         value: u8,
     },
+    /// Attempt-straight-line target distance entry.
+    EnteringAttemptStraightDistance {
+        /// Current entered target distance in cm.
+        value: u16,
+    },
 }
 
 /// UI state owned by the UI controller.

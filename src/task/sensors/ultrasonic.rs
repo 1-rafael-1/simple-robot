@@ -14,15 +14,19 @@ use embassy_rp::{
     pio::Instance,
     pio_programs::pwm::PioPwm,
 };
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
 use embassy_time::{Delay, Instant, Timer, with_timeout};
 use hcsr04_async::{Config, DistanceUnit, Hcsr04, Now, TemperatureUnit};
+use heapless::Vec as HeaplessVec;
 use moving_median::MovingMedian;
 use panic_probe as _;
 
-use crate::system::{
-    event::{Events, ObstacleSource, UltrasonicReading, raise_event},
-    state::perception,
+use crate::{
+    system::{
+        event::{Events, ObstacleSource, UltrasonicReading, raise_event},
+        state::perception,
+    },
+    task::sensors::ultrasonic_correction,
 };
 
 /// Commands for ultrasonic sweep control
@@ -38,10 +42,28 @@ enum UltrasonicSweepCommand {
     },
     /// Stop ultrasonic measurements
     Stop,
+    /// Start a single buffered 0–160° sweep pass into [`SWEEP_BUFFER`].
+    StartBufferedSweep,
 }
 
 /// Control signal to trigger encoder measurements after specified duration
 static US_SWEEP_CONTROL: Signal<CriticalSectionRawMutex, UltrasonicSweepCommand> = Signal::new();
+
+/// Sweep buffer for gap analysis: distance in mm per servo angle (0–160°).
+/// None means timeout or error at that angle.
+pub static SWEEP_BUFFER: Mutex<CriticalSectionRawMutex, [Option<u16>; 161]> = Mutex::new([None; 161]);
+
+/// A detected obstacle point from the sweep buffer.
+#[derive(Debug, Clone, Copy)]
+pub struct ObstaclePoint {
+    /// Servo angle in degrees (0-160).
+    pub angle_deg: f32,
+    /// Distance to obstacle in centimeters.
+    pub distance_cm: f64,
+}
+
+/// Compact list of obstacle points extracted from the sweep buffer.
+pub type SweepPoints = HeaplessVec<ObstaclePoint, 32>;
 
 /// Start continuous ultrasonic sweep readings
 pub fn start_ultrasonic_sweep() {
@@ -56,6 +78,15 @@ pub fn start_ultrasonic_fixed(angle_deg: f32) {
     });
 }
 
+/// Start fixed-angle ultrasonic readings with obstacle detection enabled.
+#[allow(dead_code)]
+pub fn start_ultrasonic_fixed_obstacle_detect(angle_deg: f32) {
+    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartFixed {
+        angle_deg,
+        obstacle_detect: true,
+    });
+}
+
 /// Start centered ultrasonic obstacle detection mode.
 pub fn start_ultrasonic_centered_obstacle_detect() {
     US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartFixed {
@@ -67,6 +98,127 @@ pub fn start_ultrasonic_centered_obstacle_detect() {
 /// Stop ultrasonic readings
 pub fn stop_ultrasonic_measurements() {
     US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::Stop);
+}
+
+/// Start a single buffered 0–160° ultrasonic sweep pass.
+/// After completion, raises `Events::UltrasonicSweepCompleted`.
+pub fn start_buffered_sweep() {
+    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartBufferedSweep);
+}
+
+/// Close an open obstacle run by applying cone correction and resetting tracking state.
+///
+/// Acquires `SWEEP_BUFFER` lock and calls `correct_contiguous_run`.
+/// Call after mode switches, direction reversals, or obstacle-end transitions.
+async fn close_obstacle_run(run_start: &mut Option<u8>, previous_angle_index: u8) {
+    if let Some(start) = run_start.take() {
+        let mut buffer = SWEEP_BUFFER.lock().await;
+        ultrasonic_correction::correct_contiguous_run(&mut buffer, start, previous_angle_index);
+    }
+}
+
+/// Tear down obstacle detection, raising a clear event if an obstacle was active.
+async fn teardown_obstacle_detection(enabled: &mut bool, last_detected: &mut Option<bool>) {
+    if *enabled {
+        if *last_detected == Some(true) {
+            raise_event(Events::ObstacleDetected {
+                source: ObstacleSource::Ultrasonic,
+                detected: false,
+            })
+            .await;
+        }
+        *last_detected = None;
+    }
+    *enabled = false;
+}
+
+/// Outcome of a single sweep-angle advance step.
+#[derive(PartialEq)]
+enum SweepEvent {
+    /// Sweep continues in the same direction.
+    Continue,
+    /// Direction reversed (hit a boundary).
+    Reversed,
+    /// Buffered sweep completed.
+    Completed,
+}
+
+/// Advance the sweep angle and handle boundary reversals.
+///
+/// Returns:
+/// - `SweepEvent::Completed` if a buffered sweep finished (caller should
+///   switch to center angle and raise `UltrasonicSweepCompleted`).
+/// - `SweepEvent::Reversed` if the direction reversed at a boundary.
+/// - `SweepEvent::Continue` otherwise.
+fn advance_sweep_angle(
+    angle: &mut f32,
+    angle_increment: &mut f32,
+    max_degree_rotation: f32,
+    buffered_sweep_active: &mut bool,
+) -> SweepEvent {
+    *angle += *angle_increment;
+    if *angle >= max_degree_rotation {
+        if *buffered_sweep_active {
+            *buffered_sweep_active = false;
+            *angle = ULTRASONIC_CENTER_ANGLE_DEG;
+            return SweepEvent::Completed;
+        }
+        *angle = max_degree_rotation;
+        *angle_increment = -*angle_increment;
+        SweepEvent::Reversed
+    } else if *angle <= 0.0 {
+        *angle = 0.0;
+        *angle_increment = -*angle_increment;
+        SweepEvent::Reversed
+    } else {
+        SweepEvent::Continue
+    }
+}
+
+/// Read the corrected sweep buffer and return one representative point per
+/// obstacle.
+///
+/// Contiguous `Some` entries (each obstacle run after cone correction) are
+/// compressed into a single `ObstaclePoint` at the run's midpoint angle with
+/// the minimum distance observed across the run.
+///
+/// **Capacity:** Returns at most 32 obstacle points, which is ample — each
+/// run maps to exactly one point regardless of its angular width.
+pub async fn sweep_buffer_points() -> SweepPoints {
+    let buffer = SWEEP_BUFFER.lock().await;
+    let mut points: SweepPoints = HeaplessVec::new();
+    let mut i = 0;
+    while i < 161 {
+        if let Some(distance_mm) = buffer[i] {
+            // Start of a contiguous obstacle run
+            let run_start = i;
+            let mut min_dist = distance_mm;
+            i += 1;
+            while i < 161 {
+                if let Some(d) = buffer[i] {
+                    min_dist = min_dist.min(d);
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            let run_end = i - 1;
+            #[allow(clippy::cast_precision_loss, clippy::manual_midpoint)]
+            let midpoint_deg = (run_start as f32 + run_end as f32) / 2.0;
+            #[allow(clippy::cast_precision_loss)]
+            let point = ObstaclePoint {
+                angle_deg: midpoint_deg,
+                distance_cm: f64::from(min_dist) / 10.0,
+            };
+            if points.push(point).is_err() {
+                break; // Buffer full (32 points)
+            }
+        } else {
+            i += 1;
+        }
+    }
+    drop(buffer);
+    points
 }
 
 // Servo Configuration constants
@@ -92,8 +244,11 @@ const ULTRASONIC_MEDIAN_WINDOW_SIZE: usize = 3;
 /// Slight inaccuracy acceptable as we care more about consistent readings
 const ULTRASONIC_TEMPERATURE: f64 = 21.5;
 
-/// Maximum supported ultrasonic distance in centimeters
-const ULTRASONIC_MAX_DISTANCE_CM: f64 = 200.0;
+/// Maximum supported ultrasonic distance in centimeters.
+///
+/// Used by gap analysis to cap drive legs so the robot never drives
+/// beyond what the sensor can see.
+pub const ULTRASONIC_MAX_DISTANCE_CM: f64 = 200.0;
 
 /// Center angle for forward-looking ultrasonic mode.
 const ULTRASONIC_CENTER_ANGLE_DEG: f32 = 80.0;
@@ -271,9 +426,13 @@ pub async fn ultrasonic_sweep(
     let mut angle_increment: f32 = 1.0;
     let mut reading: UltrasonicReading;
     let mut sweeping: bool;
+    let mut buffered_sweep_active: bool = false;
     let mut fixed_angle: f32 = ULTRASONIC_CENTER_ANGLE_DEG;
     let mut obstacle_detection_enabled = false;
     let mut last_obstacle_detected: Option<bool> = None;
+    let mut run_start: Option<u8> = None;
+    let mut previous_reading: Option<UltrasonicReading> = None;
+    let mut previous_angle_index: u8 = 0;
 
     // 80 degrees is middle, 0 is right, 160 is left
     servo.rotate_float(ULTRASONIC_CENTER_ANGLE_DEG);
@@ -285,17 +444,7 @@ pub async fn ultrasonic_sweep(
         match US_SWEEP_CONTROL.wait().await {
             UltrasonicSweepCommand::StartSweep => {
                 info!("Starting ultrasonic sweep");
-                if obstacle_detection_enabled {
-                    if last_obstacle_detected == Some(true) {
-                        raise_event(Events::ObstacleDetected {
-                            source: ObstacleSource::Ultrasonic,
-                            detected: false,
-                        })
-                        .await;
-                    }
-                    last_obstacle_detected = None;
-                }
-                obstacle_detection_enabled = false;
+                teardown_obstacle_detection(&mut obstacle_detection_enabled, &mut last_obstacle_detected).await;
                 sweeping = true;
             }
             UltrasonicSweepCommand::StartFixed {
@@ -320,19 +469,17 @@ pub async fn ultrasonic_sweep(
                 sweeping = false;
                 fixed_angle = angle_deg.clamp(0.0, servo.max_degree_rotation);
             }
+            UltrasonicSweepCommand::StartBufferedSweep => {
+                info!("Starting buffered ultrasonic sweep");
+                teardown_obstacle_detection(&mut obstacle_detection_enabled, &mut last_obstacle_detected).await;
+                sweeping = false;
+                buffered_sweep_active = true;
+                angle = 0.0;
+                angle_increment = 1.0;
+            }
             UltrasonicSweepCommand::Stop => {
                 info!("Stopping ultrasonic measurements");
-                if obstacle_detection_enabled {
-                    if last_obstacle_detected == Some(true) {
-                        raise_event(Events::ObstacleDetected {
-                            source: ObstacleSource::Ultrasonic,
-                            detected: false,
-                        })
-                        .await;
-                    }
-                    last_obstacle_detected = None;
-                }
-                obstacle_detection_enabled = false;
+                teardown_obstacle_detection(&mut obstacle_detection_enabled, &mut last_obstacle_detected).await;
                 servo.rotate_float(ULTRASONIC_CENTER_ANGLE_DEG);
                 continue 'command;
             }
@@ -340,48 +487,52 @@ pub async fn ultrasonic_sweep(
 
         loop {
             // Update servo position
-            let measurement_angle = if sweeping { angle } else { fixed_angle };
+            let measurement_angle = if sweeping || buffered_sweep_active {
+                angle
+            } else {
+                fixed_angle
+            };
             servo.rotate_float(measurement_angle);
 
             // Give servo time to reach position, also see if we must stop or switch modes
             match select(Timer::after_millis(15), US_SWEEP_CONTROL.wait()).await {
                 Either::First(()) => {}
                 Either::Second(command) => match command {
+                    UltrasonicSweepCommand::StartBufferedSweep => {
+                        // Close any open run before switching modes
+                        close_obstacle_run(&mut run_start, previous_angle_index).await;
+                        previous_reading = None;
+                        info!("Switching to buffered ultrasonic sweep");
+                        teardown_obstacle_detection(&mut obstacle_detection_enabled, &mut last_obstacle_detected).await;
+                        sweeping = false;
+                        buffered_sweep_active = true;
+                        angle = 0.0;
+                        angle_increment = 1.0;
+                    }
                     UltrasonicSweepCommand::Stop => {
+                        // Close any open run before stopping
+                        close_obstacle_run(&mut run_start, previous_angle_index).await;
+                        previous_reading = None;
                         info!("Stopping ultrasonic measurements");
-                        if obstacle_detection_enabled {
-                            if last_obstacle_detected == Some(true) {
-                                raise_event(Events::ObstacleDetected {
-                                    source: ObstacleSource::Ultrasonic,
-                                    detected: false,
-                                })
-                                .await;
-                            }
-                            last_obstacle_detected = None;
-                        }
-                        obstacle_detection_enabled = false;
+                        teardown_obstacle_detection(&mut obstacle_detection_enabled, &mut last_obstacle_detected).await;
                         servo.rotate_float(ULTRASONIC_CENTER_ANGLE_DEG);
                         continue 'command;
                     }
                     UltrasonicSweepCommand::StartSweep => {
+                        // Close any open run before switching modes
+                        close_obstacle_run(&mut run_start, previous_angle_index).await;
+                        previous_reading = None;
                         info!("Switching to ultrasonic sweep");
-                        if obstacle_detection_enabled {
-                            if last_obstacle_detected == Some(true) {
-                                raise_event(Events::ObstacleDetected {
-                                    source: ObstacleSource::Ultrasonic,
-                                    detected: false,
-                                })
-                                .await;
-                            }
-                            last_obstacle_detected = None;
-                        }
-                        obstacle_detection_enabled = false;
+                        teardown_obstacle_detection(&mut obstacle_detection_enabled, &mut last_obstacle_detected).await;
                         sweeping = true;
                     }
                     UltrasonicSweepCommand::StartFixed {
                         angle_deg,
                         obstacle_detect,
                     } => {
+                        // Close any open run before switching modes
+                        close_obstacle_run(&mut run_start, previous_angle_index).await;
+                        previous_reading = None;
                         info!("Switching to ultrasonic fixed-angle mode");
                         if obstacle_detection_enabled && !obstacle_detect {
                             if last_obstacle_detected == Some(true) {
@@ -459,16 +610,64 @@ pub async fn ultrasonic_sweep(
             // Update perception state directly — the UI poll loop reads from here.
             perception::set_ultrasonic_reading(Some(reading), measurement_angle).await;
 
+            // Fill sweep buffer during sweep modes and run correction
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            let angle_index = measurement_angle as u8;
+            if sweeping || buffered_sweep_active {
+                let value = if let UltrasonicReading::Distance(d) = reading {
+                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                    Some((d * 10.0) as u16)
+                } else {
+                    None
+                };
+
+                // Write reading into sweep buffer
+                {
+                    let mut buffer = SWEEP_BUFFER.lock().await;
+                    let idx = angle_index as usize;
+                    if idx < 161 {
+                        buffer[idx] = value;
+                    }
+                }
+
+                // Run tracking: detect transitions (no lock needed — local state only)
+                match (&previous_reading, reading) {
+                    // Transition to obstacle: previous not Distance, current is Distance
+                    (
+                        None | Some(UltrasonicReading::Timeout | UltrasonicReading::Error),
+                        UltrasonicReading::Distance(_),
+                    ) => {
+                        run_start = Some(angle_index);
+                    }
+                    // Transition away from obstacle: previous Distance, current not Distance
+                    (Some(UltrasonicReading::Distance(_)), UltrasonicReading::Timeout | UltrasonicReading::Error) => {
+                        close_obstacle_run(&mut run_start, previous_angle_index).await;
+                    }
+                    _ => {}
+                }
+            }
+
+            // Update tracking for next iteration
+            previous_reading = Some(reading);
+            previous_angle_index = angle_index;
+
             // Update angle and check for direction change
-            if sweeping {
-                angle += angle_increment;
+            if sweeping || buffered_sweep_active {
                 let max_degree_rotation = servo.max_degree_rotation;
-                if angle >= max_degree_rotation {
-                    angle = max_degree_rotation;
-                    angle_increment = -angle_increment; // Start moving back
-                } else if angle <= 0.0 {
-                    angle = 0.0;
-                    angle_increment = -angle_increment; // Start moving forward
+                let event = advance_sweep_angle(
+                    &mut angle,
+                    &mut angle_increment,
+                    max_degree_rotation,
+                    &mut buffered_sweep_active,
+                );
+                if event != SweepEvent::Continue {
+                    close_obstacle_run(&mut run_start, previous_angle_index).await;
+                    previous_reading = None;
+                }
+                if event == SweepEvent::Completed {
+                    servo.rotate_float(angle);
+                    raise_event(Events::UltrasonicSweepCompleted).await;
+                    continue 'command;
                 }
             }
         }

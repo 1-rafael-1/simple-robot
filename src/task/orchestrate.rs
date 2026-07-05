@@ -14,6 +14,7 @@ use defmt::info;
 use crate::{
     system::event::{Events, wait},
     task::{
+        autonomous_mode::attempt_straight_line,
         behavior, initialization,
         ui::{self, UiEvent},
     },
@@ -50,6 +51,9 @@ async fn handle_event(event: Events) {
         Events::RotaryButtonHoldEnd => ui::send_ui_event(UiEvent::RotaryButtonHoldEnd).await,
         Events::TestingCompleted => ui::send_ui_event(UiEvent::TestingCompleted).await,
         Events::CalibrationCompleted => ui::send_ui_event(UiEvent::CalibrationCompleted).await,
+        Events::UltrasonicSweepCompleted => {
+            attempt_straight_line::SWEEP_COMPLETED.signal(());
+        }
         Events::CalibrationStatus {
             header,
             line1,

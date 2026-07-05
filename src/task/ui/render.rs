@@ -13,7 +13,10 @@ use crate::{
         event::UltrasonicReading,
         state::{CalibrationSelection, DriveMode, calibration, perception, power},
     },
-    task::io::display::{self, DisplayAction},
+    task::{
+        autonomous_mode::attempt_straight_line,
+        io::display::{self, DisplayAction},
+    },
 };
 
 /// Render the current UI view based on the UI state.
@@ -60,8 +63,8 @@ pub async fn render_current_ui(state: &UiState) {
         UiMode::Calibrating { kind } => {
             render_calibrating(kind).await;
         }
-        UiMode::EnteringDistance { .. } => {
-            // Rendering handled by the rotary-turn handler — this arm exists
+        UiMode::EnteringDistance { .. } | UiMode::EnteringAttemptStraightDistance { .. } => {
+            // Rendering handled by the rotary-turn handlers — this arm exists
             // for exhaustiveness but should not be reached via render_current_ui.
         }
     }
@@ -171,8 +174,49 @@ pub async fn render_autonomous_running_from_values(
     ultrasonic_reading: Option<UltrasonicReading>,
     ultrasonic_angle: Option<f32>,
 ) {
+    // ── AttemptStraightLine has a custom display with travel/drift info ──
+    if mode == DriveMode::AttemptStraightLine {
+        let display_state = attempt_straight_line::display_state_snapshot().await;
+        let progress = display_state.progress_cm;
+        let target = f32::from(display_state.target_cm);
+        let heading = display_state.heading_deg;
+        let offset = display_state.offset_cm;
+        let label = display_state.state_label;
+
+        let is_finished = label == "Target reached" || label == "Blocked - finished";
+
+        // Draw radar first so it never flickers away (ShowSweepFromBuffer clears y=16..64).
+        // Then overlay a compact header on line 0 (y=0..16, above the radar).
+        if let Some(a) = ultrasonic_angle {
+            display::display_update(DisplayAction::ShowSweepFromBuffer { current_angle: a }).await;
+
+            let mut header: String<20> = String::new();
+            if is_finished {
+                let _ = header.push_str(label);
+            } else {
+                let _ = core::fmt::write(&mut header, format_args!("T:{progress:.0}/{target:.0} H:{heading:.0}"));
+            }
+            display::display_update(DisplayAction::ShowText(header, 0)).await;
+            return;
+        }
+
+        // Fallback when no US data: show full text-only display.
+        let mut rows: [String<20>; 4] = core::array::from_fn(|_| String::new());
+        let _ = rows[0].push_str(label);
+        let _ = core::fmt::write(&mut rows[1], format_args!("Travel: {progress:.0}/{target:.0} cm"));
+        if !is_finished {
+            let _ = core::fmt::write(&mut rows[2], format_args!("Hdg: {heading:.1} Off: {offset:.1}"));
+            let _ = rows[3].push_str("US: ----");
+        }
+        if !display::display_try_update(DisplayAction::ShowLines(rows.clone())) {
+            display::display_update(DisplayAction::ShowLines(rows)).await;
+        }
+        return;
+    }
+
     let mode_label = match mode {
         DriveMode::CoastAndAvoid => "Coast & Avoid",
+        DriveMode::AttemptStraightLine => "Attempt Straight",
     };
 
     let mut rows: [String<20>; 4] = core::array::from_fn(|_| String::new());
