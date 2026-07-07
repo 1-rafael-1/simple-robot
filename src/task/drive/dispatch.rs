@@ -359,6 +359,7 @@ const fn action_requires_imu(action: &DriveAction) -> bool {
 /// Subsequent calls return `true` immediately.
 async fn ensure_imu_ready() -> bool {
     use core::sync::atomic::Ordering;
+
     use embassy_time::{Duration, Instant, Timer};
 
     const IMU_STABILISE_MS: u64 = 150;

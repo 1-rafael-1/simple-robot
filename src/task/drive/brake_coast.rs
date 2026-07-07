@@ -20,9 +20,10 @@
 
 use embassy_time::{Duration, Instant};
 
-use crate::task::{drive::sensors::data::get_latest_encoder_measurement, sensors::encoders::EncoderMeasurement};
-
-use crate::task::drive::sensors::control as lifecycle;
+use crate::task::{
+    drive::sensors::{control as lifecycle, data::get_latest_encoder_measurement},
+    sensors::encoders::EncoderMeasurement,
+};
 
 /// Encoder settle interval for brake/coast completion (milliseconds).
 pub(super) const SETTLE_INTERVAL_MS: u64 = 100;
