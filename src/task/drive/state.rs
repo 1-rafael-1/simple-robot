@@ -7,10 +7,11 @@
 //! # Intent lifecycle
 //!
 //! An intent is a state machine for one motion behaviour. It is created by a
-//! control module's `init()`, polled by the intent loop via the module's
-//! `run_step()`, and torn down via its [`teardown()`](ActiveIntent::teardown)
-//! descriptor. The dispatch owns setup (starting sensors) and teardown (stopping
-//! sensors); the control modules own the runtime logic.
+//! control module's async `init()`, which owns sensor setup, polled by the intent
+//! loop via the module's `run_step()`, and torn down via its
+//! [`teardown()`](ActiveIntent::teardown) descriptor. The dispatch owns teardown
+//! (stopping sensors on completion or interrupt); the control modules own the
+//! runtime logic.
 //!
 //! Each intent carries:
 //! - A controller state (`RotationState`, `DistanceDriveState`, etc.)
@@ -122,7 +123,10 @@ impl ActiveIntent {
             Self::RotateExact {
                 state, started_at_ms, ..
             } => {
-                let last_yaw_deg = state.last_yaw.unwrap_or(0.0);
+                let last_yaw_deg = state.last_yaw.unwrap_or_else(|| {
+                    defmt::warn!("rotation cancelled before first IMU sample — telemetry yaw is 0");
+                    0.0
+                });
                 let duration_ms = Instant::now().as_millis() - started_at_ms;
                 super::types::CompletionTelemetry::RotateExact {
                     final_yaw_deg: last_yaw_deg,

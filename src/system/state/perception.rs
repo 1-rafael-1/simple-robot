@@ -19,37 +19,26 @@ use crate::system::event::UltrasonicReading;
 
 /// IR obstacle detection flag — updated by `set_ir_obstacle`, read lock-free.
 static IR_DETECTED: AtomicBool = AtomicBool::new(false);
-/// Ultrasonic obstacle detection flag — updated by `set_ultrasonic_obstacle` and
-/// `set_ultrasonic_reading`, read lock-free.
+/// Ultrasonic obstacle detection flag — updated by `set_ultrasonic_obstacle`, read lock-free.
 static ULTRASONIC_DETECTED: AtomicBool = AtomicBool::new(false);
 /// Combined obstacle flag — `IR_DETECTED || ULTRASONIC_DETECTED`.
 /// Recomputed atomically by every mutating accessor, read lock-free.
 static COMBINED_DETECTED: AtomicBool = AtomicBool::new(false);
 
-// ── Mutex (full picture: readings, angle, threshold) ──────────────────────────
+// ── Mutex (full picture: readings, angle) ─────────────────────────────────────
 
-/// Default obstacle distance threshold (cm). Used by `set_ultrasonic_reading` to
-/// auto-detect obstacles from raw distance readings.
-///
-/// Matches the ultrasonic sensor task's `ULTRASONIC_OBSTACLE_THRESHOLD_CM` (20 cm)
-/// so lock-free readers see the same obstacle state the event system produces.
-const DEFAULT_OBSTACLE_THRESHOLD_CM: f64 = 20.0;
-
-/// Mutex-guarded state holding ultrasonic readings and threshold.
+/// Mutex-guarded state holding ultrasonic readings.
 static STATE: Mutex<CriticalSectionRawMutex, PerceptionState> = Mutex::new(PerceptionState {
     ultrasonic_reading: None,
     ultrasonic_angle_deg: None,
-    obstacle_threshold_cm: DEFAULT_OBSTACLE_THRESHOLD_CM,
 });
 
-/// Internal state behind the mutex — readings, angle, and threshold.
+/// Internal state behind the mutex — readings and angle.
 struct PerceptionState {
     /// Latest ultrasonic reading, if available.
     ultrasonic_reading: Option<UltrasonicReading>,
     /// Latest ultrasonic servo angle (degrees), if available.
     ultrasonic_angle_deg: Option<f32>,
-    /// Current obstacle distance threshold (cm).
-    obstacle_threshold_cm: f64,
 }
 
 // ── Change detection ──────────────────────────────────────────────────────────
@@ -105,31 +94,14 @@ pub fn is_ultrasonic_obstacle_detected() -> bool {
 
 // ── Public accessors (async — touch the mutex) ────────────────────────────────
 
-/// Store an ultrasonic reading and angle, auto-applying the current obstacle
-/// threshold to update the ultrasonic obstacle flag.
+/// Store an ultrasonic reading and angle in the mutex.
+///
+/// Obstacle classification and atomic flag updates are handled by the event-bus
+/// path (see [`set_ultrasonic_obstacle`]); this function is a pure data store.
 pub async fn set_ultrasonic_reading(reading: Option<UltrasonicReading>, angle_deg: f32) {
-    let obstacle = match reading {
-        Some(UltrasonicReading::Distance(cm)) => {
-            let threshold = { STATE.lock().await.obstacle_threshold_cm };
-            cm < threshold
-        }
-        _ => false,
-    };
-
-    {
-        let mut state = STATE.lock().await;
-        state.ultrasonic_reading = reading;
-        state.ultrasonic_angle_deg = Some(angle_deg);
-    }
-
-    let old_combined = COMBINED_DETECTED.load(Ordering::Relaxed);
-    ULTRASONIC_DETECTED.store(obstacle, Ordering::Relaxed);
-    recompute_combined();
-    let _new_combined = COMBINED_DETECTED.load(Ordering::Relaxed);
-    // Note: no ChangeDetected return here — the ultrasonic task's own
-    // ObstacleDetected event handles reaction. This path just keeps the
-    // atomic mirrors correct for lock-free readers.
-    let _ = old_combined;
+    let mut state = STATE.lock().await;
+    state.ultrasonic_reading = reading;
+    state.ultrasonic_angle_deg = Some(angle_deg);
 }
 
 /// Clear ultrasonic reading, angle, and obstacle flag (e.g. when exiting a test mode).
@@ -142,7 +114,7 @@ pub async fn clear_ultrasonic_data() {
     state.ultrasonic_angle_deg = None;
 }
 
-/// Reset all obstacle flags, ultrasonic data, and threshold to defaults.
+/// Reset all obstacle flags and ultrasonic data to defaults.
 pub async fn reset_all() {
     IR_DETECTED.store(false, Ordering::Relaxed);
     ULTRASONIC_DETECTED.store(false, Ordering::Relaxed);
@@ -151,7 +123,6 @@ pub async fn reset_all() {
     let mut state = STATE.lock().await;
     state.ultrasonic_reading = None;
     state.ultrasonic_angle_deg = None;
-    state.obstacle_threshold_cm = DEFAULT_OBSTACLE_THRESHOLD_CM;
 }
 
 /// Return the latest ultrasonic reading and servo angle from a single lock
@@ -159,14 +130,6 @@ pub async fn reset_all() {
 pub async fn ultrasonic_sweep_snapshot() -> (Option<UltrasonicReading>, Option<f32>) {
     let state = STATE.lock().await;
     (state.ultrasonic_reading, state.ultrasonic_angle_deg)
-}
-
-/// Override the obstacle detection distance threshold (cm).
-/// Distance readings < this value are considered obstacles by `set_ultrasonic_reading`.
-#[allow(dead_code)]
-pub async fn set_obstacle_threshold(cm: f64) {
-    let mut state = STATE.lock().await;
-    state.obstacle_threshold_cm = cm;
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────

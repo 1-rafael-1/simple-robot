@@ -87,6 +87,11 @@ const DMP_SAMPLE_RATE_HZ: u16 = 100;
 /// drained promptly; `10 ms` (100 Hz) matches `DMP_SAMPLE_RATE_HZ`.
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+/// Set to `true` after the first successful DMP FIFO sample, indicating the IMU
+/// is streaming orientation data. Checked by the drive dispatch to gate movement
+/// commands until the IMU is ready.
+pub static IMU_READY: AtomicBool = AtomicBool::new(false);
+
 /// Initial delay after power-up before starting IMU initialisation.
 const IMU_BOOT_DELAY_MS: u64 = 200;
 
@@ -648,6 +653,8 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
                                         // 100 Hz sample when the channel is full is lossy but harmless —
                                         // the next sample arrives in 10 ms.
                                         let _ = drive::try_send_imu_measurement(measurement);
+
+                                        IMU_READY.store(true, Ordering::Relaxed);
                                     } else {
                                         // Packet present but no quaternion yet (DMP warming up).
                                         update_statics_from_dmp(&packet, None, current_calibration.as_ref()).await;

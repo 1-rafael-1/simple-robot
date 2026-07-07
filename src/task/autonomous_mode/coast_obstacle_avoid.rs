@@ -28,9 +28,6 @@
 //! Call [`start`] to begin the mode and [`stop`] to request a graceful exit.
 //! [`stop`] also sends an `EmergencyBrake` interrupt to unblock any active drive
 //! command immediately.
-//!
-//! [`is_active`] can be polled by other parts of the system (e.g. the obstacle
-//! behavior handler) to decide whether to issue drive interrupts.
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -59,13 +56,8 @@ use crate::{
 // ── Active flag ───────────────────────────────────────────────────────────────
 
 /// Set while the coast-and-avoid loop is running.
-///
-/// Checked by the obstacle behavior handler to decide whether to issue drive
-/// interrupts, and by the loop itself to detect stop requests.
+/// Checked by the loop itself to detect stop requests.
 static ACTIVE: AtomicBool = AtomicBool::new(false);
-
-/// Set while the forward-drive phase is active (used to gate obstacle interrupts).
-static FORWARD_PHASE: AtomicBool = AtomicBool::new(false);
 
 // ── Tuning constants ──────────────────────────────────────────────────────────
 
@@ -101,16 +93,6 @@ pub(super) fn spawn(spawner: Spawner) {
     spawner.spawn(coast_obstacle_avoid_task().unwrap());
 }
 
-/// Returns `true` while the coast-and-avoid loop is running.
-pub fn is_active() -> bool {
-    ACTIVE.load(Ordering::Relaxed)
-}
-
-/// Returns `true` while the forward-drive phase is active.
-pub fn is_forward_phase() -> bool {
-    FORWARD_PHASE.load(Ordering::Relaxed)
-}
-
 /// Activate the coast-and-avoid autonomous mode.
 ///
 /// Requests mode start through the autonomous mode controller.
@@ -120,7 +102,6 @@ pub async fn start() -> bool {
     }
 
     ACTIVE.store(true, Ordering::Relaxed);
-    FORWARD_PHASE.store(false, Ordering::Relaxed);
     start_ultrasonic_centered_obstacle_detect();
     true
 }
@@ -132,7 +113,6 @@ pub async fn start() -> bool {
 /// [`DriveDistance`] or [`RotateExact`] command immediately.
 pub fn stop() {
     ACTIVE.store(false, Ordering::Relaxed);
-    FORWARD_PHASE.store(false, Ordering::Relaxed);
     stop_ultrasonic_measurements();
     send_drive_interrupt(InterruptKind::EmergencyBrake);
 }
@@ -174,28 +154,9 @@ pub async fn coast_obstacle_avoid_task() {
     info!("coast-avoid: deactivated");
 }
 
-/// Helper guard to mark the forward-drive phase for obstacle gating.
-struct ForwardPhaseGuard;
-
-impl ForwardPhaseGuard {
-    /// Enter the forward-drive phase.
-    fn new() -> Self {
-        FORWARD_PHASE.store(true, Ordering::Relaxed);
-        Self
-    }
-}
-
-impl Drop for ForwardPhaseGuard {
-    fn drop(&mut self) {
-        FORWARD_PHASE.store(false, Ordering::Relaxed);
-    }
-}
-
 /// Issue a near-infinite `DriveDistance` forward and wait for it to complete
 /// (either cancelled by an interrupt or, extremely unlikely, finished).
 async fn drive_forward() -> CompletionStatus {
-    let _forward_phase = ForwardPhaseGuard::new();
-
     // If an obstacle was already detected before the forward phase started
     // (e.g. IR event fired during startup), skip the drive entirely and
     // signal cancellation immediately so the avoid loop can react.

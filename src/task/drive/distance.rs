@@ -54,13 +54,18 @@
 //! feature is enabled; otherwise no formatting/queueing cost is incurred.
 
 use embassy_time::Instant;
+use libm::roundf;
 use micromath::F32Ext;
 
 use crate::{
-    system::state,
+    system::state::{self, calibration, motion},
     task::{
         drive::{
-            sensors::data::{self as feedback, IMU_FEEDBACK_CHANNEL},
+            api,
+            sensors::{
+                control as lifecycle,
+                data::{self as feedback, IMU_FEEDBACK_CHANNEL},
+            },
             types,
         },
         motor_driver::{self, MotorCommand},
@@ -292,6 +297,72 @@ impl DistanceDriveState {
             last_encoder_measurement: None,
             started_at_ms: now_ms,
         }
+    }
+
+    /// Initialise a distance drive intent.
+    ///
+    /// Gets the calibration distance factor, constructs state, starts sensors,
+    /// captures the IMU reference yaw (with DMP stabilise delay), applies initial
+    /// motor speeds, and returns the `ActiveIntent`. Returns `None` for trivially
+    /// short distances (completion already sent).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    pub(super) async fn init(
+        kind: types::DriveDistanceKind,
+        direction: types::DriveDirection,
+        speed: u8,
+        completion_requested: bool,
+    ) -> Option<super::state::ActiveIntent> {
+        let distance_factor = calibration::get_distance_factor().await;
+        let mut state = Self::new(kind, direction, speed, distance_factor);
+
+        // Early exit for trivially short distances.
+        if state.target_inner_revs <= TOLERANCE_REVS {
+            api::send_completion(
+                completion_requested,
+                super::types::DriveCompletion {
+                    status: super::types::CompletionStatus::Success,
+                    telemetry: types::CompletionTelemetry::DriveDistance {
+                        achieved_left_revs: 0.0,
+                        achieved_right_revs: 0.0,
+                        target_left_revs: state.target_left_revs,
+                        target_right_revs: state.target_right_revs,
+                        duration_ms: 0,
+                    },
+                },
+            )
+            .await;
+            return None;
+        }
+
+        // Start sensors. IMU is already running + stabilised by the dispatch gate.
+        lifecycle::start_distance_imu(&kind);
+        lifecycle::start_encoder_sampling(CONTROL_INTERVAL_MS, true).await;
+
+        // Capture reference yaw from the already-stabilised IMU.
+        while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
+            state.reference_yaw = Some(m.orientation.yaw);
+        }
+
+        // Apply initial speeds.
+        let base_speed = speed.min(MAX_SPEED);
+        let signed_base = match direction {
+            types::DriveDirection::Forward => base_speed as i8,
+            types::DriveDirection::Backward => -(base_speed as i8),
+        };
+        let left_speed = roundf(f32::from(signed_base) * state.left_ratio) as i8;
+        let right_speed = roundf(f32::from(signed_base) * state.right_ratio) as i8;
+
+        motor_driver::send_motor_command(MotorCommand::SetTracks {
+            left_speed,
+            right_speed,
+        })
+        .await;
+        motion::set_track_speeds(left_speed, right_speed).await;
+
+        Some(super::state::ActiveIntent::DriveDistance {
+            state,
+            completion_requested,
+        })
     }
 }
 

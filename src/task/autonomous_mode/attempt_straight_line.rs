@@ -123,12 +123,6 @@ pub(super) fn spawn(spawner: Spawner, target_distance_cm: u16) {
     spawner.spawn(attempt_straight_line_task(target_distance_cm).unwrap());
 }
 
-/// Returns `true` while the mode is running.
-#[allow(dead_code)]
-pub fn is_active() -> bool {
-    ACTIVE.load(Ordering::Relaxed)
-}
-
 /// Request a graceful stop of the mode.
 pub fn stop() {
     ACTIVE.store(false, Ordering::Relaxed);
