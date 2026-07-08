@@ -491,6 +491,7 @@ pub async fn ultrasonic_sweep(
             UltrasonicSweepCommand::Stop => {
                 info!("Stopping ultrasonic measurements");
                 teardown_obstacle_detection(&mut obstacle_detection_enabled, &mut last_obstacle_detected).await;
+                buffered_sweep_active = false;
                 servo.rotate_float(ULTRASONIC_CENTER_ANGLE_DEG);
                 continue 'command;
             }
@@ -526,6 +527,7 @@ pub async fn ultrasonic_sweep(
                         previous_reading = None;
                         info!("Stopping ultrasonic measurements");
                         teardown_obstacle_detection(&mut obstacle_detection_enabled, &mut last_obstacle_detected).await;
+                        buffered_sweep_active = false;
                         servo.rotate_float(ULTRASONIC_CENTER_ANGLE_DEG);
                         continue 'command;
                     }
@@ -560,6 +562,7 @@ pub async fn ultrasonic_sweep(
                             last_obstacle_detected = None;
                         }
                         sweeping = false;
+                        buffered_sweep_active = false;
                         fixed_angle = angle_deg.clamp(0.0, servo.max_degree_rotation);
                     }
                 },
