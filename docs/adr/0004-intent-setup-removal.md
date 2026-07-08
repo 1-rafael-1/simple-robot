@@ -15,7 +15,7 @@ After making `handle_drive_distance` consistent with other intents and giving `D
 - `IntentSetup` enum and `execute_intent_setup` are deleted.
 - `IntentTeardown` and `execute_intent_teardown` remain unchanged.
 - `BrakeCoastState::init()` becomes async and calls `start_encoder_sampling()` internally.
-- `DistanceDriveState::init()` becomes async and owns sensor start, IMU stabilise, reference capture, and initial motor command.
+- `DistanceDriveState::init()` becomes async and owns sensor start, reference capture, and initial motor command. IMU startup + DMP stabilisation is handled by the dispatch gate (`ensure_imu_ready`).
 - `RotationState::init()` unchanged — already async, already owns setup.
 - `handle_drive_distance` in dispatch shrinks to a thin router matching `handle_rotate_exact`.
 - The dispatch is now genuinely thin: route commands, execute teardown on completion/interrupt, manage epoch.

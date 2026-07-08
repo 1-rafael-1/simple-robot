@@ -353,21 +353,17 @@ const fn action_requires_imu(action: &DriveAction) -> bool {
 
 /// Ensure the IMU is streaming stabilised data.
 ///
-/// On first call: starts the IMU with default fusion mode, waits for the first
-/// DMP FIFO sample (1 s timeout), waits 150 ms for DMP filter stabilisation,
-/// drains stale samples. Returns `true` if the IMU is ready; `false` on timeout.
-/// Subsequent calls return `true` immediately.
+/// On first call (and after every IMU stop): starts the IMU with default fusion
+/// mode, waits for the first DMP FIFO sample (1 s timeout), waits 150 ms for DMP
+/// filter stabilisation, drains stale samples. Returns `true` if the IMU is ready;
+/// `false` on timeout. If the IMU is already streaming, returns `true` immediately.
 async fn ensure_imu_ready() -> bool {
-    use core::sync::atomic::Ordering;
-
     use embassy_time::{Duration, Instant, Timer};
 
     const IMU_STABILISE_MS: u64 = 150;
     const IMU_WAIT_TIMEOUT_MS: u64 = 1000;
 
-    static IMU_STABILISED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-
-    if IMU_STABILISED.load(Ordering::Relaxed) {
+    if crate::task::sensors::imu::IMU_READY.load(core::sync::atomic::Ordering::Relaxed) {
         return true;
     }
 
@@ -396,6 +392,5 @@ async fn ensure_imu_ready() -> bool {
     // Drain any stale samples accumulated during stabilise.
     while IMU_FEEDBACK_CHANNEL.receiver().try_receive().is_ok() {}
 
-    IMU_STABILISED.store(true, Ordering::Relaxed);
     true
 }

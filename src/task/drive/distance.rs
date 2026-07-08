@@ -53,7 +53,7 @@
 //! Curve debug logs are rate-limited and compiled only when the `telemetry_logs`
 //! feature is enabled; otherwise no formatting/queueing cost is incurred.
 
-use embassy_time::Instant;
+use embassy_time::{Duration, Instant, Timer};
 use libm::roundf;
 use micromath::F32Ext;
 
@@ -302,9 +302,13 @@ impl DistanceDriveState {
     /// Initialise a distance drive intent.
     ///
     /// Gets the calibration distance factor, constructs state, starts sensors,
-    /// captures the IMU reference yaw (with DMP stabilise delay), applies initial
-    /// motor speeds, and returns the `ActiveIntent`. Returns `None` for trivially
-    /// short distances (completion already sent).
+    /// captures a fresh IMU reference yaw, applies initial motor speeds, and
+    /// returns the `ActiveIntent`. Returns `None` for trivially short distances
+    /// (completion already sent).
+    ///
+    /// The dispatch gate (`ensure_imu_ready`) handles IMU startup + DMP
+    /// stabilisation before this is called; this function drains the latest
+    /// sample and waits briefly for one if the channel is empty.
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
     pub(super) async fn init(
         kind: types::DriveDistanceKind,
@@ -341,6 +345,20 @@ impl DistanceDriveState {
         // Capture reference yaw from the already-stabilised IMU.
         while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
             state.reference_yaw = Some(m.orientation.yaw);
+        }
+
+        // If the channel was empty (gate just drained it before us), wait up to
+        // 50 ms for a fresh sample so straight drives don't start without a heading.
+        if state.reference_yaw.is_none() {
+            let deadline = Instant::now() + Duration::from_millis(50);
+            while state.reference_yaw.is_none() && Instant::now() < deadline {
+                while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
+                    state.reference_yaw = Some(m.orientation.yaw);
+                }
+                if state.reference_yaw.is_none() {
+                    Timer::after(Duration::from_millis(10)).await;
+                }
+            }
         }
 
         // Apply initial speeds.

@@ -87,9 +87,9 @@ const DMP_SAMPLE_RATE_HZ: u16 = 100;
 /// drained promptly; `10 ms` (100 Hz) matches `DMP_SAMPLE_RATE_HZ`.
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-/// Set to `true` after the first successful DMP FIFO sample, indicating the IMU
-/// is streaming orientation data. Checked by the drive dispatch to gate movement
-/// commands until the IMU is ready.
+/// Set to `true` after the first successful DMP FIFO sample, cleared when the
+/// IMU is stopped. The drive dispatch uses this to gate movement commands and
+/// trigger DMP filter stabilisation on each fresh start.
 pub static IMU_READY: AtomicBool = AtomicBool::new(false);
 
 /// Initial delay after power-up before starting IMU initialisation.
@@ -225,6 +225,7 @@ pub fn start_imu_readings() {
 
 /// Signal the IMU task to stop measurements and enter standby.
 pub fn stop_imu_readings() {
+    IMU_READY.store(false, Ordering::Relaxed);
     IMU_CONTROL.signal(ImuCommand::Stop);
 }
 
