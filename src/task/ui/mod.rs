@@ -405,10 +405,10 @@ async fn handle_ui_back() {
         UiMode::RunningAutonomous { mode } => {
             match mode {
                 DriveMode::CoastAndAvoid => {
-                    autonomous_mode::coast_obstacle_avoid::stop();
+                    autonomous_mode::coast_obstacle_avoid::stop().await;
                 }
                 DriveMode::AttemptStraightLine => {
-                    attempt_straight_line::stop();
+                    attempt_straight_line::stop().await;
                 }
             }
             show_main_menu().await;

@@ -67,44 +67,50 @@ pub struct ObstaclePoint {
 pub type SweepPoints = HeaplessVec<ObstaclePoint, 32>;
 
 /// Start continuous ultrasonic sweep readings
-pub fn start_ultrasonic_sweep() {
-    let _ = US_SWEEP_CONTROL.try_send(UltrasonicSweepCommand::StartSweep);
+pub async fn start_ultrasonic_sweep() {
+    US_SWEEP_CONTROL.send(UltrasonicSweepCommand::StartSweep).await;
 }
 
 /// Start fixed-angle ultrasonic readings (no servo sweep)
-pub fn start_ultrasonic_fixed(angle_deg: f32) {
-    let _ = US_SWEEP_CONTROL.try_send(UltrasonicSweepCommand::StartFixed {
-        angle_deg,
-        obstacle_detect: false,
-    });
+pub async fn start_ultrasonic_fixed(angle_deg: f32) {
+    US_SWEEP_CONTROL
+        .send(UltrasonicSweepCommand::StartFixed {
+            angle_deg,
+            obstacle_detect: false,
+        })
+        .await;
 }
 
 /// Start fixed-angle ultrasonic readings with obstacle detection enabled.
 #[allow(dead_code)]
-pub fn start_ultrasonic_fixed_obstacle_detect(angle_deg: f32) {
-    let _ = US_SWEEP_CONTROL.try_send(UltrasonicSweepCommand::StartFixed {
-        angle_deg,
-        obstacle_detect: true,
-    });
+pub async fn start_ultrasonic_fixed_obstacle_detect(angle_deg: f32) {
+    US_SWEEP_CONTROL
+        .send(UltrasonicSweepCommand::StartFixed {
+            angle_deg,
+            obstacle_detect: true,
+        })
+        .await;
 }
 
 /// Start centered ultrasonic obstacle detection mode.
-pub fn start_ultrasonic_centered_obstacle_detect() {
-    let _ = US_SWEEP_CONTROL.try_send(UltrasonicSweepCommand::StartFixed {
-        angle_deg: ULTRASONIC_CENTER_ANGLE_DEG,
-        obstacle_detect: true,
-    });
+pub async fn start_ultrasonic_centered_obstacle_detect() {
+    US_SWEEP_CONTROL
+        .send(UltrasonicSweepCommand::StartFixed {
+            angle_deg: ULTRASONIC_CENTER_ANGLE_DEG,
+            obstacle_detect: true,
+        })
+        .await;
 }
 
 /// Stop ultrasonic readings
-pub fn stop_ultrasonic_measurements() {
-    let _ = US_SWEEP_CONTROL.try_send(UltrasonicSweepCommand::Stop);
+pub async fn stop_ultrasonic_measurements() {
+    US_SWEEP_CONTROL.send(UltrasonicSweepCommand::Stop).await;
 }
 
 /// Start a single buffered 0–160° ultrasonic sweep pass.
 /// After completion, raises `Events::UltrasonicSweepCompleted`.
-pub fn start_buffered_sweep() {
-    let _ = US_SWEEP_CONTROL.try_send(UltrasonicSweepCommand::StartBufferedSweep);
+pub async fn start_buffered_sweep() {
+    US_SWEEP_CONTROL.send(UltrasonicSweepCommand::StartBufferedSweep).await;
 }
 
 /// Close an open obstacle run by applying cone correction and resetting tracking state.

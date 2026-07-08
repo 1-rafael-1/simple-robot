@@ -53,7 +53,7 @@ pub(super) fn spawn(spawner: Spawner) {
 /// Ultrasonic sweep test mode runner with built-in 10 Hz display loop.
 #[embassy_executor::task]
 async fn ultrasonic_sweep_test_task() {
-    start_ultrasonic_sweep();
+    start_ultrasonic_sweep().await;
     display::display_update(DisplayAction::Clear).await;
 
     // Clear any pending stop signal so the next test doesn't end immediately.
@@ -110,7 +110,7 @@ async fn ultrasonic_sweep_test_task() {
         }
     }
 
-    stop_ultrasonic_measurements();
+    stop_ultrasonic_measurements().await;
     perception::clear_ultrasonic_data().await;
     release_testmode();
     ULTRASONIC_SWEEP_TEST_ACTIVE.store(false, Ordering::Relaxed);

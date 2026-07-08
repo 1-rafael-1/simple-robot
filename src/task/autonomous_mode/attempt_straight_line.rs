@@ -124,9 +124,9 @@ pub(super) fn spawn(spawner: Spawner, target_distance_cm: u16) {
 }
 
 /// Request a graceful stop of the mode.
-pub fn stop() {
+pub async fn stop() {
     ACTIVE.store(false, Ordering::Relaxed);
-    stop_ultrasonic_measurements();
+    stop_ultrasonic_measurements().await;
     send_drive_interrupt(InterruptKind::EmergencyBrake);
 }
 
@@ -207,7 +207,7 @@ pub async fn attempt_straight_line_task(target_distance_cm: u16) {
                 }
                 info!("attempt-straight: sweeping");
                 SWEEP_COMPLETED.reset();
-                ultrasonic::start_buffered_sweep();
+                ultrasonic::start_buffered_sweep().await;
 
                 // Wait for sweep completion, polling ACTIVE so we can abort cleanly.
                 loop {
@@ -303,7 +303,7 @@ pub async fn attempt_straight_line_task(target_distance_cm: u16) {
 
                 // Set ultrasonic to center with obstacle detection for emergency
                 // braking during the forward drive phase.
-                start_ultrasonic_centered_obstacle_detect();
+                start_ultrasonic_centered_obstacle_detect().await;
 
                 let completion = match queue.submit().await {
                     Ok(completion) => completion,

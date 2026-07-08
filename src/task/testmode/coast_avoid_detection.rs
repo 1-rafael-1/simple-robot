@@ -67,7 +67,7 @@ const TEST_SPEED: u8 = 80;
 #[embassy_executor::task]
 async fn coast_avoid_detection_task() {
     // Mirror coast-avoid sensor setup: centered ultrasonic with obstacle detection.
-    start_ultrasonic_centered_obstacle_detect();
+    start_ultrasonic_centered_obstacle_detect().await;
     display_update(DisplayAction::Clear).await;
 
     // Spin motors at coast-avoid forward speed to reproduce motor PWM noise
@@ -160,7 +160,7 @@ async fn coast_avoid_detection_task() {
         }
     }
 
-    stop_ultrasonic_measurements();
+    stop_ultrasonic_measurements().await;
     motor_driver::send_motor_command(MotorCommand::CoastAll).await;
     motor_driver::send_motor_command(MotorCommand::SetAllDriversEnable { enabled: false }).await;
     crate::system::state::perception::clear_ultrasonic_data().await;

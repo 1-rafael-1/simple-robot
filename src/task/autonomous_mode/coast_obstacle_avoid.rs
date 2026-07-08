@@ -102,7 +102,7 @@ pub async fn start() -> bool {
     }
 
     ACTIVE.store(true, Ordering::Relaxed);
-    start_ultrasonic_centered_obstacle_detect();
+    start_ultrasonic_centered_obstacle_detect().await;
     true
 }
 
@@ -111,9 +111,9 @@ pub async fn start() -> bool {
 /// Clears the active flag so the loop exits after the current drive command
 /// resolves, and sends an `EmergencyBrake` interrupt to unblock any in-progress
 /// [`DriveDistance`] or [`RotateExact`] command immediately.
-pub fn stop() {
+pub async fn stop() {
     ACTIVE.store(false, Ordering::Relaxed);
-    stop_ultrasonic_measurements();
+    stop_ultrasonic_measurements().await;
     send_drive_interrupt(InterruptKind::EmergencyBrake);
 }
 
