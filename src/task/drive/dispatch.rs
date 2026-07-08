@@ -383,6 +383,7 @@ async fn ensure_imu_ready() -> bool {
     }
 
     if !got_sample {
+        lifecycle::stop_rotation_imu();
         return false;
     }
 

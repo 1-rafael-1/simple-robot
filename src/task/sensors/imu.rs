@@ -225,7 +225,6 @@ pub fn start_imu_readings() {
 
 /// Signal the IMU task to stop measurements and enter standby.
 pub fn stop_imu_readings() {
-    IMU_READY.store(false, Ordering::Relaxed);
     IMU_CONTROL.signal(ImuCommand::Stop);
 }
 
@@ -564,6 +563,7 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
                         Either::First(ImuCommand::Stop) => {
                             info!("IMU stopped");
                             let _ = sensor.dmp_enable(false).await;
+                            IMU_READY.store(false, Ordering::Relaxed);
                             continue 'command;
                         }
 
@@ -687,6 +687,7 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
             // ── Standby: commands received before Start ────────────────────────
             ImuCommand::Stop => {
                 info!("IMU stop received (already in standby)");
+                IMU_READY.store(false, Ordering::Relaxed);
             }
             ImuCommand::LoadCalibration(cal) => {
                 current_calibration = Some(cal);
