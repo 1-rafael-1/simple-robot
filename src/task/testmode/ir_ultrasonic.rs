@@ -48,7 +48,7 @@ pub(super) fn spawn(spawner: Spawner) {
 /// IR + ultrasonic test mode runner (updates display at 10Hz while active).
 #[embassy_executor::task]
 async fn ir_ultrasonic_test_task() {
-    start_ultrasonic_fixed(80.0);
+    start_ultrasonic_fixed(80.0).await;
     display_update(DisplayAction::Clear).await;
 
     // Clear any pending stop signal so the next test doesn't end immediately.
@@ -111,7 +111,7 @@ async fn ir_ultrasonic_test_task() {
         }
     }
 
-    stop_ultrasonic_measurements();
+    stop_ultrasonic_measurements().await;
     crate::system::state::perception::clear_ultrasonic_data().await;
     release_testmode();
     IR_ULTRASONIC_TEST_ACTIVE.store(false, Ordering::Relaxed);

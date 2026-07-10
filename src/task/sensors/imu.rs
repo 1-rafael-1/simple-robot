@@ -87,6 +87,11 @@ const DMP_SAMPLE_RATE_HZ: u16 = 100;
 /// drained promptly; `10 ms` (100 Hz) matches `DMP_SAMPLE_RATE_HZ`.
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+/// Set to `true` after the first successful DMP FIFO sample, cleared when the
+/// IMU is stopped. The drive dispatch uses this to gate movement commands and
+/// trigger DMP filter stabilisation on each fresh start.
+pub static IMU_READY: AtomicBool = AtomicBool::new(false);
+
 /// Initial delay after power-up before starting IMU initialisation.
 const IMU_BOOT_DELAY_MS: u64 = 200;
 
@@ -558,6 +563,7 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
                         Either::First(ImuCommand::Stop) => {
                             info!("IMU stopped");
                             let _ = sensor.dmp_enable(false).await;
+                            IMU_READY.store(false, Ordering::Relaxed);
                             continue 'command;
                         }
 
@@ -648,6 +654,8 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
                                         // 100 Hz sample when the channel is full is lossy but harmless —
                                         // the next sample arrives in 10 ms.
                                         let _ = drive::try_send_imu_measurement(measurement);
+
+                                        IMU_READY.store(true, Ordering::Relaxed);
                                     } else {
                                         // Packet present but no quaternion yet (DMP warming up).
                                         update_statics_from_dmp(&packet, None, current_calibration.as_ref()).await;
@@ -679,6 +687,7 @@ async fn run_imu_command_loop(sensor: &mut ImuSensor) {
             // ── Standby: commands received before Start ────────────────────────
             ImuCommand::Stop => {
                 info!("IMU stop received (already in standby)");
+                IMU_READY.store(false, Ordering::Relaxed);
             }
             ImuCommand::LoadCalibration(cal) => {
                 current_calibration = Some(cal);

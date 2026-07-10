@@ -6,8 +6,8 @@
 //!
 //! # Lifecycle
 //!
-//! - `init()` creates the settle state and declares an `IntentSetup::EncoderSettle`
-//!   descriptor. The dispatch executes the descriptor to start encoder sampling.
+//! - `init()` creates the settle state, starts encoder sampling, and returns
+//!   an `ActiveIntent`. The dispatch stores the intent directly.
 //! - `run_brake_coast_step()` checks for settle or timeout each tick.
 //! - Completion teardown uses an `IntentTeardown::EncoderSettle` descriptor to
 //!   stop encoder sampling.
@@ -20,7 +20,10 @@
 
 use embassy_time::{Duration, Instant};
 
-use crate::task::{drive::sensors::data::get_latest_encoder_measurement, sensors::encoders::EncoderMeasurement};
+use crate::task::{
+    drive::sensors::{control as lifecycle, data::get_latest_encoder_measurement},
+    sensors::encoders::EncoderMeasurement,
+};
 
 /// Encoder settle interval for brake/coast completion (milliseconds).
 pub(super) const SETTLE_INTERVAL_MS: u64 = 100;
@@ -45,15 +48,15 @@ pub(super) struct BrakeCoastState {
 impl BrakeCoastState {
     /// Initialise a brake/coast settle intent.
     ///
-    /// Returns the `ActiveIntent` + `IntentSetup::EncoderSettle` descriptor
-    /// (the dispatch executes the descriptor to start encoder sampling).
-    pub(super) fn init(completion_requested: bool) -> (super::state::ActiveIntent, super::types::IntentSetup) {
+    /// Starts encoder sampling and returns the `ActiveIntent`.
+    pub(super) async fn init(completion_requested: bool) -> super::state::ActiveIntent {
+        lifecycle::start_encoder_sampling(SETTLE_INTERVAL_MS, true).await;
+
         let state = Self::new();
-        let intent = super::state::ActiveIntent::BrakeCoast {
+        super::state::ActiveIntent::BrakeCoast {
             state,
             completion_requested,
-        };
-        (intent, super::types::IntentSetup::EncoderSettle)
+        }
     }
 
     /// Create a new settle state with timeout applied.

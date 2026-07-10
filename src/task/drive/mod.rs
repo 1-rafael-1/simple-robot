@@ -8,21 +8,17 @@
 //!
 //! The drive subsystem is structured around **intents** — state machines that own
 //! a specific motion behaviour (rotation, distance, brake/coast, idle). The
-//! [`dispatch`] module routes incoming commands to the correct control module via
-//! [`types::IntentSetup`] / [`types::IntentTeardown`] descriptors, keeping the
-//! dispatch thin and per-intent knowledge local.
+//! [`dispatch`] module routes incoming commands to the correct control module.
+//! Control modules own sensor setup internally via async `init()` functions;
+//! teardown is declared via [`types::IntentTeardown`] descriptors.
 //!
 //! ```text
 //! caller ──► DriveCommand ──► dispatch ──► control module init()
 //!                                │              │
-//!                                │         returns (ActiveIntent, IntentSetup)
+//!                                │         returns ActiveIntent
 //!                                │              │
-//!                                │    ┌─────────┘
-//!                                │    ▼
-//!                          execute IntentSetup (start sensors)
-//!                                │
-//!                                ▼
-//!                          intent loop ──► control module run_step()
+//!                                ▼              │
+//!                          intent loop ◄────────┘
 //!                                │
 //!                                ▼
 //!                          execute IntentTeardown (stop sensors)

@@ -14,7 +14,7 @@ use embassy_rp::{
     pio::Instance,
     pio_programs::pwm::PioPwm,
 };
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::Mutex};
 use embassy_time::{Delay, Instant, Timer, with_timeout};
 use hcsr04_async::{Config, DistanceUnit, Hcsr04, Now, TemperatureUnit};
 use heapless::Vec as HeaplessVec;
@@ -46,8 +46,9 @@ enum UltrasonicSweepCommand {
     StartBufferedSweep,
 }
 
-/// Control signal to trigger encoder measurements after specified duration
-static US_SWEEP_CONTROL: Signal<CriticalSectionRawMutex, UltrasonicSweepCommand> = Signal::new();
+/// Control channel for ultrasonic sweep commands (capacity 4 — enough for
+/// a `Stop` → `StartFixed` sequence without losing commands).
+static US_SWEEP_CONTROL: Channel<CriticalSectionRawMutex, UltrasonicSweepCommand, 4> = Channel::new();
 
 /// Sweep buffer for gap analysis: distance in mm per servo angle (0–160°).
 /// None means timeout or error at that angle.
@@ -66,44 +67,50 @@ pub struct ObstaclePoint {
 pub type SweepPoints = HeaplessVec<ObstaclePoint, 32>;
 
 /// Start continuous ultrasonic sweep readings
-pub fn start_ultrasonic_sweep() {
-    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartSweep);
+pub async fn start_ultrasonic_sweep() {
+    US_SWEEP_CONTROL.send(UltrasonicSweepCommand::StartSweep).await;
 }
 
 /// Start fixed-angle ultrasonic readings (no servo sweep)
-pub fn start_ultrasonic_fixed(angle_deg: f32) {
-    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartFixed {
-        angle_deg,
-        obstacle_detect: false,
-    });
+pub async fn start_ultrasonic_fixed(angle_deg: f32) {
+    US_SWEEP_CONTROL
+        .send(UltrasonicSweepCommand::StartFixed {
+            angle_deg,
+            obstacle_detect: false,
+        })
+        .await;
 }
 
 /// Start fixed-angle ultrasonic readings with obstacle detection enabled.
 #[allow(dead_code)]
-pub fn start_ultrasonic_fixed_obstacle_detect(angle_deg: f32) {
-    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartFixed {
-        angle_deg,
-        obstacle_detect: true,
-    });
+pub async fn start_ultrasonic_fixed_obstacle_detect(angle_deg: f32) {
+    US_SWEEP_CONTROL
+        .send(UltrasonicSweepCommand::StartFixed {
+            angle_deg,
+            obstacle_detect: true,
+        })
+        .await;
 }
 
 /// Start centered ultrasonic obstacle detection mode.
-pub fn start_ultrasonic_centered_obstacle_detect() {
-    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartFixed {
-        angle_deg: ULTRASONIC_CENTER_ANGLE_DEG,
-        obstacle_detect: true,
-    });
+pub async fn start_ultrasonic_centered_obstacle_detect() {
+    US_SWEEP_CONTROL
+        .send(UltrasonicSweepCommand::StartFixed {
+            angle_deg: ULTRASONIC_CENTER_ANGLE_DEG,
+            obstacle_detect: true,
+        })
+        .await;
 }
 
 /// Stop ultrasonic readings
-pub fn stop_ultrasonic_measurements() {
-    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::Stop);
+pub async fn stop_ultrasonic_measurements() {
+    US_SWEEP_CONTROL.send(UltrasonicSweepCommand::Stop).await;
 }
 
 /// Start a single buffered 0–160° ultrasonic sweep pass.
 /// After completion, raises `Events::UltrasonicSweepCompleted`.
-pub fn start_buffered_sweep() {
-    US_SWEEP_CONTROL.signal(UltrasonicSweepCommand::StartBufferedSweep);
+pub async fn start_buffered_sweep() {
+    US_SWEEP_CONTROL.send(UltrasonicSweepCommand::StartBufferedSweep).await;
 }
 
 /// Close an open obstacle run by applying cone correction and resetting tracking state.
@@ -441,7 +448,7 @@ pub async fn ultrasonic_sweep(
     'command: loop {
         info!("Waiting for ultrasonic command");
         // Wait for a command, consuming it
-        match US_SWEEP_CONTROL.wait().await {
+        match US_SWEEP_CONTROL.receive().await {
             UltrasonicSweepCommand::StartSweep => {
                 info!("Starting ultrasonic sweep");
                 teardown_obstacle_detection(&mut obstacle_detection_enabled, &mut last_obstacle_detected).await;
@@ -468,6 +475,10 @@ pub async fn ultrasonic_sweep(
                 }
                 sweeping = false;
                 fixed_angle = angle_deg.clamp(0.0, servo.max_degree_rotation);
+                // Re-center immediately — the inner loop's first rotate_float
+                // is 15 ms away. This guarantees the servo moves even if a
+                // prior Stop command was lost (pre-Channel race condition).
+                servo.rotate_float(fixed_angle);
             }
             UltrasonicSweepCommand::StartBufferedSweep => {
                 info!("Starting buffered ultrasonic sweep");
@@ -480,6 +491,7 @@ pub async fn ultrasonic_sweep(
             UltrasonicSweepCommand::Stop => {
                 info!("Stopping ultrasonic measurements");
                 teardown_obstacle_detection(&mut obstacle_detection_enabled, &mut last_obstacle_detected).await;
+                buffered_sweep_active = false;
                 servo.rotate_float(ULTRASONIC_CENTER_ANGLE_DEG);
                 continue 'command;
             }
@@ -495,7 +507,7 @@ pub async fn ultrasonic_sweep(
             servo.rotate_float(measurement_angle);
 
             // Give servo time to reach position, also see if we must stop or switch modes
-            match select(Timer::after_millis(15), US_SWEEP_CONTROL.wait()).await {
+            match select(Timer::after_millis(15), US_SWEEP_CONTROL.receive()).await {
                 Either::First(()) => {}
                 Either::Second(command) => match command {
                     UltrasonicSweepCommand::StartBufferedSweep => {
@@ -515,6 +527,7 @@ pub async fn ultrasonic_sweep(
                         previous_reading = None;
                         info!("Stopping ultrasonic measurements");
                         teardown_obstacle_detection(&mut obstacle_detection_enabled, &mut last_obstacle_detected).await;
+                        buffered_sweep_active = false;
                         servo.rotate_float(ULTRASONIC_CENTER_ANGLE_DEG);
                         continue 'command;
                     }
@@ -549,6 +562,7 @@ pub async fn ultrasonic_sweep(
                             last_obstacle_detected = None;
                         }
                         sweeping = false;
+                        buffered_sweep_active = false;
                         fixed_angle = angle_deg.clamp(0.0, servo.max_degree_rotation);
                     }
                 },

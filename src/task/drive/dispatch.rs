@@ -1,25 +1,24 @@
-//! Drive command dispatch — envelope routing, standby wake-up, and IntentSetup/IntentTeardown execution.
+//! Drive command dispatch — envelope routing, standby wake-up, and `IntentTeardown` execution.
 //!
 //! This module is the thin seam between the drive queue and the control modules.
-//! It does NOT own per-intent knowledge — control modules declare their sensor
-//! needs via [`IntentSetup`] and [`IntentTeardown`] descriptors.
+//! It does NOT own per-intent knowledge — control modules declare their
+//! teardown needs via [`IntentTeardown`] descriptors.
 
 use defmt::info;
 use embassy_time::{Duration, Instant, Timer};
-use libm::roundf;
 
 use crate::{
-    system::state::{calibration, motion},
+    system::state::motion,
     task::{
         drive::{
             api::{self, DriveCommandEnvelope},
-            brake_coast::{self, BrakeCoastState},
+            brake_coast::BrakeCoastState,
             differential,
-            distance::{self, DistanceDriveState},
+            distance::DistanceDriveState,
             rotation::RotationState,
             sensors::{control as lifecycle, data::IMU_FEEDBACK_CHANNEL},
             state::{ActiveIntent, DriveLoop},
-            types::{self, CompletionStatus, DriveAction, DriveCommand, DriveCompletion, IntentSetup, IntentTeardown},
+            types::{self, CompletionStatus, DriveAction, DriveCommand, DriveCompletion, IntentTeardown},
         },
         motor_driver::{self, MotorCommand},
     },
@@ -77,6 +76,22 @@ impl DriveLoop {
 
     /// Dispatch a [`DriveAction`] to the appropriate handler.
     pub(super) async fn handle_drive_action(&mut self, action: DriveAction, completion_requested: bool) {
+        // Gate movement commands until the IMU is streaming stabilised data.
+        // On first movement command: start IMU, wait for first sample, wait for
+        // DMP filter stabilise (150 ms). Subsequent commands skip this.
+        // Non-movement commands (Coast, Brake, Idle, Standby) pass through.
+        if action_requires_imu(&action) && !ensure_imu_ready().await {
+            api::send_completion(
+                completion_requested,
+                DriveCompletion {
+                    status: CompletionStatus::Failed("IMU not responding"),
+                    telemetry: types::CompletionTelemetry::None,
+                },
+            )
+            .await;
+            return;
+        }
+
         // Wake from standby if a movement command arrives.
         self.wake_from_standby(&action).await;
 
@@ -164,12 +179,11 @@ impl DriveLoop {
         motion: types::RotationMotion,
         completion_requested: bool,
     ) {
-        let (intent, _setup) = RotationState::init(degrees, direction, motion, completion_requested).await;
+        let intent = RotationState::init(degrees, direction, motion, completion_requested).await;
         self.active_intent = Some(intent);
     }
 
-    /// Handle a `DriveDistance` command — delegates to `distance::new()`.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    /// Handle a `DriveDistance` command — delegates to `distance::init()`.
     async fn handle_drive_distance(
         &mut self,
         kind: types::DriveDistanceKind,
@@ -177,74 +191,9 @@ impl DriveLoop {
         speed: u8,
         completion_requested: bool,
     ) {
-        /// IMU DMP filter stabilisation delay after enabling (milliseconds).
-        const IMU_STABILISE_MS: u64 = 150;
-        /// Maximum time to wait for the first IMU sample (milliseconds).
-        const IMU_WAIT_TIMEOUT_MS: u64 = 1000;
-
-        let distance_factor = calibration::get_distance_factor().await;
-        let mut state = DistanceDriveState::new(kind, direction, speed, distance_factor);
-
-        // Early exit for trivially short distances.
-        if state.target_inner_revs <= distance::TOLERANCE_REVS {
-            api::send_completion(
-                completion_requested,
-                DriveCompletion {
-                    status: CompletionStatus::Success,
-                    telemetry: types::CompletionTelemetry::DriveDistance {
-                        achieved_left_revs: 0.0,
-                        achieved_right_revs: 0.0,
-                        target_left_revs: state.target_left_revs,
-                        target_right_revs: state.target_right_revs,
-                        duration_ms: 0,
-                    },
-                },
-            )
-            .await;
-            return;
+        if let Some(intent) = DistanceDriveState::init(kind, direction, speed, completion_requested).await {
+            self.active_intent = Some(intent);
         }
-
-        // Start sensors via descriptor.
-        execute_intent_setup(types::IntentSetup::DistanceImuAndEncoder).await;
-
-        // Capture reference yaw from IMU before any movement starts.
-        // The DMP filters need time to stabilise after being enabled — wait for
-        // the first sample to confirm the IMU is alive, then allow 150 ms settle.
-        let deadline = Instant::now() + Duration::from_millis(IMU_WAIT_TIMEOUT_MS);
-        while state.reference_yaw.is_none() && Instant::now() < deadline {
-            while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
-                state.reference_yaw = Some(m.orientation.yaw);
-            }
-            if state.reference_yaw.is_none() {
-                Timer::after(Duration::from_millis(10)).await;
-            }
-        }
-        Timer::after(Duration::from_millis(IMU_STABILISE_MS)).await;
-        // Drain the channel again for a stabilised sample to use as the true reference.
-        while let Ok(m) = IMU_FEEDBACK_CHANNEL.receiver().try_receive() {
-            state.reference_yaw = Some(m.orientation.yaw);
-        }
-
-        // Apply initial speeds.
-        let base_speed = speed.min(distance::MAX_SPEED);
-        let signed_base = match direction {
-            types::DriveDirection::Forward => base_speed as i8,
-            types::DriveDirection::Backward => -(base_speed as i8),
-        };
-        let left_speed = roundf(f32::from(signed_base) * state.left_ratio) as i8;
-        let right_speed = roundf(f32::from(signed_base) * state.right_ratio) as i8;
-
-        motor_driver::send_motor_command(MotorCommand::SetTracks {
-            left_speed,
-            right_speed,
-        })
-        .await;
-        motion::set_track_speeds(left_speed, right_speed).await;
-
-        self.active_intent = Some(ActiveIntent::DriveDistance {
-            state,
-            completion_requested,
-        });
     }
 
     /// Handle a `Coast` command.
@@ -253,8 +202,7 @@ impl DriveLoop {
         motor_driver::send_motor_command(MotorCommand::CoastAll).await;
         motion::set_track_speeds(0, 0).await;
 
-        let (intent, setup) = BrakeCoastState::init(completion_requested);
-        execute_intent_setup(setup).await;
+        let intent = BrakeCoastState::init(completion_requested).await;
         self.active_intent = Some(intent);
     }
 
@@ -264,8 +212,7 @@ impl DriveLoop {
         motor_driver::send_motor_command(MotorCommand::BrakeAll).await;
         motion::set_track_speeds(0, 0).await;
 
-        let (intent, setup) = BrakeCoastState::init(completion_requested);
-        execute_intent_setup(setup).await;
+        let intent = BrakeCoastState::init(completion_requested).await;
         self.active_intent = Some(intent);
     }
 
@@ -369,23 +316,7 @@ impl DriveLoop {
     }
 }
 
-// ── Setup / Teardown execution ─────────────────────────────────────────────
-
-/// Execute the sensor setup declared by a control module's init.
-async fn execute_intent_setup(setup: IntentSetup) {
-    match setup {
-        IntentSetup::RotationImu | IntentSetup::None => {
-            // RotationState::init() already started IMU streaming.
-        }
-        IntentSetup::DistanceImuAndEncoder => {
-            lifecycle::start_distance_imu(&types::DriveDistanceKind::Straight { distance_cm: 0.0 });
-            lifecycle::start_encoder_sampling(distance::CONTROL_INTERVAL_MS, true).await;
-        }
-        IntentSetup::EncoderSettle => {
-            lifecycle::start_encoder_sampling(brake_coast::SETTLE_INTERVAL_MS, true).await;
-        }
-    }
-}
+// ── Teardown execution ─────────────────────────────────────────────────────
 
 /// Execute the sensor teardown declared by a control module.
 pub(super) async fn execute_intent_teardown(teardown: IntentTeardown) {
@@ -410,4 +341,57 @@ pub(super) async fn execute_intent_teardown(teardown: IntentTeardown) {
         }
         IntentTeardown::None => {}
     }
+}
+
+/// Returns `true` if the drive action requires IMU data.
+const fn action_requires_imu(action: &DriveAction) -> bool {
+    matches!(
+        action,
+        DriveAction::Differential { .. } | DriveAction::DriveDistance { .. } | DriveAction::RotateExact { .. }
+    )
+}
+
+/// Ensure the IMU is streaming stabilised data.
+///
+/// On first call (and after every IMU stop): starts the IMU with default fusion
+/// mode, waits for the first DMP FIFO sample (1 s timeout), waits 150 ms for DMP
+/// filter stabilisation, drains stale samples. Returns `true` if the IMU is ready;
+/// `false` on timeout. If the IMU is already streaming, returns `true` immediately.
+async fn ensure_imu_ready() -> bool {
+    use embassy_time::{Duration, Instant, Timer};
+
+    const IMU_STABILISE_MS: u64 = 150;
+    const IMU_WAIT_TIMEOUT_MS: u64 = 1000;
+
+    if crate::task::sensors::imu::IMU_READY.load(core::sync::atomic::Ordering::Relaxed) {
+        return true;
+    }
+
+    lifecycle::start_distance_imu(&types::DriveDistanceKind::Straight { distance_cm: 0.0 });
+
+    // Wait for the first sample.
+    let deadline = Instant::now() + Duration::from_millis(IMU_WAIT_TIMEOUT_MS);
+    let mut got_sample = false;
+    while Instant::now() < deadline {
+        while IMU_FEEDBACK_CHANNEL.receiver().try_receive().is_ok() {
+            got_sample = true;
+        }
+        if got_sample {
+            break;
+        }
+        Timer::after(Duration::from_millis(10)).await;
+    }
+
+    if !got_sample {
+        lifecycle::stop_rotation_imu();
+        return false;
+    }
+
+    // DMP filter stabilisation.
+    Timer::after(Duration::from_millis(IMU_STABILISE_MS)).await;
+
+    // Drain any stale samples accumulated during stabilise.
+    while IMU_FEEDBACK_CHANNEL.receiver().try_receive().is_ok() {}
+
+    true
 }

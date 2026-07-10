@@ -155,7 +155,7 @@ Four domain-specific state modules under `system/state/`, each with its own `Mut
 When multiple state mutexes must be held: Power → Calibration → Perception → Motion. Prevents deadlocks.
 
 **Drive Subsystem**
-The `drive` module tree. Owns the drive task, command queue, interrupt signal, control algorithms (rotation, distance, brake/coast, differential), sensor feedback channels, and calibration procedures. Commands flow through a thin `dispatch` that routes to control modules via `IntentSetup` / `IntentTeardown` descriptors — sensor lifecycle is declared by each module, not hardcoded in the dispatch. Exposes two public entry points: `send_drive_command` and `send_drive_interrupt`.
+The `drive` module tree. Owns the drive task, command queue, interrupt signal, control algorithms (rotation, distance, brake/coast, differential), sensor feedback channels, and calibration procedures. Commands flow through a thin `dispatch` that routes to control modules. Control modules own sensor setup internally; teardown is declared via `IntentTeardown` descriptors and executed by the dispatch on completion or interrupt. Exposes two public entry points: `send_drive_command` and `send_drive_interrupt`.
 
 **Drive Queue**
 A builder (`DriveQueueBuilder`) that accumulates `DriveCommand` steps and submits them for sequential execution. A single `drive_queue_executor` task runs one queue at a time and emits a single queue-level completion.
@@ -163,11 +163,11 @@ A builder (`DriveQueueBuilder`) that accumulates `DriveCommand` steps and submit
 **Intent**
 A state machine that owns a specific motion behaviour — rotation, distance drive, brake/coast settle, or idle. Each intent is an `ActiveIntent` variant carrying its controller state, completion flag, and lifecycle descriptors. Commands that complete instantly (e.g. `Differential`) are not intents; they are fire-and-forget.
 
-**IntentSetup / IntentTeardown**
-Enums declaring what sensor streams an intent needs during setup and teardown. Control modules return these descriptors from `init()` and `teardown()`; the `dispatch` executes them. This keeps the dispatch thin — it knows to start or stop sensors but not which specific sensors each intent requires.
+**IntentTeardown**
+An enum declaring what sensor streams must be stopped when an intent completes or is interrupted. Each `ActiveIntent` variant returns its teardown descriptor via `teardown()`; the `dispatch` executes it. This keeps the dispatch thin — it knows to stop sensors but not which specific sensors each intent required. Sensor setup is owned by each intent's async `init()` function. See [ADR-0004](docs/adr/0004-intent-setup-removal.md).
 
 **Dispatch**
-The `dispatch` module — the thin seam between the drive command queue and the control modules. Routes incoming `DriveCommand` envelopes, handles standby wake-up, and executes `IntentSetup` / `IntentTeardown` descriptors. Owns no per-intent knowledge.
+The `dispatch` module — the thin seam between the drive command queue and the control modules. Routes incoming `DriveCommand` envelopes, handles standby wake-up, and executes `IntentTeardown` descriptors on completion or interrupt. Owns no per-intent knowledge.
 
 **Behavior Handlers**
 Functions under `task/behavior/` that react to specific events. Domain logic lives here — obstacle fusion, sensor forwarding, battery updates. Called by the orchestrator.
@@ -182,10 +182,19 @@ Embassy tasks that interface with hardware sensors (`task/sensors/`): IMU read l
 Hardware abstraction tasks under `task/io/`: display driver, flash storage (calibration persistence), port expander driver. Use channel-based command APIs.
 
 **Perception**
-The deepened state module that owns obstacle detection. Obsolete: direct `PERCEPTION_STATE` field access. Current: 10 accessor functions including lock-free boolean reads and an obstacle distance threshold that auto-detects obstacles from ultrasonic readings.
+The deepened state module that owns obstacle detection. Obsolete: direct `PERCEPTION_STATE` field access. Current: accessor functions for lock-free boolean reads (`is_obstacle_detected`, `is_ir_obstacle_detected`, `is_ultrasonic_obstacle_detected`) and mutex-guarded reading/angle storage (`set_ultrasonic_reading`, a pure data store). Obstacle classification flows through the event bus: sensor tasks raise `Events::ObstacleDetected`, the behavior handler calls `set_ir_obstacle` / `set_ultrasonic_obstacle` to update atomics. See [ADR-0003](docs/adr/0003-perception-event-bus.md).
 
 **Obstacle Threshold**
-The distance cutoff (default 15 cm, matching the ultrasonic sensor task) used to classify ultrasonic readings as obstacles. Reading distance ≤ threshold → obstacle detected. Overridable via `set_obstacle_threshold`.
+The distance cutoff (default 20 cm, matching the ultrasonic sensor task's `ULTRASONIC_OBSTACLE_THRESHOLD_CM`) used by the ultrasonic sensor task to classify readings as obstacles. Reading distance ≤ threshold → `Events::ObstacleDetected` raised on the event bus. The perception module no longer owns threshold-based classification (see [ADR-0003](docs/adr/0003-perception-event-bus.md)).
+
+**ObstacleSource**
+An enum (`Ir` | `Ultrasonic`) carried by `Events::ObstacleDetected` that identifies which sensor triggered the detection. Used by the obstacle behavior handler to route updates to the correct perception atomic.
+
+**InterruptKind**
+An enum (`EmergencyBrake`, `Stop`, `CancelCurrent`) that specifies how the drive subsystem preempts the active intent. See also [`Dispatch`](#dispatch).
+
+**EmergencyBrake**
+An `InterruptKind::EmergencyBrake` interrupt sent to the drive subsystem when a combined obstacle is detected. Causes immediate active motor braking, cancels the active intent (if any), bumps the command epoch, and drains queued commands. Mode-agnostic since [ADR-0005](docs/adr/0005-agnostic-obstacle-handling.md) — dispatched unconditionally on any obstacle detection across all modes.
 
 **Change Detected**
 An enum (`ChangeDetected`) returned by perception setters: `NoChange`, `ChangedToDetected`, `ChangedToCleared`. Lets callers react to obstacle state transitions without re-reading the combined flag.

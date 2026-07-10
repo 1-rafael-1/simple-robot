@@ -123,14 +123,14 @@ pub struct RotationState {
 impl RotationState {
     /// Initialise a rotation intent — clear IMU samples, zero motors, create state.
     ///
-    /// Returns the `ActiveIntent` and `IntentSetup` descriptor. Motor speeds stay at
-    /// zero until the first IMU sample arrives in the control step.
+    /// Returns the `ActiveIntent`. Motor speeds stay at zero until the first IMU
+    /// sample arrives in the control step.
     pub(super) async fn init(
         degrees: f32,
         direction: types::RotationDirection,
         motion: types::RotationMotion,
         completion_requested: bool,
-    ) -> (super::state::ActiveIntent, types::IntentSetup) {
+    ) -> super::state::ActiveIntent {
         lifecycle::start_rotation_imu();
         clear_imu_measurements();
 
@@ -144,13 +144,11 @@ impl RotationState {
         let state = Self::new(degrees, direction, motion);
         let started_at_ms = embassy_time::Instant::now().as_millis();
 
-        let intent = super::state::ActiveIntent::RotateExact {
+        super::state::ActiveIntent::RotateExact {
             state,
             completion_requested,
             started_at_ms,
-        };
-
-        (intent, types::IntentSetup::RotationImu)
+        }
     }
 
     /// Creates new rotation tracking state.

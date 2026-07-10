@@ -5,8 +5,8 @@
 //! parameters (rotation tuning, distance tuning, drift tuning, etc.) live in
 //! their respective control modules.
 //!
-//! Also defines the [`IntentSetup`] and [`IntentTeardown`] descriptor enums
-//! that form the seam between the [`super::dispatch`] and the control modules.
+//! Also defines the [`IntentTeardown`] descriptor enum that forms the
+//! seam between the [`super::dispatch`] and the control modules.
 
 // ── Geometry constants (shared across modules) ────────────────────────────
 
@@ -241,7 +241,7 @@ pub enum RotationDirection {
 
 /// Combined motion options during rotation
 #[allow(dead_code)] // for completeness and future use in combined motion commands
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, defmt::Format)]
 pub enum RotationMotion {
     /// Rotate in place at the given rotation speed (0-100)
     ///
@@ -258,22 +258,7 @@ pub enum RotationMotion {
     WhileMoving(i8),
 }
 
-// ── Sensor setup/teardown descriptors ─────────────────────────────────────
-
-/// Sensor setup required when starting an intent.
-/// Declared by the control module, executed by the dispatch.
-#[derive(Debug, Clone, Copy)]
-pub(super) enum IntentSetup {
-    /// Start IMU streaming for rotation.
-    RotationImu,
-    /// Start IMU + encoder for distance drives.
-    DistanceImuAndEncoder,
-    /// Start encoder sampling for brake/coast settle.
-    EncoderSettle,
-    /// No sensor setup needed.
-    #[allow(dead_code)]
-    None,
-}
+// ── Sensor teardown descriptors ───────────────────────────────────────────
 
 /// Sensor teardown required when an intent completes or is cancelled.
 /// Declared by the control module, executed by the dispatch.
