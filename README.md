@@ -151,11 +151,7 @@ When multiple state mutexes must be held at the same time, a uniform lock order 
 
 The `main.rs` file is the entry point of the program but does nothing besides initializing some resources and then spawning all the tasks.
 
-Right now I am using just one core of the RP2350 and the nominal 150 MHz clock speed. The firmware uses just a few percent of the flash space and about 20% of the RAM. So there should be plenty of room to fit the system into. 
-
-At the moment a bottleneck I might see coming is the I2C bus, there is just one that serves the IMU, the port expander and the OLED. In theory a much larger number of devices can be on one bus but I do not yet know if the relatively big chunks of data to the OLED and the frequency of the IMU data will be friends. I hope it works out, because I am out of pins on the Pico2 and so moving things to a second bus will be not easy. So if that fails I am in trouble.
-
-As for computation power I believe I will be fine. If I find that whatever we do saturates core0 there is a second core I could use. Embassy allows for multiple executors to co-exist and tasks could be shoved onto core1. And if that is not enough the RP2350 can be overclocked easily. Plenty of headroom, likely not required.
+The firmware uses both cores of the RP2350 at the nominal 150 MHz clock speed: core0 runs the orchestrator, drive subsystem, sensors, and UI; core1 owns the I2C bus and runs the display, IMU, and port expander tasks. It uses a few percent of the flash space and about 20% of the RAM. The single I2C bus is shared between the IMU, the OLED display, and the port expander — this never caused issues in testing, but it is a tight design with no room for additional devices.
 
 ## Acknowledgments & Attribution
 
