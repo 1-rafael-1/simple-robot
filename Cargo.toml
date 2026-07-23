@@ -4,7 +4,7 @@ version = "0.4.0"
 edition = "2024"
 license = "MIT"
 authors = ["Rafael Koch <rafael.koch@gmx.net>"]
-description = "A no longer simple tracked robot that can move around in RC or autonomous mode with basic sensors"
+description = "A not-too-simple tracked robot with autonomous navigation and sensor-driven obstacle avoidance, written in Rust with Embassy. v2 reached the limits of its hardware platform; development continues in a new repository."
 readme = "README.md"
 repository = "https://github.com/1-rafael-1/simple-robot"
 
