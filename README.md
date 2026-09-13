@@ -1,6 +1,6 @@
 # simple-robot
 
-A not-too-simple tracked robot with autonomous navigation and sensor-driven obstacle avoidance, written in Rust with Embassy. v2 reached the limits of its hardware platform; development continues in a new repository.
+A not-too-simple tracked robot with autonomous navigation and sensor-driven obstacle avoidance, written in Rust with Embassy. v2 reached the limits of its hardware platform; development continues in the follow-up [explorer-robot](https://github.com/1-rafael-1/explorer-robot) repository.
 
 ![Robot Side View](misc/media/bot_side.jpg)
 *Side view showing the robot's profile — the v2 iteration.*
@@ -47,18 +47,7 @@ None of these are software problems. They are hardware constraints of a design t
 
 ## What's Next
 
-To get here took ages, and quite some time this was a UFO (UnFinished Object). I have plans for a next iteration, but no idea when I will find the time. So.... fingers crossed this will not be another UFO. 
-
-The next iteration will - i think - build on v2's architecture — the event system, orchestrator, UI subsystem, drive command model, and state management all proved themselves — but on new hardware:
-
-- **Better motors.** Two high-torque encoder motors (one per track) instead of four TT motors, drastically reducing pin count and improving precision. The exact motor type is still being evaluated (JGB37-520 hall-encoder DC motors are a strong candidate).
-- **LiDAR for spatial awareness.** A small spinning LiDAR unit replaces the ultrasonic sensor and servo entirely, delivering a 360° planar point cloud with far better accuracy and no moving-wait overhead.
-- **Laser rangefinders** on all four edges for collision control, plus downward-facing ToF sensors for stair and ledge detection.
-- **A custom chassis** designed around the new motors, with ball-bearing sprockets for smoother and more precise operation.
-- **Reserved UART and power** for an AI camera module, so object detection can finally be added without redesigning the board.
-- **The ICM-20948, SSD1306 OLED, EC11 rotary encoder, and RGB LED** carry over — these all worked well.
-
-Development will happen in a new repository. A link will be added here once it is public. 
+Development continues in the follow-up **[explorer-robot](https://github.com/1-rafael-1/explorer-robot)** repository. I am not yet sure where this will go, but the plan is to build a more capable robot with better spatial awareness and navigation precision.
 
 ## Licensing Overview
 
