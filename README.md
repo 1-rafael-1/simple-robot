@@ -45,18 +45,7 @@ The robot works, but it cannot reach the spatial awareness and navigation precis
 
 None of these are software problems. They are hardware constraints of a design that started from a simple tank chassis and grew organically. v2 went as far as it could on this platform.
 
-## What's Next
-
-To get here took ages, and quite some time this was a UFO (UnFinished Object). I have plans for a next iteration, but no idea when I will find the time. So.... fingers crossed this will not be another UFO. 
-
-That next iteration now lives in **[explorer-robot](https://github.com/1-rafael-1/explorer-robot)**. It is under active development and still a work in progress: the core subsystems are implemented against synthetic sensor stubs while the real drivers are written. It builds on v2's architecture — the event system, orchestrator, UI subsystem, drive command model, and state management all proved themselves — but on new hardware:
-
-- **Better motors.** Two JGB37-520 high-torque encoder motors (165 RPM, one per track) instead of four TT motors, drastically reducing pin count and improving precision.
-- **LiDAR for spatial awareness.** A COIN-D6 360° spinning dTOF LiDAR replaces the ultrasonic sensor and servo entirely, delivering a 360° planar point cloud with far better accuracy and no moving-wait overhead.
-- **A front-down ToF rangefinder** (VL53L0X) for stair and ledge detection.
-- **A custom chassis** designed around the new motors, with ball-bearing sprockets for smoother and more precise operation.
-- **Reserved UART and power** for a Grove Vision AI V2 camera module, so object detection can finally be added without redesigning the board.
-- **The ICM-20948 and EC11 rotary encoder** carry over — the IMU moves to a dedicated SPI bus — along with an ST7789 TFT display in place of the SSD1306 OLED.
+Development continues in the follow-up **[explorer-robot](https://github.com/1-rafael-1/explorer-robot)** repository.
 
 ## Licensing Overview
 
