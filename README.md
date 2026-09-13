@@ -45,7 +45,9 @@ The robot works, but it cannot reach the spatial awareness and navigation precis
 
 None of these are software problems. They are hardware constraints of a design that started from a simple tank chassis and grew organically. v2 went as far as it could on this platform.
 
-Development continues in the follow-up **[explorer-robot](https://github.com/1-rafael-1/explorer-robot)** repository.
+## What's Next
+
+Development continues in the follow-up **[explorer-robot](https://github.com/1-rafael-1/explorer-robot)** repository. I am not yet sure where this will go, but the plan is to build a more capable robot with better spatial awareness and navigation precision.
 
 ## Licensing Overview
 
